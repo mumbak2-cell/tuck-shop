@@ -1,0 +1,588 @@
+"use client";
+import { useEffect, useState, useCallback } from "react";
+import { db } from "@/lib/supabase";
+import { Customer, CustomerPayment, Sale } from "@/types/database";
+import { formatZAR, formatDate } from "@/lib/format";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Modal } from "@/components/ui/modal";
+import { Badge } from "@/components/ui/badge";
+import {
+  Users,
+  Plus,
+  Phone,
+  Wallet,
+  ArrowDownCircle,
+  History,
+  Search,
+  Edit2,
+  MessageCircle,
+} from "lucide-react";
+
+export default function CustomersPage() {
+  const [customers, setCustomers] = useState<Customer[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState("");
+
+  // Modals
+  const [showForm, setShowForm] = useState(false);
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [showPayment, setShowPayment] = useState(false);
+  const [paymentCustomer, setPaymentCustomer] = useState<Customer | null>(null);
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+
+  const fetchCustomers = useCallback(async () => {
+    setLoading(true);
+    const { data } = await db
+      .from("customers")
+      .select("*")
+      .order("name");
+    setCustomers(data || []);
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    fetchCustomers();
+  }, [fetchCustomers]);
+
+  const filtered = customers.filter((c) =>
+    c.name.toLowerCase().includes(search.toLowerCase()) ||
+    (c.phone && c.phone.includes(search))
+  );
+
+  const totalOwed = customers.reduce((sum, c) => sum + c.balance, 0);
+
+  function openAdd() {
+    setEditingCustomer(null);
+    setShowForm(true);
+  }
+
+  function openEdit(customer: Customer) {
+    setEditingCustomer(customer);
+    setShowForm(true);
+  }
+
+  function openPayment(customer: Customer) {
+    setPaymentCustomer(customer);
+    setShowPayment(true);
+  }
+
+  function openHistory(customer: Customer) {
+    setHistoryCustomer(customer);
+    setShowHistory(true);
+  }
+
+  async function sendStatement(customer: Customer) {
+    if (!customer.phone) return;
+    const today = new Date().toLocaleDateString("en-ZA");
+    let msg = `*Tuck Shop — Statement*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
+    msg += `*Outstanding Balance: ${formatZAR(customer.balance)}*\n`;
+
+    // Check for iKhokha link
+    const { data } = await db.from("app_settings").select("value").eq("key", "ikhokha_link").single();
+    if (data?.value) {
+      msg += `\nPay online: ${data.value}\n`;
+    }
+    msg += `\nPlease settle your account at your earliest convenience. Thank you!`;
+
+    const phone = customer.phone.replace(/[^0-9]/g, "");
+    const intlPhone = phone.startsWith("0") ? "27" + phone.slice(1) : phone;
+    window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+  }
+
+  if (loading) {
+    return <div className="text-center py-12 text-gray-400">Loading...</div>;
+  }
+
+  return (
+    <div className="max-w-4xl">
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-2xl font-bold text-gray-900">Customers</h1>
+        <Button onClick={openAdd}>
+          <Plus className="w-4 h-4 mr-2" />
+          Add Customer
+        </Button>
+      </div>
+
+      {/* Summary bar */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-blue-600">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Total Customers</p>
+              <p className="text-lg font-bold text-gray-900">{customers.length}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-red-600">
+              <Wallet className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">Total Owed</p>
+              <p className="text-lg font-bold text-gray-900">{formatZAR(totalOwed)}</p>
+            </div>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <div className="flex items-center gap-3">
+            <div className="p-2 rounded-lg bg-amber-500">
+              <Users className="w-5 h-5 text-white" />
+            </div>
+            <div>
+              <p className="text-xs text-gray-500">With Balance</p>
+              <p className="text-lg font-bold text-gray-900">
+                {customers.filter((c) => c.balance > 0).length}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="mb-4">
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search by name or phone..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+        </div>
+      </div>
+
+      {/* Customer list */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <Users className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">
+            {search ? "No customers match your search" : "No customers yet. Add your first customer to enable credit sales."}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {filtered.map((customer) => (
+            <div
+              key={customer.id}
+              className="bg-white rounded-xl border border-gray-200 p-4"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-semibold text-gray-900">{customer.name}</h3>
+                    {customer.balance > 0 && (
+                      <Badge color="red">Owes {formatZAR(customer.balance)}</Badge>
+                    )}
+                    {customer.balance === 0 && (
+                      <Badge color="green">Paid up</Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
+                    {customer.phone && (
+                      <span className="flex items-center gap-1">
+                        <Phone className="w-3.5 h-3.5" />
+                        {customer.phone}
+                      </span>
+                    )}
+                    <span>Limit: {formatZAR(customer.credit_limit)}</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  {customer.phone && customer.balance > 0 && (
+                    <button
+                      onClick={() => sendStatement(customer)}
+                      className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg touch-manipulation"
+                      title="WhatsApp Statement"
+                    >
+                      <MessageCircle className="w-5 h-5" />
+                    </button>
+                  )}
+                  <button
+                    onClick={() => openHistory(customer)}
+                    className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg touch-manipulation"
+                    title="History"
+                  >
+                    <History className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => openPayment(customer)}
+                    className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg touch-manipulation"
+                    title="Record payment"
+                  >
+                    <ArrowDownCircle className="w-5 h-5" />
+                  </button>
+                  <button
+                    onClick={() => openEdit(customer)}
+                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg touch-manipulation"
+                    title="Edit"
+                  >
+                    <Edit2 className="w-5 h-5" />
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add/Edit Customer Modal */}
+      <CustomerFormModal
+        open={showForm}
+        onClose={() => setShowForm(false)}
+        customer={editingCustomer}
+        onSaved={fetchCustomers}
+      />
+
+      {/* Record Payment Modal */}
+      {paymentCustomer && (
+        <PaymentModal
+          open={showPayment}
+          onClose={() => {
+            setShowPayment(false);
+            setPaymentCustomer(null);
+          }}
+          customer={paymentCustomer}
+          onSaved={fetchCustomers}
+        />
+      )}
+
+      {/* History Modal */}
+      {historyCustomer && (
+        <HistoryModal
+          open={showHistory}
+          onClose={() => {
+            setShowHistory(false);
+            setHistoryCustomer(null);
+          }}
+          customer={historyCustomer}
+        />
+      )}
+    </div>
+  );
+}
+
+/* ── Add / Edit Customer Form ── */
+function CustomerFormModal({
+  open,
+  onClose,
+  customer,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  customer: Customer | null;
+  onSaved: () => void;
+}) {
+  const [name, setName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [creditLimit, setCreditLimit] = useState("500");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setName(customer?.name || "");
+      setPhone(customer?.phone || "");
+      setCreditLimit(customer?.credit_limit?.toString() || "500");
+      setError("");
+    }
+  }, [open, customer]);
+
+  async function handleSave() {
+    if (!name.trim()) {
+      setError("Name is required");
+      return;
+    }
+    setSaving(true);
+    setError("");
+
+    const payload = {
+      name: name.trim(),
+      phone: phone.trim() || null,
+      credit_limit: parseFloat(creditLimit) || 500,
+    };
+
+    let dbError: { message: string } | null = null;
+    if (customer) {
+      const res = await db
+        .from("customers")
+        .update(payload)
+        .eq("id", customer.id);
+      dbError = res.error;
+    } else {
+      const res = await db
+        .from("customers")
+        .insert({ ...payload, balance: 0 });
+      dbError = res.error;
+    }
+
+    if (dbError) {
+      setError(dbError.message);
+    } else {
+      onSaved();
+      onClose();
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={customer ? "Edit Customer" : "Add Customer"}>
+      <div className="space-y-4">
+        <Input
+          label="Customer Name"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="e.g. John Mokoena"
+        />
+        <Input
+          label="Phone Number (optional)"
+          value={phone}
+          onChange={(e) => setPhone(e.target.value)}
+          placeholder="e.g. 072 123 4567"
+        />
+        <Input
+          label="Credit Limit (R)"
+          type="number"
+          step="50"
+          value={creditLimit}
+          onChange={(e) => setCreditLimit(e.target.value)}
+        />
+        {error && (
+          <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        )}
+        <Button onClick={handleSave} loading={saving} className="w-full">
+          {customer ? "Update Customer" : "Add Customer"}
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Record Payment Modal ── */
+function PaymentModal({
+  open,
+  onClose,
+  customer,
+  onSaved,
+}: {
+  open: boolean;
+  onClose: () => void;
+  customer: Customer;
+  onSaved: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEffect(() => {
+    if (open) {
+      setAmount("");
+      setError("");
+    }
+  }, [open]);
+
+  async function handleRecord() {
+    const val = parseFloat(amount);
+    if (!val || val <= 0) {
+      setError("Enter a valid amount");
+      return;
+    }
+    if (val > customer.balance) {
+      setError(`Payment exceeds balance of ${formatZAR(customer.balance)}`);
+      return;
+    }
+
+    setSaving(true);
+    setError("");
+
+    // Insert payment record
+    const { error: payErr } = await db.from("customer_payments").insert({
+      customer_id: customer.id,
+      payment_date: new Date().toISOString().split("T")[0],
+      amount: val,
+    });
+
+    if (payErr) {
+      setError(payErr.message);
+      setSaving(false);
+      return;
+    }
+
+    // Update customer balance
+    const { error: balErr } = await db
+      .from("customers")
+      .update({ balance: customer.balance - val })
+      .eq("id", customer.id);
+
+    if (balErr) {
+      setError(balErr.message);
+    } else {
+      onSaved();
+      onClose();
+    }
+    setSaving(false);
+  }
+
+  return (
+    <Modal open={open} onClose={onClose} title={`Payment — ${customer.name}`}>
+      <div className="space-y-4">
+        <div className="bg-gray-50 rounded-lg px-4 py-3">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Current balance</span>
+            <span className="font-semibold text-red-600">{formatZAR(customer.balance)}</span>
+          </div>
+        </div>
+
+        <Input
+          label="Payment Amount (R)"
+          type="number"
+          step="0.01"
+          placeholder="How much is the customer paying?"
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
+
+        {amount && parseFloat(amount) > 0 && (
+          <div className="bg-green-50 rounded-lg px-4 py-3 text-sm text-green-700">
+            New balance after payment:{" "}
+            <span className="font-semibold">
+              {formatZAR(Math.max(customer.balance - (parseFloat(amount) || 0), 0))}
+            </span>
+          </div>
+        )}
+
+        {error && (
+          <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        )}
+
+        <Button onClick={handleRecord} loading={saving} className="w-full">
+          Record Payment
+        </Button>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Customer History Modal ── */
+function HistoryModal({
+  open,
+  onClose,
+  customer,
+}: {
+  open: boolean;
+  onClose: () => void;
+  customer: Customer;
+}) {
+  const [payments, setPayments] = useState<CustomerPayment[]>([]);
+  const [sales, setSales] = useState<(Sale & { product_name?: string })[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [tab, setTab] = useState<"sales" | "payments">("sales");
+
+  useEffect(() => {
+    if (open) {
+      setLoading(true);
+      Promise.all([
+        db
+          .from("customer_payments")
+          .select("*")
+          .eq("customer_id", customer.id)
+          .order("payment_date", { ascending: false })
+          .limit(50),
+        db
+          .from("sales")
+          .select("*, products(name)")
+          .eq("customer_id", customer.id)
+          .order("created_at", { ascending: false })
+          .limit(50),
+      ]).then(([payRes, saleRes]: [any, any]) => {
+        setPayments(payRes.data || []);
+        const salesData = (saleRes.data || []).map((s: Record<string, unknown>) => ({
+          ...s,
+          product_name: (s.products as { name: string } | null)?.name || "Unknown",
+        })) as (Sale & { product_name?: string })[];
+        setSales(salesData);
+        setLoading(false);
+      });
+    }
+  }, [open, customer.id]);
+
+  return (
+    <Modal open={open} onClose={onClose} title={`History — ${customer.name}`} wide>
+      <div className="space-y-4">
+        <div className="bg-gray-50 rounded-lg px-4 py-3 flex justify-between text-sm">
+          <span className="text-gray-600">Current balance</span>
+          <span className={`font-semibold ${customer.balance > 0 ? "text-red-600" : "text-green-600"}`}>
+            {formatZAR(customer.balance)}
+          </span>
+        </div>
+
+        {/* Tab switcher */}
+        <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
+          <button
+            onClick={() => setTab("sales")}
+            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+              tab === "sales" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+            }`}
+          >
+            Credit Purchases ({sales.length})
+          </button>
+          <button
+            onClick={() => setTab("payments")}
+            className={`flex-1 py-2 text-sm font-medium rounded-md transition-colors ${
+              tab === "payments" ? "bg-white text-gray-900 shadow-sm" : "text-gray-500"
+            }`}
+          >
+            Payments ({payments.length})
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="text-center py-8 text-gray-400">Loading...</div>
+        ) : tab === "sales" ? (
+          sales.length === 0 ? (
+            <p className="text-center py-8 text-gray-400 text-sm">No credit purchases yet</p>
+          ) : (
+            <div className="max-h-64 overflow-y-auto space-y-2">
+              {sales.map((sale) => (
+                <div key={sale.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 text-sm">
+                  <div>
+                    <p className="font-medium text-gray-900">{sale.product_name}</p>
+                    <p className="text-xs text-gray-500">
+                      {formatDate(sale.sale_date)} · Qty {sale.quantity}
+                    </p>
+                  </div>
+                  <span className="font-semibold text-red-600">
+                    {formatZAR(sale.total_amount)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )
+        ) : payments.length === 0 ? (
+          <p className="text-center py-8 text-gray-400 text-sm">No payments recorded</p>
+        ) : (
+          <div className="max-h-64 overflow-y-auto space-y-2">
+            {payments.map((p) => (
+              <div key={p.id} className="flex justify-between items-center py-2 border-b border-gray-100 last:border-0 text-sm">
+                <div>
+                  <p className="font-medium text-gray-900">Payment received</p>
+                  <p className="text-xs text-gray-500">{formatDate(p.payment_date)}</p>
+                </div>
+                <span className="font-semibold text-green-600">
+                  {formatZAR(p.amount)}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}

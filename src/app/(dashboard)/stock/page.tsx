@@ -1,0 +1,279 @@
+"use client";
+import { useEffect, useState, useCallback } from "react";
+import { db } from "@/lib/supabase";
+import { Product } from "@/types/database";
+import { formatZAR } from "@/lib/format";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import {
+  ClipboardList,
+  Check,
+  AlertTriangle,
+  Search,
+  Package,
+} from "lucide-react";
+
+interface StockRow {
+  product: Product;
+  closingCount: string; // text input value
+  saved: boolean;
+}
+
+export default function StockCountPage() {
+  const [rows, setRows] = useState<StockRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [search, setSearch] = useState("");
+  const [filterCategory, setFilterCategory] = useState("All");
+  const [savedCount, setSavedCount] = useState(0);
+
+  const today = new Date().toISOString().split("T")[0];
+
+  const fetchProducts = useCallback(async () => {
+    setLoading(true);
+
+    // Get active products
+    const { data: products } = await db
+      .from("products")
+      .select("*")
+      .eq("discontinued", false)
+      .order("category")
+      .order("name");
+
+    // Check if stock counts already exist for today
+    const { data: existingCounts } = await db
+      .from("stock_counts")
+      .select("product_id, closing_units")
+      .eq("count_date", today);
+
+    const countMap = new Map<string, number>();
+    ((existingCounts || []) as any[]).forEach((c: any) => {
+      countMap.set(c.product_id, c.closing_units);
+    });
+
+    const stockRows: StockRow[] = ((products || []) as any[]).map((p: any) => ({
+      product: p,
+      closingCount: countMap.has(p.id) ? countMap.get(p.id)!.toString() : "",
+      saved: countMap.has(p.id),
+    }));
+
+    setRows(stockRows);
+    setSavedCount(stockRows.filter((r) => r.saved).length);
+    setLoading(false);
+  }, [today]);
+
+  useEffect(() => {
+    fetchProducts();
+  }, [fetchProducts]);
+
+  function updateCount(productId: string, value: string) {
+    setRows((prev) =>
+      prev.map((r) =>
+        r.product.id === productId
+          ? { ...r, closingCount: value, saved: false }
+          : r
+      )
+    );
+  }
+
+  async function saveAllCounts() {
+    const toSave = rows.filter(
+      (r) => r.closingCount !== "" && !r.saved
+    );
+    if (toSave.length === 0) return;
+
+    setSaving(true);
+
+    const payload = toSave.map((r) => ({
+      count_date: today,
+      product_id: r.product.id,
+      opening_units: r.product.opening_stock,
+      closing_units: parseInt(r.closingCount) || 0,
+      replenished_units: 0,
+    }));
+
+    const { error } = await db
+      .from("stock_counts")
+      .upsert(payload, { onConflict: "count_date,product_id" });
+
+    if (error) {
+      alert("Error saving: " + error.message);
+    } else {
+      // Update opening_stock on products to match closing count
+      for (const r of toSave) {
+        await db
+          .from("products")
+          .update({ opening_stock: parseInt(r.closingCount) || 0 })
+          .eq("id", r.product.id);
+      }
+
+      setRows((prev) =>
+        prev.map((r) =>
+          r.closingCount !== "" ? { ...r, saved: true } : r
+        )
+      );
+      setSavedCount(rows.filter((r) => r.closingCount !== "").length);
+    }
+    setSaving(false);
+  }
+
+  // Get unique categories from loaded products
+  const categories = ["All", ...new Set(rows.map((r) => r.product.category))];
+
+  const filtered = rows.filter((r) => {
+    const matchesSearch = r.product.name
+      .toLowerCase()
+      .includes(search.toLowerCase());
+    const matchesCat =
+      filterCategory === "All" || r.product.category === filterCategory;
+    return matchesSearch && matchesCat;
+  });
+
+  const unsavedCount = rows.filter(
+    (r) => r.closingCount !== "" && !r.saved
+  ).length;
+
+  if (loading) {
+    return <div className="text-center py-12 text-gray-400">Loading...</div>;
+  }
+
+  return (
+    <div className="max-w-4xl">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            {today} · {savedCount}/{rows.length} products counted
+          </p>
+        </div>
+        <Button
+          onClick={saveAllCounts}
+          loading={saving}
+          disabled={unsavedCount === 0}
+        >
+          <Check className="w-4 h-4 mr-2" />
+          Save ({unsavedCount})
+        </Button>
+      </div>
+
+      {/* Progress bar */}
+      <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">
+        <div className="flex justify-between text-sm mb-2">
+          <span className="text-gray-600">Count progress</span>
+          <span className="font-semibold text-gray-900">
+            {rows.filter((r) => r.closingCount !== "").length} / {rows.length}
+          </span>
+        </div>
+        <div className="w-full bg-gray-100 rounded-full h-3">
+          <div
+            className="bg-green-600 h-3 rounded-full transition-all"
+            style={{
+              width: `${rows.length > 0 ? (rows.filter((r) => r.closingCount !== "").length / rows.length) * 100 : 0}%`,
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            placeholder="Search products..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+        </div>
+        <select
+          value={filterCategory}
+          onChange={(e) => setFilterCategory(e.target.value)}
+          className="bg-white border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+        >
+          {categories.map((c) => (
+            <option key={c} value={c}>
+              {c}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Stock count list */}
+      {filtered.length === 0 ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
+          <Package className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-500">No products match your filter</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
+          {filtered.map((row) => {
+            const closing = parseInt(row.closingCount);
+            const variance =
+              row.closingCount !== ""
+                ? closing - row.product.opening_stock
+                : null;
+            const isLow =
+              row.closingCount !== "" &&
+              closing <= row.product.reorder_level;
+
+            return (
+              <div key={row.product.id} className="flex items-center gap-4 px-4 py-3">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {row.product.name}
+                    </p>
+                    {row.saved && (
+                      <Check className="w-4 h-4 text-green-600 flex-shrink-0" />
+                    )}
+                    {isLow && (
+                      <Badge color="red">
+                        <AlertTriangle className="w-3 h-3 mr-1" />
+                        Low
+                      </Badge>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-500">
+                    {row.product.category} · Expected: {row.product.opening_stock} · {formatZAR(row.product.selling_price)}
+                  </p>
+                </div>
+
+                {/* Count input */}
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    placeholder="—"
+                    value={row.closingCount}
+                    onChange={(e) => updateCount(row.product.id, e.target.value)}
+                    className={`w-20 text-center py-2 border rounded-lg text-sm font-semibold touch-manipulation ${
+                      row.saved
+                        ? "border-green-300 bg-green-50"
+                        : "border-gray-200 bg-white"
+                    } focus:border-green-500 focus:ring-1 focus:ring-green-500`}
+                  />
+
+                  {variance !== null && (
+                    <span
+                      className={`text-xs font-medium w-12 text-right ${
+                        variance === 0
+                          ? "text-green-600"
+                          : variance > 0
+                          ? "text-blue-600"
+                          : "text-red-600"
+                      }`}
+                    >
+                      {variance > 0 ? "+" : ""}
+                      {variance}
+                    </span>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
