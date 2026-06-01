@@ -18,6 +18,7 @@ import {
   Settings,
   LogOut,
   PackagePlus,
+  ShieldCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -42,6 +43,7 @@ const navItems: NavItem[] = [
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin"] },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"] },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"] },
+  { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"] },
   { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"] },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
