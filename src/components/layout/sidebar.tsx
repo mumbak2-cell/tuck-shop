@@ -35,7 +35,7 @@ const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "cashier"] },
   { href: "/pos", label: "Point of Sale", icon: ShoppingCart, roles: ["admin", "cashier"] },
   { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"] },
-  { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin", "cashier"] },
+  { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"] },
   { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"] },
   { href: "/products", label: "Products", icon: Package, roles: ["admin"] },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"] },
