@@ -68,27 +68,7 @@ export default function RevenueAssurancePage() {
       salesMap.set(s.product_id, (salesMap.get(s.product_id) || 0) + s.quantity);
     });
 
-    // 4. Get replenishments for that date
-    const { data: receipts } = await db
-      .from("stock_receipts")
-      .select("id")
-      .eq("receipt_date", selectedDate);
-
-    const receiptIds = ((receipts || []) as any[]).map((r: any) => r.id);
-    let replenishMap = new Map<string, number>();
-    if (receiptIds.length > 0) {
-      const { data: items } = await db
-        .from("stock_receipt_items")
-        .select("product_id, quantity")
-        .in("receipt_id", receiptIds)
-        .not("product_id", "is", null);
-
-      ((items || []) as any[]).forEach((i: any) => {
-        replenishMap.set(i.product_id, (replenishMap.get(i.product_id) || 0) + i.quantity);
-      });
-    }
-
-    // 5. Build assurance rows
+    // 4. Build assurance rows
     const prodMap = new Map<string, any>();
     ((products || []) as any[]).forEach((p: any) => prodMap.set(p.id, p));
 
@@ -97,11 +77,13 @@ export default function RevenueAssurancePage() {
       const prod = prodMap.get(productId);
       if (!prod) continue;
 
+      // opening_units in stock_counts is a snapshot taken at count time,
+      // which already includes any replenishments done that day.
+      // So: Expected Closing = Opening (snapshot) − Recorded Sales
+      // No need to add replenishments again — they're already baked in.
       const openingStock = count.opening;
-      const replenished = replenishMap.get(productId) || 0;
-      const replenishedUnits = replenished * (prod.qty_in_pack || 1);
       const recordedSales = salesMap.get(productId) || 0;
-      const expectedClosing = openingStock + replenishedUnits - recordedSales;
+      const expectedClosing = openingStock - recordedSales;
       const actualClosing = count.closing;
       const variance = actualClosing - expectedClosing; // negative = units unaccounted for
       const unrecordedUnits = Math.max(-variance, 0); // only count missing stock
@@ -114,7 +96,7 @@ export default function RevenueAssurancePage() {
         category: prod.category,
         sellingPrice: prod.selling_price,
         openingStock,
-        replenished: replenishedUnits,
+        replenished: 0,
         recordedSales,
         expectedClosing,
         actualClosing,
@@ -240,8 +222,7 @@ export default function RevenueAssurancePage() {
                 <thead>
                   <tr className="bg-gray-50 border-b border-gray-200">
                     <th className="text-left px-4 py-3 font-medium text-gray-500">Product</th>
-                    <th className="text-right px-3 py-3 font-medium text-gray-500">Opening</th>
-                    <th className="text-right px-3 py-3 font-medium text-gray-500">Restock</th>
+                    <th className="text-right px-3 py-3 font-medium text-gray-500">Available</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-500">Recorded Sales</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-500">Expected</th>
                     <th className="text-right px-3 py-3 font-medium text-gray-500">Counted</th>
@@ -252,7 +233,7 @@ export default function RevenueAssurancePage() {
                 <tbody className="divide-y divide-gray-100">
                   {filtered.length === 0 ? (
                     <tr>
-                      <td colSpan={8} className="px-4 py-8 text-center text-gray-400">
+                      <td colSpan={7} className="px-4 py-8 text-center text-gray-400">
                         {filterMode === "discrepancies" ? "No discrepancies found — all stock matches recorded sales." : "No data."}
                       </td>
                     </tr>
@@ -265,7 +246,6 @@ export default function RevenueAssurancePage() {
                           <span className="block text-xs text-gray-400">{r.category} · {formatZAR(r.sellingPrice)}/unit</span>
                         </td>
                         <td className="text-right px-3 py-3 text-gray-600">{r.openingStock}</td>
-                        <td className="text-right px-3 py-3 text-gray-600">{r.replenished > 0 ? `+${r.replenished}` : "—"}</td>
                         <td className="text-right px-3 py-3 text-gray-600">{r.recordedSales > 0 ? `-${r.recordedSales}` : "—"}</td>
                         <td className="text-right px-3 py-3 font-medium text-gray-700">{r.expectedClosing}</td>
                         <td className="text-right px-3 py-3 font-medium text-gray-700">{r.actualClosing}</td>
@@ -324,7 +304,8 @@ export default function RevenueAssurancePage() {
           <div className="mt-6 bg-gray-50 rounded-xl border border-gray-200 px-5 py-4 text-sm text-gray-600">
             <p className="font-semibold text-gray-700 mb-2">How this works</p>
             <p>
-              For each product: <strong>Expected Closing = Opening Stock + Restocked − Recorded Sales</strong>.
+              For each product: <strong>Expected Closing = Available Stock − Recorded Sales</strong>.
+              Available stock is the system stock at the time the count was done (includes any restocks already received that day).
               The cashier&apos;s physical count gives the <strong>Actual Closing</strong>.
               If more units left the shelf than were recorded in the POS, those are unrecorded sales.
               Multiply by the selling price to get the missing revenue — this is what the till cash should reflect
