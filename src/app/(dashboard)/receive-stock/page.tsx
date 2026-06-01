@@ -15,6 +15,7 @@ interface ReceiptLine {
   inventoryId?: string;
   quantity: number;
   unitCost: number;
+  qtyInPack: number; // units per pack (products only, 1 for ingredients)
 }
 
 interface PastReceipt {
@@ -68,6 +69,7 @@ export default function ReceiveStockPage() {
       const unitCost = type === "product"
         ? ((item as Product).package_price || 0)
         : (item as Ingredient).purchase_price;
+      const qtyInPack = type === "product" ? ((item as Product).qty_in_pack || 1) : 1;
       setLines([
         ...lines,
         {
@@ -78,6 +80,7 @@ export default function ReceiveStockPage() {
           inventoryId: type === "product" ? (item as Product).inventory_id : undefined,
           quantity: 1,
           unitCost,
+          qtyInPack,
         },
       ]);
     }
@@ -126,12 +129,13 @@ export default function ReceiveStockPage() {
       const { error: iErr } = await db.from("stock_receipt_items").insert(items);
       if (iErr) throw iErr;
 
-      // 3. Increment stock for each line
+      // 3. Increment stock for each line (packs × qty_in_pack = total units)
       for (const l of lines) {
         if (l.type === "product") {
+          const totalUnits = Math.round(l.quantity * l.qtyInPack);
           const { error } = await db.rpc("add_product_stock", {
             p_product_id: l.itemId,
-            p_quantity: Math.round(l.quantity),
+            p_quantity: totalUnits,
           });
           if (error) {
             // Fallback: manual increment
@@ -143,7 +147,7 @@ export default function ReceiveStockPage() {
             if (prod) {
               await db
                 .from("products")
-                .update({ opening_stock: (prod.opening_stock || 0) + Math.round(l.quantity) })
+                .update({ opening_stock: (prod.opening_stock || 0) + totalUnits })
                 .eq("id", l.itemId);
             }
           }
@@ -348,6 +352,11 @@ export default function ReceiveStockPage() {
                         <span className={`ml-2 text-xs px-1.5 py-0.5 rounded ${l.type === "product" ? "bg-green-50 text-green-700" : "bg-blue-50 text-blue-700"}`}>
                           {l.type}
                         </span>
+                        {l.type === "product" && l.qtyInPack > 1 && (
+                          <span className="block text-xs text-gray-400 mt-0.5">
+                            {l.quantity} pack{l.quantity !== 1 ? "s" : ""} × {l.qtyInPack} = {Math.round(l.quantity * l.qtyInPack)} units
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3">
                         <input
