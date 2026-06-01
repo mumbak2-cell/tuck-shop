@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { Product } from "@/types/database";
 import { formatZAR } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -20,6 +21,7 @@ interface StockRow {
 }
 
 export default function StockCountPage() {
+  const { name: userName } = useAuth();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -83,14 +85,33 @@ export default function StockCountPage() {
     if (toSave.length === 0) return;
 
     setSaving(true);
+    const now = new Date().toISOString();
 
-    const payload = toSave.map((r) => ({
-      count_date: today,
-      product_id: r.product.id,
-      opening_units: r.product.opening_stock,
-      closing_units: parseInt(r.closingCount) || 0,
-      replenished_units: 0,
-    }));
+    // Check for existing counts to detect edits
+    const { data: existingCounts } = await db
+      .from("stock_counts")
+      .select("id, product_id, closing_units, update_count")
+      .eq("count_date", today);
+
+    const existingMap = new Map<string, { id: string; closing_units: number; update_count: number }>();
+    ((existingCounts || []) as any[]).forEach((c: any) => {
+      existingMap.set(c.product_id, { id: c.id, closing_units: c.closing_units, update_count: c.update_count || 1 });
+    });
+
+    const payload = toSave.map((r) => {
+      const existing = existingMap.get(r.product.id);
+      return {
+        count_date: today,
+        product_id: r.product.id,
+        opening_units: r.product.opening_stock,
+        closing_units: parseInt(r.closingCount) || 0,
+        replenished_units: 0,
+        counted_by: userName,
+        counted_at: existing ? undefined : now, // only set on first count
+        updated_at: now,
+        update_count: existing ? (existing.update_count || 1) + 1 : 1,
+      };
+    });
 
     const { error } = await db
       .from("stock_counts")
@@ -99,6 +120,26 @@ export default function StockCountPage() {
     if (error) {
       alert("Error saving: " + error.message);
     } else {
+      // Log audit entries for any edits (where count changed)
+      const auditEntries: { stock_count_id: string; product_id: string; count_date: string; closing_units_old: number; closing_units_new: number; changed_by: string; changed_at: string }[] = [];
+      for (const r of toSave) {
+        const existing = existingMap.get(r.product.id);
+        if (existing && existing.closing_units !== (parseInt(r.closingCount) || 0)) {
+          auditEntries.push({
+            stock_count_id: existing.id,
+            product_id: r.product.id,
+            count_date: today,
+            closing_units_old: existing.closing_units,
+            closing_units_new: parseInt(r.closingCount) || 0,
+            changed_by: userName,
+            changed_at: now,
+          });
+        }
+      }
+      if (auditEntries.length > 0) {
+        await db.from("stock_count_audit").insert(auditEntries);
+      }
+
       // Update opening_stock on products to match closing count
       for (const r of toSave) {
         await db
