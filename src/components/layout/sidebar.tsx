@@ -20,6 +20,7 @@ import {
   PackagePlus,
   ShieldCheck,
   Clock,
+  Wrench,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -39,6 +40,7 @@ const navItems: NavItem[] = [
   { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"] },
   { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"] },
   { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"] },
+  { href: "/stock-adjustments", label: "Stock Adjustments", icon: Wrench, roles: ["admin"] },
   { href: "/products", label: "Products", icon: Package, roles: ["admin"] },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"] },
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"] },
