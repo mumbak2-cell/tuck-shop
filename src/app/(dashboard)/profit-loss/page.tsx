@@ -54,7 +54,8 @@ export default function ProfitLossPage() {
       .from("sales")
       .select("payment_method, total_amount, quantity, product_id")
       .gte("sale_date", from)
-      .lte("sale_date", to);
+      .lte("sale_date", to)
+      .eq("voided", false);
 
     let cash = 0, card = 0, credit = 0;
     ((sales || []) as any[]).forEach((s: any) => {

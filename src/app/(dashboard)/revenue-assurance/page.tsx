@@ -61,7 +61,8 @@ export default function RevenueAssurancePage() {
     const { data: sales } = await db
       .from("sales")
       .select("product_id, quantity")
-      .eq("sale_date", selectedDate);
+      .eq("sale_date", selectedDate)
+      .eq("voided", false);
 
     const salesMap = new Map<string, number>();
     ((sales || []) as any[]).forEach((s: any) => {

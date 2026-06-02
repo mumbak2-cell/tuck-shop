@@ -50,6 +50,7 @@ export default function CreditLedgerPage() {
       .from("sales")
       .select("id, sale_date, customer_id, total_amount, quantity, unit_price, product_id, created_at, customers(name), products(name)")
       .eq("payment_method", "credit")
+      .eq("voided", false)
       .gte("sale_date", filterFrom)
       .lte("sale_date", filterTo)
       .order("created_at", { ascending: false });

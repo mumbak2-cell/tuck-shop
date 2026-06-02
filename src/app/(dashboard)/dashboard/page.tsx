@@ -50,9 +50,9 @@ export default function DashboardPage() {
 
     const [productsRes, salesRes, customersRes, recentRes, expensesRes] = await Promise.all([
       db.from("products").select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued").eq("discontinued", false),
-      db.from("sales").select("total_amount, payment_method").eq("sale_date", today),
+      db.from("sales").select("total_amount, payment_method").eq("sale_date", today).eq("voided", false),
       db.from("customers").select("balance"),
-      db.from("sales").select("id, quantity, total_amount, payment_method, created_at, products(name)").eq("sale_date", today).order("created_at", { ascending: false }).limit(10),
+      db.from("sales").select("id, quantity, total_amount, payment_method, created_at, products(name)").eq("sale_date", today).eq("voided", false).order("created_at", { ascending: false }).limit(10),
       db.from("expenses").select("category, amount").gte("expense_date", monthStart).lte("expense_date", today),
     ]);
 
@@ -358,6 +358,7 @@ async function downloadDailySalesReport(date: string) {
     .from("sales")
     .select("sale_date, quantity, unit_price, total_amount, payment_method, created_at, products(name, inventory_id)")
     .eq("sale_date", date)
+    .eq("voided", false)
     .order("created_at");
 
   const header = "Time,Inventory ID,Product,Qty,Unit Price,Total,Payment Method";
@@ -405,7 +406,7 @@ async function downloadPnLReport(date: string) {
   const to = date;
 
   const [{ data: sales }, { data: expenses }, { data: products }] = await Promise.all([
-    db.from("sales").select("payment_method, total_amount, quantity, product_id").gte("sale_date", from).lte("sale_date", to),
+    db.from("sales").select("payment_method, total_amount, quantity, product_id").gte("sale_date", from).lte("sale_date", to).eq("voided", false),
     db.from("expenses").select("category, amount").gte("expense_date", from).lte("expense_date", to),
     db.from("products").select("id, package_price, qty_in_pack"),
   ]);
