@@ -196,13 +196,15 @@ export default function ReceiveStockPage() {
     }
   }
 
-  // Filter items for picker
+  // Filter items for picker — split products into purchased vs prepared
   const searchLower = search.toLowerCase();
-  const filteredProducts = products.filter(
+  const allFilteredProducts = products.filter(
     (p) =>
       p.name.toLowerCase().includes(searchLower) ||
       p.inventory_id.toLowerCase().includes(searchLower)
   );
+  const filteredProducts = allFilteredProducts.filter((p) => !p.is_prepared);
+  const filteredPrepared = allFilteredProducts.filter((p) => p.is_prepared);
   const filteredIngredients = ingredients.filter((i) =>
     i.name.toLowerCase().includes(searchLower)
   );
@@ -301,6 +303,25 @@ export default function ReceiveStockPage() {
                     ))}
                   </>
                 )}
+                {filteredPrepared.length > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 mt-2">Prepared Items (no cost)</p>
+                    {filteredPrepared.map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => addLine("product", p)}
+                        className="w-full text-left px-3 py-2 rounded-lg hover:bg-amber-50 text-sm flex items-center justify-between"
+                      >
+                        <span>
+                          <span className="text-xs font-mono text-gray-400 mr-2">{p.inventory_id}</span>
+                          {p.name}
+                          <span className="ml-2 text-xs text-amber-600">Prepared</span>
+                        </span>
+                        <span className="text-xs text-gray-400">Stock: {p.opening_stock}</span>
+                      </button>
+                    ))}
+                  </>
+                )}
                 {filteredIngredients.length > 0 && (
                   <>
                     <p className="text-xs font-semibold text-gray-500 uppercase px-2 py-1 mt-2">Ingredients</p>
@@ -316,7 +337,7 @@ export default function ReceiveStockPage() {
                     ))}
                   </>
                 )}
-                {filteredProducts.length === 0 && filteredIngredients.length === 0 && (
+                {filteredProducts.length === 0 && filteredPrepared.length === 0 && filteredIngredients.length === 0 && (
                   <p className="text-sm text-gray-400 text-center py-4">No items found</p>
                 )}
               </div>
