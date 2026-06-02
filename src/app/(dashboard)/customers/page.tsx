@@ -283,6 +283,7 @@ function CustomerFormModal({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [creditLimit, setCreditLimit] = useState("500");
+  const [balance, setBalance] = useState("0");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
 
@@ -291,6 +292,7 @@ function CustomerFormModal({
       setName(customer?.name || "");
       setPhone(customer?.phone || "");
       setCreditLimit(customer?.credit_limit?.toString() || "500");
+      setBalance(customer?.balance?.toString() || "0");
       setError("");
     }
   }, [open, customer]);
@@ -303,7 +305,7 @@ function CustomerFormModal({
     setSaving(true);
     setError("");
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       name: name.trim(),
       phone: phone.trim() || null,
       credit_limit: parseFloat(creditLimit) || 500,
@@ -311,15 +313,18 @@ function CustomerFormModal({
 
     let dbError: { message: string } | null = null;
     if (customer) {
+      // Include balance when editing (allows setting carried-forward amount)
+      payload.balance = parseFloat(balance) || 0;
       const res = await db
         .from("customers")
         .update(payload)
         .eq("id", customer.id);
       dbError = res.error;
     } else {
+      payload.balance = parseFloat(balance) || 0;
       const res = await db
         .from("customers")
-        .insert({ ...payload, balance: 0 });
+        .insert(payload);
       dbError = res.error;
     }
 
@@ -354,6 +359,20 @@ function CustomerFormModal({
           value={creditLimit}
           onChange={(e) => setCreditLimit(e.target.value)}
         />
+        <div>
+          <Input
+            label={customer ? "Balance Owed (R) — Carried Forward" : "Opening Balance (R)"}
+            type="number"
+            step="0.01"
+            value={balance}
+            onChange={(e) => setBalance(e.target.value)}
+          />
+          {customer && (
+            <p className="text-xs text-gray-500 mt-1">
+              Set this to carry forward a balance from a previous month. Current system balance: {formatZAR(customer.balance)}
+            </p>
+          )}
+        </div>
         {error && (
           <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
         )}
