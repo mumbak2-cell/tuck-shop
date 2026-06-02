@@ -32,16 +32,41 @@ export default function RevenueAssurancePage() {
   async function loadAssurance() {
     setLoading(true);
 
-    // 1. Get stock counts for the selected date (this is what the cashier physically counted)
-    const { data: counts } = await db
+    // 1. Try selected date first; if no counts, find the most recent count date
+    let countDate = selectedDate;
+    let { data: counts } = await db
       .from("stock_counts")
       .select("product_id, opening_units, closing_units")
       .eq("count_date", selectedDate);
 
     if (!counts || counts.length === 0) {
-      setRows([]);
-      setLoading(false);
-      return;
+      // Fall back to most recent count date
+      const { data: latest } = await db
+        .from("stock_counts")
+        .select("count_date")
+        .order("count_date", { ascending: false })
+        .limit(1);
+
+      if (!latest || latest.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
+
+      countDate = (latest as any[])[0].count_date;
+      setSelectedDate(countDate);
+
+      const result = await db
+        .from("stock_counts")
+        .select("product_id, opening_units, closing_units")
+        .eq("count_date", countDate);
+      counts = result.data;
+
+      if (!counts || counts.length === 0) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
     }
 
     const countMap = new Map<string, { opening: number; closing: number }>();
@@ -61,7 +86,7 @@ export default function RevenueAssurancePage() {
     const { data: sales } = await db
       .from("sales")
       .select("product_id, quantity")
-      .eq("sale_date", selectedDate)
+      .eq("sale_date", countDate)
       .eq("voided", false);
 
     const salesMap = new Map<string, number>();

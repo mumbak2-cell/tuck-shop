@@ -173,6 +173,7 @@ export default function StockPilotImportPage() {
 
         // Also record as a stock count for the day
         const countDate = m.row.sessionDate || new Date().toISOString().split("T")[0];
+        const counter = m.row.counter || "StockPilot";
         await db.from("stock_counts").upsert(
           {
             count_date: countDate,
@@ -180,6 +181,10 @@ export default function StockPilotImportPage() {
             opening_units: m.currentStock,
             closing_units: m.row.qtyCounted,
             replenished_units: 0,
+            counted_by: `StockPilot (${counter})`,
+            counted_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+            update_count: 1,
           },
           { onConflict: "count_date,product_id" }
         );
