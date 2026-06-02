@@ -22,6 +22,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [method, setMethod] = useState<PaymentMethod | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
+  const [cashTendered, setCashTendered] = useState<string>("");
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
@@ -30,6 +31,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     if (open) {
       setMethod(null);
       setSelectedCustomer("");
+      setCashTendered("");
       setSuccess(false);
       setError("");
       // Fetch customers for credit sales
@@ -152,6 +154,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           <p className="text-sm text-gray-500 mt-1">
             Paid by {method === "card" ? "Card (iKhokha)" : method}
           </p>
+          {method === "cash" && cashTendered && parseFloat(cashTendered) > total && (
+            <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-6 py-3 text-center">
+              <p className="text-sm text-green-600">Change Due</p>
+              <p className="text-3xl font-bold text-green-700">{formatZAR(parseFloat(cashTendered) - total)}</p>
+            </div>
+          )}
           {method === "credit" && selectedCustomer && (
             <Button
               onClick={sendWhatsAppInvoice}
@@ -199,6 +207,34 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
             })}
           </div>
         </div>
+
+        {/* Cash tendered + change */}
+        {method === "cash" && (
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Cash tendered</p>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              value={cashTendered}
+              onChange={(e) => setCashTendered(e.target.value)}
+              placeholder={`Min ${formatZAR(total)}`}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-lg font-semibold text-center focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            {cashTendered && parseFloat(cashTendered) >= total && (
+              <div className="mt-3 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-center">
+                <p className="text-sm text-green-600">Change</p>
+                <p className="text-2xl font-bold text-green-700">{formatZAR(parseFloat(cashTendered) - total)}</p>
+              </div>
+            )}
+            {cashTendered && parseFloat(cashTendered) > 0 && parseFloat(cashTendered) < total && (
+              <p className="mt-2 text-sm text-red-600 text-center">
+                Short by {formatZAR(total - parseFloat(cashTendered))}
+              </p>
+            )}
+          </div>
+        )}
 
         {/* Credit customer selector */}
         {method === "credit" && (
