@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { TruckIcon, Upload, Check, AlertTriangle } from "lucide-react";
 import type { Product } from "@/types/database";
+import { useShift } from "@/lib/shift-context";
 
 interface StockPilotRow {
   inventoryId: string;
@@ -25,6 +26,7 @@ interface MatchedRow {
 }
 
 export default function StockPilotImportPage() {
+  const { markStockCountDone } = useShift();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [matches, setMatches] = useState<MatchedRow[]>([]);
@@ -191,6 +193,11 @@ export default function StockPilotImportPage() {
       } else {
         skipped++;
       }
+    }
+
+    // Mark shift stock count as done
+    if (updated > 0) {
+      await markStockCountDone();
     }
 
     setResults({ updated, skipped, notFound });

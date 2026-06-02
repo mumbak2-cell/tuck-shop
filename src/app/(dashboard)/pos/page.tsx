@@ -5,8 +5,12 @@ import { Product } from "@/types/database";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { Cart, CartItem } from "@/components/pos/cart";
 import { PaymentModal } from "@/components/pos/payment-modal";
+import { useShift } from "@/lib/shift-context";
+import { Play } from "lucide-react";
+import Link from "next/link";
 
 export default function POSPage() {
+  const { isOpen, loading: shiftLoading } = useShift();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
@@ -70,6 +74,29 @@ export default function POSPage() {
   }
 
   const total = cart.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
+
+  if (shiftLoading) {
+    return <div className="text-center py-12 text-gray-400">Loading...</div>;
+  }
+
+  if (!isOpen) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20">
+        <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">
+          <Play className="w-8 h-8 text-amber-600" />
+        </div>
+        <h2 className="text-xl font-bold text-gray-900 mb-2">No shift open</h2>
+        <p className="text-sm text-gray-500 mb-6">You need to start a shift before making sales.</p>
+        <Link
+          href="/shift"
+          className="inline-flex items-center gap-2 px-6 py-3 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors"
+        >
+          <Play className="w-5 h-5" />
+          Open Shift
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="flex gap-4 h-[calc(100vh-6rem)]">

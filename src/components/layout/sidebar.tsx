@@ -19,6 +19,7 @@ import {
   LogOut,
   PackagePlus,
   ShieldCheck,
+  Clock,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -33,6 +34,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "cashier"] },
+  { href: "/shift", label: "Shift", icon: Clock, roles: ["admin", "cashier"] },
   { href: "/pos", label: "Point of Sale", icon: ShoppingCart, roles: ["admin", "cashier"] },
   { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"] },
   { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"] },

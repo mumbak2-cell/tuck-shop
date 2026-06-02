@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { Product } from "@/types/database";
 import { formatZAR } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
+import { useShift } from "@/lib/shift-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -22,6 +23,7 @@ interface StockRow {
 
 export default function StockCountPage() {
   const { name: userName } = useAuth();
+  const { markStockCountDone } = useShift();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -154,6 +156,9 @@ export default function StockCountPage() {
         )
       );
       setSavedCount(rows.filter((r) => r.closingCount !== "").length);
+
+      // Mark shift stock count as done
+      await markStockCountDone();
     }
     setSaving(false);
   }

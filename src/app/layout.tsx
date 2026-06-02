@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
+import { ShiftProvider } from "@/lib/shift-context";
 
 export const metadata: Metadata = {
   title: "Tuck Shop",
@@ -24,7 +25,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="antialiased bg-gray-50 text-gray-900">
-        <AuthProvider>{children}</AuthProvider>
+        <AuthProvider><ShiftProvider>{children}</ShiftProvider></AuthProvider>
       </body>
     </html>
   );
