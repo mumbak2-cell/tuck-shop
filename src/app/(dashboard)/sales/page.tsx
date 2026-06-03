@@ -43,6 +43,7 @@ export default function SalesPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [transactions, setTransactions] = useState<SaleRecord[]>([]);
+  const [filterMethod, setFilterMethod] = useState<"all" | "cash" | "card" | "credit">("all");
 
   // Void modal state
   const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
@@ -201,11 +202,11 @@ export default function SalesPage() {
     <div className="max-w-4xl">
       <h1 className="text-2xl font-bold text-gray-900 mb-6">Today&apos;s Sales</h1>
 
-      {/* Sales breakdown */}
+      {/* Sales breakdown — clickable to filter */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
-        <SummaryCard icon={Banknote} label="Cash Sales" amount={summary.cash} color="bg-green-600" />
-        <SummaryCard icon={CreditCard} label="Card Sales" amount={summary.card} color="bg-blue-600" />
-        <SummaryCard icon={Users} label="Credit Sales" amount={summary.credit} color="bg-amber-500" />
+        <SummaryCard icon={Banknote} label="Cash Sales" amount={summary.cash} color="bg-green-600" active={filterMethod === "cash"} onClick={() => setFilterMethod(filterMethod === "cash" ? "all" : "cash")} />
+        <SummaryCard icon={CreditCard} label="Card Sales" amount={summary.card} color="bg-blue-600" active={filterMethod === "card"} onClick={() => setFilterMethod(filterMethod === "card" ? "all" : "card")} />
+        <SummaryCard icon={Users} label="Credit Sales" amount={summary.credit} color="bg-amber-500" active={filterMethod === "credit"} onClick={() => setFilterMethod(filterMethod === "credit" ? "all" : "credit")} />
       </div>
 
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
@@ -226,14 +227,21 @@ export default function SalesPage() {
 
       {/* Transactions list */}
       <div className="bg-white rounded-xl border border-gray-200 mb-6">
-        <div className="px-5 py-4 border-b border-gray-200">
-          <h2 className="font-semibold text-gray-900">Transactions</h2>
+        <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
+          <h2 className="font-semibold text-gray-900">
+            {filterMethod === "all" ? "All Transactions" : `${filterMethod.charAt(0).toUpperCase() + filterMethod.slice(1)} Transactions`}
+          </h2>
+          {filterMethod !== "all" && (
+            <button onClick={() => setFilterMethod("all")} className="text-xs text-green-600 hover:underline">
+              Show all
+            </button>
+          )}
         </div>
         {transactions.length === 0 ? (
           <div className="px-5 py-8 text-center text-gray-400 text-sm">No transactions today.</div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {transactions.map((txn) => (
+            {transactions.filter((txn) => filterMethod === "all" || txn.payment_method === filterMethod).map((txn) => (
               <div
                 key={txn.id}
                 className={`px-5 py-3 flex items-center justify-between ${txn.voided ? "bg-red-50/50 opacity-60" : ""}`}
@@ -384,14 +392,23 @@ function SummaryCard({
   label,
   amount,
   color,
+  active,
+  onClick,
 }: {
   icon: React.ElementType;
   label: string;
   amount: number;
   color: string;
+  active?: boolean;
+  onClick?: () => void;
 }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-200 p-4">
+    <button
+      onClick={onClick}
+      className={`bg-white rounded-xl border-2 p-4 text-left transition-all touch-manipulation ${
+        active ? "border-green-500 ring-2 ring-green-200" : "border-gray-200 hover:border-gray-300"
+      }`}
+    >
       <div className="flex items-center gap-3">
         <div className={`p-2 rounded-lg ${color}`}>
           <Icon className="w-5 h-5 text-white" />
@@ -401,6 +418,6 @@ function SummaryCard({
           <p className="text-lg font-bold text-gray-900">{formatZAR(amount)}</p>
         </div>
       </div>
-    </div>
+    </button>
   );
 }
