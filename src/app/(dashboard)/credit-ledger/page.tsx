@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { BookOpen, ArrowUpRight, ArrowDownLeft, MessageCircle } from "lucide-react";
+import { BookOpen, ArrowUpRight, ArrowDownLeft, MessageCircle, Download } from "lucide-react";
 import type { Customer } from "@/types/database";
 
 interface LedgerEntry {
@@ -265,6 +265,67 @@ export default function CreditLedgerPage() {
     window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
   }
 
+  function exportToExcel() {
+    const bom = "﻿";
+    const lines: string[] = [];
+
+    if (filterCustomer !== "all" && selectedCustomer) {
+      // Single customer export
+      lines.push(`Tuck Shop — Credit Ledger Statement`);
+      lines.push(`Customer,${selectedCustomer.name}`);
+      lines.push(`Period,${filterFrom} to ${filterTo}`);
+      lines.push(`Exported,${new Date().toLocaleDateString("en-ZA")}`);
+      lines.push(``);
+      lines.push(`Date,Description,Qty,Unit Price,Total`);
+
+      if (broughtForward > 0) {
+        lines.push(`Before ${filterFrom},Balance brought forward,,,${broughtForward.toFixed(2)}`);
+      }
+
+      for (const line of groupedLines) {
+        if (line.type === "payment") {
+          lines.push(`${line.date},Payment received,,,${(-line.total).toFixed(2)}`);
+        } else {
+          lines.push(`${line.date},"${line.productName}",${line.quantity},${line.unitPrice.toFixed(2)},${line.total.toFixed(2)}`);
+        }
+      }
+
+      lines.push(``);
+      lines.push(`,,,,`);
+      lines.push(`,Total Outstanding,,,${Math.max(periodBalance, 0).toFixed(2)}`);
+    } else {
+      // All customers export
+      lines.push(`Tuck Shop — Credit Ledger`);
+      lines.push(`Period,${filterFrom} to ${filterTo}`);
+      lines.push(`Exported,${new Date().toLocaleDateString("en-ZA")}`);
+      lines.push(``);
+      lines.push(`Date,Customer,Type,Description,Amount`);
+
+      for (const entry of entries) {
+        const desc = entry.type === "credit_sale"
+          ? `${entry.quantity}x ${entry.productName} @ R${entry.unitPrice.toFixed(2)}`
+          : "Payment received";
+        const amt = entry.type === "payment" ? entry.amount.toFixed(2) : (-entry.amount).toFixed(2);
+        lines.push(`${entry.date},"${entry.customerName}",${entry.type === "payment" ? "Payment" : "Credit Sale"},"${desc}",${amt}`);
+      }
+
+      lines.push(``);
+      lines.push(`,,,,`);
+      lines.push(`,,,Total Credit Sales,${(-totalCreditSales).toFixed(2)}`);
+      lines.push(`,,,Total Payments,${totalPayments.toFixed(2)}`);
+    }
+
+    const csv = bom + lines.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const customerName = selectedCustomer ? selectedCustomer.name.replace(/\s+/g, "_") : "all_customers";
+    a.download = `credit_ledger_${customerName}_${filterFrom}_to_${filterTo}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <div>
       <div className="mb-6">
@@ -328,6 +389,14 @@ export default function CreditLedgerPage() {
             ))}
           </select>
         </div>
+        <button
+          onClick={exportToExcel}
+          disabled={entries.length === 0 && broughtForward <= 0}
+          className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <Download className="w-4 h-4" />
+          Export
+        </button>
       </div>
 
       {/* Ledger content */}
