@@ -67,6 +67,8 @@ export default function ShiftPage() {
     }
     if (!shift) {
       checkLastCount();
+    } else {
+      setLoadingCount(false);
     }
   }, [shift]);
 
