@@ -1,46 +1,41 @@
 -- ============================================================
 -- Migration 014: Fix fragmented stock count sessions
 --
--- Problem: After migration 013 added session_id with DEFAULT gen_random_uuid(),
--- stock counts saved before the updated code was deployed got individual
--- session_ids per product row instead of sharing one per count event.
---
--- Fix: For each count_date, consolidate all rows into a single session_id.
--- Then drop the DEFAULT so session_id must always be provided by the app.
+-- Problem: Each product got its own session_id instead of sharing one.
+-- Fix: Drop constraint, merge, deduplicate, re-add constraint.
 -- ============================================================
 
--- 1. Consolidate: for each count_date, set all rows to share one session_id
--- (pick the session_id from the row with the most products — that's the "real" session)
+-- 1. Drop the unique constraint so we can merge freely
+ALTER TABLE stock_counts DROP CONSTRAINT IF EXISTS stock_counts_session_product_unique;
+
+-- 2. For each count_date, assign ALL rows to one shared session_id
 DO $$
 DECLARE
   d DATE;
-  winning_session UUID;
+  new_sid UUID;
 BEGIN
   FOR d IN SELECT DISTINCT count_date FROM stock_counts ORDER BY count_date
   LOOP
-    -- Find the session_id that has the most products for this date
-    SELECT session_id INTO winning_session
-    FROM stock_counts
-    WHERE count_date = d
-    GROUP BY session_id
-    ORDER BY COUNT(*) DESC
-    LIMIT 1;
-
-    -- Update all rows for this date to use that session_id
-    UPDATE stock_counts
-    SET session_id = winning_session
-    WHERE count_date = d AND session_id != winning_session;
+    new_sid := gen_random_uuid();
+    UPDATE stock_counts SET session_id = new_sid WHERE count_date = d;
   END LOOP;
 END $$;
 
--- 2. Now there might be duplicate (session_id, product_id) rows from the merge.
--- Keep the most recent one (by counted_at), delete the rest.
+-- 3. Delete duplicates — keep the row with the latest counted_at per (session_id, product_id)
 DELETE FROM stock_counts a
 USING stock_counts b
 WHERE a.session_id = b.session_id
   AND a.product_id = b.product_id
   AND a.id != b.id
-  AND (a.counted_at < b.counted_at OR (a.counted_at = b.counted_at AND a.id < b.id));
+  AND (
+    a.counted_at < b.counted_at
+    OR (a.counted_at = b.counted_at AND a.id < b.id)
+  );
 
--- 3. Remove the DEFAULT on session_id so the app must always provide it
+-- 4. Re-add the unique constraint
+ALTER TABLE stock_counts
+  ADD CONSTRAINT stock_counts_session_product_unique
+  UNIQUE (session_id, product_id);
+
+-- 5. Drop the DEFAULT so app must always provide session_id
 ALTER TABLE stock_counts ALTER COLUMN session_id DROP DEFAULT;
