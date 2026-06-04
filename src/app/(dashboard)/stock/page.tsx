@@ -8,7 +8,6 @@ import { useShift } from "@/lib/shift-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  ClipboardList,
   Check,
   AlertTriangle,
   Search,
@@ -321,7 +320,7 @@ export default function StockCountPage() {
                 <span className="text-gray-400 ml-2">
                   {timeStr} · {s.countedBy} · {s.productCount} products
                 </span>
-                {isActive && <Badge color="green" className="ml-2">Current</Badge>}
+                {isActive && <span className="ml-2"><Badge color="green">Current</Badge></span>}
               </button>
             );
           })}
