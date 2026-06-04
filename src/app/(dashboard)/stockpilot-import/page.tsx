@@ -154,6 +154,10 @@ export default function StockPilotImportPage() {
     let skipped = 0;
     let notFound = 0;
 
+    // Generate a single session_id for the entire StockPilot import
+    const importSessionId = crypto.randomUUID();
+    const counter = matches.find((m) => m.row.counter)?.row.counter || "StockPilot";
+
     for (const m of matches) {
       if (!m.product) {
         notFound++;
@@ -175,9 +179,10 @@ export default function StockPilotImportPage() {
 
         // Also record as a stock count for the day
         const countDate = m.row.sessionDate || new Date().toISOString().split("T")[0];
-        const counter = m.row.counter || "StockPilot";
         await db.from("stock_counts").upsert(
           {
+            session_id: importSessionId,
+            session_label: `StockPilot Import`,
             count_date: countDate,
             product_id: m.product.id,
             opening_units: m.currentStock,
@@ -188,7 +193,7 @@ export default function StockPilotImportPage() {
             updated_at: new Date().toISOString(),
             update_count: 1,
           },
-          { onConflict: "count_date,product_id" }
+          { onConflict: "session_id,product_id" }
         );
       } else {
         skipped++;

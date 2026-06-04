@@ -13,12 +13,21 @@ import {
   AlertTriangle,
   Search,
   Package,
+  Plus,
 } from "lucide-react";
 
 interface StockRow {
   product: Product;
   closingCount: string; // text input value
   saved: boolean;
+}
+
+interface ExistingSession {
+  sessionId: string;
+  label: string;
+  countedBy: string;
+  countedAt: string;
+  productCount: number;
 }
 
 export default function StockCountPage() {
@@ -30,10 +39,14 @@ export default function StockCountPage() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [savedCount, setSavedCount] = useState(0);
+  const [sessionId, setSessionId] = useState<string>("");
+  const [sessionLabel, setSessionLabel] = useState("Stock Count");
+  const [todaySessions, setTodaySessions] = useState<ExistingSession[]>([]);
+  const [showSessionPicker, setShowSessionPicker] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
 
-  const fetchProducts = useCallback(async () => {
+  const fetchProducts = useCallback(async (forSessionId?: string) => {
     setLoading(true);
 
     // Get active products
@@ -44,11 +57,49 @@ export default function StockCountPage() {
       .order("category")
       .order("name");
 
-    // Check if stock counts already exist for today
+    // Find today's existing count sessions
+    const { data: todayCounts } = await db
+      .from("stock_counts")
+      .select("session_id, session_label, counted_by, counted_at")
+      .eq("count_date", today)
+      .order("counted_at", { ascending: false });
+
+    // Group into distinct sessions
+    const sessionMap = new Map<string, ExistingSession>();
+    ((todayCounts || []) as any[]).forEach((c: any) => {
+      if (!sessionMap.has(c.session_id)) {
+        sessionMap.set(c.session_id, {
+          sessionId: c.session_id,
+          label: c.session_label || "Stock Count",
+          countedBy: c.counted_by || "Unknown",
+          countedAt: c.counted_at || "",
+          productCount: 0,
+        });
+      }
+      const s = sessionMap.get(c.session_id)!;
+      s.productCount++;
+    });
+    const sessions = [...sessionMap.values()];
+    setTodaySessions(sessions);
+
+    // Determine which session to load
+    let activeSessionId = forSessionId || sessionId;
+    if (!activeSessionId && sessions.length > 0) {
+      // Load the most recent session
+      activeSessionId = sessions[0].sessionId;
+      setSessionLabel(sessions[0].label);
+    }
+    if (!activeSessionId) {
+      // No sessions today — generate a new one
+      activeSessionId = crypto.randomUUID();
+    }
+    setSessionId(activeSessionId);
+
+    // Load counts for this session
     const { data: existingCounts } = await db
       .from("stock_counts")
       .select("product_id, closing_units")
-      .eq("count_date", today);
+      .eq("session_id", activeSessionId);
 
     const countMap = new Map<string, number>();
     ((existingCounts || []) as any[]).forEach((c: any) => {
@@ -64,6 +115,7 @@ export default function StockCountPage() {
     setRows(stockRows);
     setSavedCount(stockRows.filter((r) => r.saved).length);
     setLoading(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [today]);
 
   useEffect(() => {
@@ -80,6 +132,21 @@ export default function StockCountPage() {
     );
   }
 
+  function startNewSession() {
+    const newId = crypto.randomUUID();
+    setSessionId(newId);
+    setSessionLabel("Stock Count");
+    setShowSessionPicker(false);
+    fetchProducts(newId);
+  }
+
+  function switchToSession(s: ExistingSession) {
+    setSessionId(s.sessionId);
+    setSessionLabel(s.label);
+    setShowSessionPicker(false);
+    fetchProducts(s.sessionId);
+  }
+
   async function saveAllCounts() {
     const toSave = rows.filter(
       (r) => r.closingCount !== "" && !r.saved
@@ -89,11 +156,11 @@ export default function StockCountPage() {
     setSaving(true);
     const now = new Date().toISOString();
 
-    // Check for existing counts to detect edits
+    // Check for existing counts in this session to detect edits
     const { data: existingCounts } = await db
       .from("stock_counts")
       .select("id, product_id, closing_units, update_count")
-      .eq("count_date", today);
+      .eq("session_id", sessionId);
 
     const existingMap = new Map<string, { id: string; closing_units: number; update_count: number }>();
     ((existingCounts || []) as any[]).forEach((c: any) => {
@@ -103,6 +170,8 @@ export default function StockCountPage() {
     const payload = toSave.map((r) => {
       const existing = existingMap.get(r.product.id);
       return {
+        session_id: sessionId,
+        session_label: sessionLabel,
         count_date: today,
         product_id: r.product.id,
         opening_units: r.product.opening_stock,
@@ -117,7 +186,7 @@ export default function StockCountPage() {
 
     const { error } = await db
       .from("stock_counts")
-      .upsert(payload, { onConflict: "count_date,product_id" });
+      .upsert(payload, { onConflict: "session_id,product_id" });
 
     if (error) {
       alert("Error saving: " + error.message);
@@ -185,7 +254,7 @@ export default function StockCountPage() {
 
   return (
     <div className="max-w-4xl">
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
           <p className="text-sm text-gray-500 mt-1">
@@ -201,6 +270,63 @@ export default function StockCountPage() {
           Save ({unsavedCount})
         </Button>
       </div>
+
+      {/* Session controls */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="flex-1">
+          <label className="text-xs text-gray-500 block mb-1">Session Label</label>
+          <input
+            type="text"
+            value={sessionLabel}
+            onChange={(e) => setSessionLabel(e.target.value)}
+            placeholder="e.g. Opening Count, Closing Count"
+            className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+        </div>
+        {todaySessions.length > 0 && (
+          <div className="flex gap-2 items-end">
+            <button
+              onClick={() => setShowSessionPicker(!showSessionPicker)}
+              className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 hover:bg-green-100 transition-colors whitespace-nowrap"
+            >
+              {todaySessions.length} session{todaySessions.length !== 1 ? "s" : ""} today
+            </button>
+            <button
+              onClick={startNewSession}
+              className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-100 transition-colors whitespace-nowrap"
+            >
+              <Plus className="w-3 h-3 inline mr-1" />
+              New Session
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Session picker dropdown */}
+      {showSessionPicker && todaySessions.length > 0 && (
+        <div className="bg-white border border-gray-200 rounded-xl mb-6 divide-y divide-gray-100">
+          <p className="px-4 py-2 text-xs font-medium text-gray-500">Today&apos;s Count Sessions</p>
+          {todaySessions.map((s) => {
+            const timeStr = s.countedAt
+              ? new Date(s.countedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })
+              : "";
+            const isActive = s.sessionId === sessionId;
+            return (
+              <button
+                key={s.sessionId}
+                onClick={() => switchToSession(s)}
+                className={`w-full text-left px-4 py-3 text-sm hover:bg-gray-50 transition-colors ${isActive ? "bg-green-50" : ""}`}
+              >
+                <span className="font-medium text-gray-900">{s.label}</span>
+                <span className="text-gray-400 ml-2">
+                  {timeStr} · {s.countedBy} · {s.productCount} products
+                </span>
+                {isActive && <Badge color="green" className="ml-2">Current</Badge>}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* Progress bar */}
       <div className="bg-white rounded-xl border border-gray-200 p-4 mb-6">

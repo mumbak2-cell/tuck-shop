@@ -5,7 +5,9 @@ import { formatZAR } from "@/lib/format";
 import { ShieldCheck, AlertTriangle, Eye, Calendar } from "lucide-react";
 
 interface CountOption {
+  sessionId: string;
   date: string;
+  sessionLabel: string;
   countedBy: string;
   countedAt: string;
   productCount: number;
@@ -48,11 +50,10 @@ export default function RevenueAssurancePage() {
   async function loadCountOptions() {
     setLoadingOptions(true);
 
-    // Get distinct count dates with metadata, ordered newest first
+    // Get all count records with session info, ordered newest first
     const { data: counts } = await db
       .from("stock_counts")
-      .select("count_date, counted_by, counted_at")
-      .order("count_date", { ascending: false })
+      .select("session_id, session_label, count_date, counted_by, counted_at")
       .order("counted_at", { ascending: false });
 
     if (!counts || counts.length === 0) {
@@ -62,23 +63,25 @@ export default function RevenueAssurancePage() {
       return;
     }
 
-    // Group by unique count_date
-    const seen = new Map<string, { countedBy: string; countedAt: string }>();
+    // Group by session_id
+    const sessionMap = new Map<string, { sessionId: string; sessionLabel: string; date: string; countedBy: string; countedAt: string; productCount: number }>();
     (counts as any[]).forEach((c: any) => {
-      if (!seen.has(c.count_date)) {
-        seen.set(c.count_date, { countedBy: c.counted_by || "Unknown", countedAt: c.counted_at || "" });
+      if (!sessionMap.has(c.session_id)) {
+        sessionMap.set(c.session_id, {
+          sessionId: c.session_id,
+          sessionLabel: c.session_label || "Stock Count",
+          date: c.count_date,
+          countedBy: c.counted_by || "Unknown",
+          countedAt: c.counted_at || "",
+          productCount: 0,
+        });
       }
+      sessionMap.get(c.session_id)!.productCount++;
     });
 
-    // Get product counts per date
     const options: CountOption[] = [];
-    for (const [date, info] of seen) {
-      const { count } = await db
-        .from("stock_counts")
-        .select("*", { count: "exact", head: true })
-        .eq("count_date", date);
-
-      const dateStr = new Date(date + "T00:00:00").toLocaleDateString("en-ZA", {
+    for (const info of sessionMap.values()) {
+      const dateStr = new Date(info.date + "T00:00:00").toLocaleDateString("en-ZA", {
         weekday: "short", day: "numeric", month: "short", year: "numeric",
       });
       const timeStr = info.countedAt
@@ -86,13 +89,18 @@ export default function RevenueAssurancePage() {
         : "";
 
       options.push({
-        date,
+        sessionId: info.sessionId,
+        date: info.date,
+        sessionLabel: info.sessionLabel,
         countedBy: info.countedBy,
         countedAt: info.countedAt,
-        productCount: count || 0,
-        label: `${dateStr}${timeStr ? ` at ${timeStr}` : ""} — ${info.countedBy} (${count || 0} products)`,
+        productCount: info.productCount,
+        label: `${dateStr}${timeStr ? ` at ${timeStr}` : ""} — ${info.sessionLabel} · ${info.countedBy} (${info.productCount} products)`,
       });
     }
+
+    // Sort by countedAt descending (most recent first)
+    options.sort((a, b) => (b.countedAt || "").localeCompare(a.countedAt || ""));
 
     setCountOptions(options);
 
@@ -123,13 +131,15 @@ export default function RevenueAssurancePage() {
     }
 
     setLoading(true);
-    const closingDate = countOptions[closingIdx].date;
+    const closingOption = countOptions[closingIdx];
+    const closingSessionId = closingOption.sessionId;
+    const closingDate = closingOption.date;
 
-    // 1. Get closing stock counts
+    // 1. Get closing stock counts by session_id
     const { data: closingCounts } = await db
       .from("stock_counts")
       .select("product_id, closing_units")
-      .eq("count_date", closingDate);
+      .eq("session_id", closingSessionId);
 
     if (!closingCounts || closingCounts.length === 0) {
       setRows([]);
@@ -144,25 +154,25 @@ export default function RevenueAssurancePage() {
 
     const productIds = [...closingMap.keys()];
 
-    // 2. Get opening stock (from selected opening count, or opening_units if none)
+    // 2. Get opening stock (from selected opening session, or opening_units if none)
     const openingMap = new Map<string, number>();
     if (openingIdx >= 0 && openingIdx < countOptions.length) {
-      const openingDate = countOptions[openingIdx].date;
+      const openingSessionId = countOptions[openingIdx].sessionId;
       const { data: openingCounts } = await db
         .from("stock_counts")
         .select("product_id, closing_units")
-        .eq("count_date", openingDate)
+        .eq("session_id", openingSessionId)
         .in("product_id", productIds);
 
       ((openingCounts || []) as any[]).forEach((c: any) => {
         openingMap.set(c.product_id, c.closing_units);
       });
     } else {
-      // No opening selected — use opening_units from closing count
+      // No opening selected — use opening_units from closing session
       const { data: fallback } = await db
         .from("stock_counts")
         .select("product_id, opening_units")
-        .eq("count_date", closingDate);
+        .eq("session_id", closingSessionId);
 
       ((fallback || []) as any[]).forEach((c: any) => {
         openingMap.set(c.product_id, c.opening_units);
@@ -182,7 +192,7 @@ export default function RevenueAssurancePage() {
     const dateFrom = openingIdx >= 0 ? countOptions[openingIdx].date : closingDate;
     const dateTo = closingDate;
 
-    let replenishMap = new Map<string, number>();
+    const replenishMap = new Map<string, number>();
     const { data: receipts } = await db
       .from("stock_receipts")
       .select("id")
