@@ -178,7 +178,7 @@ export default function StockCountPage() {
         closing_units: parseInt(r.closingCount) || 0,
         replenished_units: 0,
         counted_by: userName,
-        counted_at: existing ? undefined : now, // only set on first count
+        counted_at: now, // always update timestamp so RA shows accurate time
         updated_at: now,
         update_count: existing ? (existing.update_count || 1) + 1 : 1,
       };
