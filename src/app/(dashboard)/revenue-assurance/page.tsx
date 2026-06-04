@@ -134,7 +134,9 @@ export default function RevenueAssurancePage() {
     if (options.length >= 2) {
       setClosingIdx(0);
       setOpeningIdx(1);
-    } else if (options.length === 1) {
+    } else {
+      // Only one count — select it as closing, leave opening unset
+      // User must do a second count before RA can work
       setClosingIdx(0);
       setOpeningIdx(-1);
     }
@@ -142,10 +144,13 @@ export default function RevenueAssurancePage() {
     setLoadingOptions(false);
   }
 
-  // Recalculate when user changes selections
+  // Recalculate when user changes selections — both must be selected
   useEffect(() => {
-    if (!loadingOptions && closingIdx >= 0) {
+    if (!loadingOptions && closingIdx >= 0 && openingIdx >= 0) {
       loadAssurance();
+    } else if (!loadingOptions) {
+      setRows([]);
+      setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [openingIdx, closingIdx, loadingOptions]);
@@ -189,24 +194,24 @@ export default function RevenueAssurancePage() {
     closingCounts.forEach((c: any) => closingMap.set(c.product_id, c.closing_units));
     const productIds = [...closingMap.keys()];
 
-    // 2. Get OPENING stock
-    // If user selected an opening count → use its closing_units (that count's result = our opening)
-    // If no opening selected → use opening_units snapshot from the closing count itself
+    // 2. Get OPENING stock — closing_units from the opening count session
+    // (The physical count at start of period IS the opening stock for this period)
     const openingMap = new Map<string, number>();
 
-    if (openingIdx >= 0 && openingIdx < countOptions.length) {
-      const openingOption = countOptions[openingIdx];
-      const openingCounts = await getCountsForOption(openingOption, "product_id, closing_units");
-      openingCounts.forEach((c: any) => {
-        if (productIds.includes(c.product_id)) {
-          openingMap.set(c.product_id, c.closing_units);
-        }
-      });
-    } else {
-      // Fallback: use opening_units from the closing count session
-      const fallbackCounts = await getCountsForOption(closingOption, "product_id, opening_units");
-      fallbackCounts.forEach((c: any) => openingMap.set(c.product_id, c.opening_units));
+    if (openingIdx < 0 || openingIdx >= countOptions.length) {
+      // Should not happen — UI enforces both selections — but guard anyway
+      setRows([]);
+      setLoading(false);
+      return;
     }
+
+    const openingOption = countOptions[openingIdx];
+    const openingCounts = await getCountsForOption(openingOption, "product_id, closing_units");
+    openingCounts.forEach((c: any) => {
+      if (productIds.includes(c.product_id)) {
+        openingMap.set(c.product_id, c.closing_units);
+      }
+    });
 
     // 3. Get product details
     const { data: products } = await db
@@ -218,7 +223,7 @@ export default function RevenueAssurancePage() {
     ((products || []) as any[]).forEach((p: any) => prodMap.set(p.id, p));
 
     // 4. Get replenishments in the period
-    const dateFrom = openingIdx >= 0 ? countOptions[openingIdx].date : closingOption.date;
+    const dateFrom = openingOption.date;
     const dateTo = closingOption.date;
 
     const replenishMap = new Map<string, number>();
@@ -248,7 +253,7 @@ export default function RevenueAssurancePage() {
 
     // 5. Get POS sales in the period
     // Use created_at timestamps for precise filtering when both counts are on the same day
-    const openingTimestamp = openingIdx >= 0 ? countOptions[openingIdx].countedAt : "";
+    const openingTimestamp = openingOption.countedAt;
     const closingTimestamp = closingOption.countedAt;
 
     let salesData: any[] = [];
@@ -387,18 +392,16 @@ export default function RevenueAssurancePage() {
                 onChange={(e) => setOpeningIdx(parseInt(e.target.value))}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
               >
-                <option value={-1}>— Use system opening stock —</option>
+                <option value={-1}>— Select a stock count —</option>
                 {countOptions.map((opt, idx) => (
                   <option key={`open-${idx}`} value={idx} disabled={idx === closingIdx}>
                     {opt.label}
                   </option>
                 ))}
               </select>
-              {openingIdx >= 0 && (
-                <p className="text-xs text-gray-400 mt-1">
-                  Uses the closing stock from this count as your opening stock
-                </p>
-              )}
+              <p className="text-xs text-gray-400 mt-1">
+                The closing stock from this count becomes your opening stock
+              </p>
             </div>
             <div>
               <label className="flex items-center gap-1.5 text-sm font-medium text-gray-700 mb-2">
@@ -443,7 +446,15 @@ export default function RevenueAssurancePage() {
             </button>
           </div>
 
-          {loading ? (
+          {openingIdx < 0 ? (
+            <div className="text-center py-12">
+              <Calendar className="w-12 h-12 text-gray-300 mx-auto mb-3" />
+              <p className="text-gray-500 font-medium">Select an opening count above</p>
+              <p className="text-sm text-gray-400 mt-1">
+                Pick the stock count from the start of the period you want to check.
+              </p>
+            </div>
+          ) : loading ? (
             <div className="text-center py-12 text-gray-400">Calculating...</div>
           ) : (
             <>
