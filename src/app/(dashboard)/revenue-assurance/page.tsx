@@ -203,10 +203,12 @@ export default function RevenueAssurancePage() {
       if (productIds.includes(c.product_id)) openingMap.set(c.product_id, c.closing_units);
     });
 
+    // Only include sellable products — exclude ingredients/non-revenue items
     const { data: products } = await db
       .from("products")
-      .select("id, inventory_id, name, category, selling_price, qty_in_pack")
-      .in("id", productIds);
+      .select("id, inventory_id, name, category, selling_price, qty_in_pack, is_sellable")
+      .in("id", productIds)
+      .neq("is_sellable", false);
 
     const prodMap = new Map<string, any>();
     ((products || []) as any[]).forEach((p: any) => prodMap.set(p.id, p));

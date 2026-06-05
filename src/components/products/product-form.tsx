@@ -24,12 +24,20 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     qty_in_pack: product?.qty_in_pack?.toString() || "",
     selling_price: product?.selling_price?.toString() || "",
     is_prepared: product?.is_prepared || false,
+    is_sellable: (product as any)?.is_sellable !== false,
     opening_stock: product?.opening_stock?.toString() || "0",
     reorder_level: product?.reorder_level?.toString() || "0",
   });
 
   function update(field: string, value: string | boolean) {
-    setForm((prev) => ({ ...prev, [field]: value }));
+    setForm((prev) => {
+      const next = { ...prev, [field]: value };
+      // Auto-uncheck sellable when category is Ingredients
+      if (field === "category" && value === "Ingredients") {
+        next.is_sellable = false;
+      }
+      return next;
+    });
   }
 
   async function handleSubmit(e: React.FormEvent) {
@@ -45,6 +53,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       qty_in_pack: form.qty_in_pack ? parseInt(form.qty_in_pack) : null,
       selling_price: parseFloat(form.selling_price),
       is_prepared: form.is_prepared,
+      is_sellable: form.is_sellable,
       opening_stock: parseInt(form.opening_stock) || 0,
       reorder_level: parseInt(form.reorder_level) || 0,
     };
@@ -114,7 +123,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           value={form.category}
           onChange={(e) => update("category", e.target.value)}
         />
-        <div className="flex items-end pb-1">
+        <div className="flex flex-col gap-2 justify-end pb-1">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -123,6 +132,15 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
               className="rounded border-gray-300 text-green-600 focus:ring-green-500"
             />
             Prepared food item (has recipe)
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.is_sellable}
+              onChange={(e) => update("is_sellable", e.target.checked)}
+              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            Sellable item (included in Revenue Assurance)
           </label>
         </div>
       </div>
