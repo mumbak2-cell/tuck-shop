@@ -81,7 +81,7 @@ export function Sidebar() {
         }`}
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-green-700">Tuck Shop</h1>
+          <h1 className="text-lg font-bold text-green-700">Tilify</h1>
           <button onClick={() => setOpen(false)} className="lg:hidden p-1">
             <X className="w-5 h-5" />
           </button>

@@ -5,6 +5,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Upload, Download, Check } from "lucide-react";
+import { formatMoney } from "@/lib/format";
 
 interface CsvRow {
   inventory_id?: string;
@@ -123,13 +124,13 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
           changes.push(`Stock: ${match.opening_stock} → ${csvRow.opening_stock}`);
         }
         if (csvRow.package_price && parseFloat(csvRow.package_price) !== (match.package_price || 0)) {
-          changes.push(`Cost: R${match.package_price || 0} → R${csvRow.package_price}`);
+          changes.push(`Cost: ${formatMoney(Number(match.package_price) || 0)} → ${formatMoney(Number(csvRow.package_price) || 0)}`);
         }
         if (csvRow.qty_in_pack && parseInt(csvRow.qty_in_pack) !== (match.qty_in_pack || 0)) {
           changes.push(`Pack Qty: ${match.qty_in_pack || 0} → ${csvRow.qty_in_pack}`);
         }
         if (csvRow.selling_price && parseFloat(csvRow.selling_price) !== match.selling_price) {
-          changes.push(`Price: R${match.selling_price} → R${csvRow.selling_price}`);
+          changes.push(`Price: ${formatMoney(Number(match.selling_price) || 0)} → ${formatMoney(Number(csvRow.selling_price) || 0)}`);
         }
       }
 
@@ -193,7 +194,7 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = "tuckshop_stock_template.csv";
+    a.download = "tilify_stock_template.csv";
     a.click();
     URL.revokeObjectURL(url);
   }

@@ -238,7 +238,7 @@ export default function CreditLedgerPage() {
   async function sendWhatsAppStatement() {
     if (!selectedCustomer?.phone) return;
     const today = new Date().toLocaleDateString("en-ZA");
-    let msg = `*Tuck Shop — Statement*\nDate: ${today}\nCustomer: ${selectedCustomer.name}\n\n`;
+    let msg = `*Statement*\nDate: ${today}\nCustomer: ${selectedCustomer.name}\n\n`;
 
     if (broughtForward > 0) {
       msg += `Brought forward: ${formatZAR(broughtForward)}\n\n`;
@@ -271,7 +271,7 @@ export default function CreditLedgerPage() {
 
     if (filterCustomer !== "all" && selectedCustomer) {
       // Single customer export
-      lines.push(`Tuck Shop — Credit Ledger Statement`);
+      lines.push(`Credit Ledger Statement`);
       lines.push(`Customer,${selectedCustomer.name}`);
       lines.push(`Period,${filterFrom} to ${filterTo}`);
       lines.push(`Exported,${new Date().toLocaleDateString("en-ZA")}`);
@@ -295,7 +295,7 @@ export default function CreditLedgerPage() {
       lines.push(`,Total Outstanding,,,${Math.max(periodBalance, 0).toFixed(2)}`);
     } else {
       // All customers export
-      lines.push(`Tuck Shop — Credit Ledger`);
+      lines.push(`Credit Ledger`);
       lines.push(`Period,${filterFrom} to ${filterTo}`);
       lines.push(`Exported,${new Date().toLocaleDateString("en-ZA")}`);
       lines.push(``);
@@ -303,7 +303,7 @@ export default function CreditLedgerPage() {
 
       for (const entry of entries) {
         const desc = entry.type === "credit_sale"
-          ? `${entry.quantity}x ${entry.productName} @ R${entry.unitPrice.toFixed(2)}`
+          ? `${entry.quantity}x ${entry.productName} @ ${formatZAR(entry.unitPrice)}`
           : "Payment received";
         const amt = entry.type === "payment" ? entry.amount.toFixed(2) : (-entry.amount).toFixed(2);
         lines.push(`${entry.date},"${entry.customerName}",${entry.type === "payment" ? "Payment" : "Credit Sale"},"${desc}",${amt}`);

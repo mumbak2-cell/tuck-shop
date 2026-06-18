@@ -1,7 +1,7 @@
 {
-  "name": "Tuck Shop",
-  "short_name": "Tuck Shop",
-  "description": "Tuck Shop Management System",
+  "name": "Tilify",
+  "short_name": "Tilify",
+  "description": "Tilify — Inventory, POS and Revenue Assurance",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#ffffff",

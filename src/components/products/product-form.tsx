@@ -5,6 +5,7 @@ import { Product, CATEGORIES } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { formatMoney } from "@/lib/format";
 
 interface Props {
   product?: Product | null;
@@ -175,7 +176,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       {costPerUnit !== null && margin !== null && (
         <div className="bg-gray-50 rounded-lg px-4 py-3 text-sm">
           <span className="text-gray-600">Cost per unit: </span>
-          <span className="font-medium">R{costPerUnit.toFixed(2)}</span>
+          <span className="font-medium">{formatMoney(costPerUnit)}</span>
           <span className="mx-3 text-gray-300">|</span>
           <span className="text-gray-600">Margin: </span>
           <span className={`font-medium ${margin < 10 ? "text-red-600" : margin < 30 ? "text-amber-600" : "text-green-600"}`}>

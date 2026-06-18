@@ -1,4 +1,4 @@
-const CACHE_NAME = "tuck-shop-v1";
+const CACHE_NAME = "tilify-v1-2026-06-18";
 const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (e) => {

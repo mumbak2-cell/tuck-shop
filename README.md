@@ -1,6 +1,6 @@
-# MK Tuck Shop — Management System
+# Tilify — Inventory, POS and Revenue Assurance
 
-Tuck shop PWA for MK Global SA. Built with Next.js, Supabase, and Tailwind CSS.
+Tilify is the MK Global SA SaaS for small retailers and tuck-shop operators across SADC. PWA built with Next.js, Supabase, and Tailwind CSS. (Formerly the "Tuck Shop" project — folder name remains `tuck-shop` for git history continuity; rename the working folder separately if desired.)
 
 ## Setup Instructions
 
@@ -60,4 +60,4 @@ tuck-shop/
 ├── src/
 │   ├── app/
 │   │   ├── (dashboard)/
-│   │   │   �
+│   │   │   �

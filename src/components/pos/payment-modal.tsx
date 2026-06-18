@@ -124,7 +124,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     if (!customer || !customer.phone) return;
 
     const today = new Date().toLocaleDateString("en-ZA");
-    let msg = `*Tuck Shop — Credit Invoice*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
+    let msg = `*Credit Invoice*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
     items.forEach((item) => {
       msg += `• ${item.name} ×${item.quantity} @ ${formatZAR(item.unitPrice)} = ${formatZAR(item.unitPrice * item.quantity)}\n`;
     });

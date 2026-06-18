@@ -2,7 +2,10 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2 } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins } from "lucide-react";
+import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
+import { setActiveCurrency } from "@/lib/format";
+import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 
 export default function SettingsPage() {
   const [adminPin, setAdminPin] = useState("");
@@ -10,6 +13,7 @@ export default function SettingsPage() {
   const [ikhokhaLink, setIkhokhaLink] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
+  const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -26,8 +30,9 @@ export default function SettingsPage() {
     setAdminPin(map.admin_pin || "1234");
     setCashierPin(map.cashier_pin || "0000");
     setIkhokhaLink(map.ikhokha_link || "");
-    setBusinessName(map.business_name || "Tuck Shop");
+    setBusinessName(map.business_name || "My Shop");
     setBusinessPhone(map.business_phone || "");
+    setCurrency((map.currency as CurrencyCode) || DEFAULT_CURRENCY.code);
     setLoading(false);
   }
 
@@ -39,14 +44,23 @@ export default function SettingsPage() {
       { key: "admin_pin", value: adminPin || "1234" },
       { key: "cashier_pin", value: cashierPin || "0000" },
       { key: "ikhokha_link", value: ikhokhaLink },
-      { key: "business_name", value: businessName || "Tuck Shop" },
+      { key: "business_name", value: businessName || "My Shop" },
       { key: "business_phone", value: businessPhone },
+      { key: "currency", value: currency || DEFAULT_CURRENCY.code },
     ];
 
     for (const s of settings) {
       await db
         .from("app_settings")
         .upsert({ key: s.key, value: s.value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    }
+
+    // Apply the currency immediately so the rest of the UI reflects it without a reload.
+    setActiveCurrency(currency);
+    try {
+      window.localStorage.setItem(CURRENCY_CACHE_KEY, currency);
+    } catch {
+      // ignore
     }
 
     setSuccess(true);
@@ -95,6 +109,32 @@ export default function SettingsPage() {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
               />
             </div>
+          </div>
+        </div>
+
+        {/* Currency */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Coins className="w-5 h-5 text-gray-600" />
+            Currency
+          </h2>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Display currency</label>
+            <select
+              value={currency}
+              onChange={(e) => setCurrency(e.target.value as CurrencyCode)}
+              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            >
+              {SADC_CURRENCIES.map((c) => (
+                <option key={c.code} value={c.code}>
+                  {c.country} — {c.symbol} ({c.code}, {c.name})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              Symbol shown before every amount in the app, on receipts, statements and exports.
+              Changes apply immediately after Save.
+            </p>
           </div>
         </div>
 

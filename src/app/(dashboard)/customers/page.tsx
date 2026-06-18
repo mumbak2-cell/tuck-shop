@@ -76,7 +76,7 @@ export default function CustomersPage() {
   async function sendStatement(customer: Customer) {
     if (!customer.phone) return;
     const today = new Date().toLocaleDateString("en-ZA");
-    let msg = `*Tuck Shop — Statement*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
+    let msg = `*Statement*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
     msg += `*Outstanding Balance: ${formatZAR(customer.balance)}*\n`;
 
     // Check for iKhokha link

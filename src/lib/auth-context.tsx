@@ -52,7 +52,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Check session storage for existing login
   useEffect(() => {
-    const saved = sessionStorage.getItem("tuckshop_auth");
+    const saved = sessionStorage.getItem("tilify_auth") || sessionStorage.getItem("tuckshop_auth");
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
@@ -87,14 +87,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setRole("admin");
       setName("Admin");
       setAuthenticated(true);
-      sessionStorage.setItem("tuckshop_auth", JSON.stringify({ role: "admin", name: "Admin" }));
+      sessionStorage.setItem("tilify_auth", JSON.stringify({ role: "admin", name: "Admin" }));
       return true;
     }
     if (pin === currentPins.cashier) {
       setRole("cashier");
       setName("Cashier");
       setAuthenticated(true);
-      sessionStorage.setItem("tuckshop_auth", JSON.stringify({ role: "cashier", name: "Cashier" }));
+      sessionStorage.setItem("tilify_auth", JSON.stringify({ role: "cashier", name: "Cashier" }));
       return true;
     }
     return false;
@@ -104,6 +104,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setRole(null);
     setName("");
     setAuthenticated(false);
+    sessionStorage.removeItem("tilify_auth");
     sessionStorage.removeItem("tuckshop_auth");
   }
 

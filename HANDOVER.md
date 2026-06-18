@@ -1,4 +1,4 @@
-# Tuck Shop App — Handover Document
+# Tilify (formerly Tuck Shop App) — Handover Document
 
 ## Project Overview
 
