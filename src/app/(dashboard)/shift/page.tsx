@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
+import { useOrg } from "@/lib/org-context";
 import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ interface LastCount {
 export default function ShiftPage() {
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift } = useShift();
+  const { requiresStockCountToClose } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
@@ -79,7 +81,7 @@ export default function ShiftPage() {
   }
 
   async function handleCloseShift() {
-    if (!shift?.stock_count_done) {
+    if (requiresStockCountToClose && !shift?.stock_count_done) {
       alert("Please complete a stock count before closing the shift. Use Stock Count in the app or import from StockPilot.");
       return;
     }
@@ -282,7 +284,7 @@ export default function ShiftPage() {
             Close Shift
           </h2>
 
-          {!shift.stock_count_done && (
+          {requiresStockCountToClose && !shift.stock_count_done && (
             <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
               <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-amber-800">
@@ -317,8 +319,8 @@ export default function ShiftPage() {
             <Button
               onClick={handleCloseShift}
               loading={closing}
-              variant={shift.stock_count_done ? "danger" : "secondary"}
-              disabled={!shift.stock_count_done}
+              variant={requiresStockCountToClose && !shift.stock_count_done ? "secondary" : "danger"}
+              disabled={requiresStockCountToClose && !shift.stock_count_done}
               size="lg"
               className="w-full text-base py-4"
             >

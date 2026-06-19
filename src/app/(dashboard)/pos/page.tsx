@@ -6,11 +6,13 @@ import { ProductGrid } from "@/components/pos/product-grid";
 import { Cart, CartItem } from "@/components/pos/cart";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { useShift } from "@/lib/shift-context";
+import { useOrg } from "@/lib/org-context";
 import { Play } from "lucide-react";
 import Link from "next/link";
 
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
+  const { requiresShift } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
@@ -79,7 +81,8 @@ export default function POSPage() {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
   }
 
-  if (!isOpen) {
+  // Shift gate only applies when the operator has opted into the shift workflow.
+  if (requiresShift && !isOpen) {
     return (
       <div className="flex flex-col items-center justify-center py-20">
         <div className="w-16 h-16 bg-amber-100 rounded-full flex items-center justify-center mb-4">

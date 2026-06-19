@@ -26,6 +26,9 @@ export interface OrgState {
   setupCompleted: boolean;
   preparesFood: boolean;
   shopType: string | null;
+  // Sales workflow flexibility
+  requiresShift: boolean;
+  requiresStockCountToClose: boolean;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -58,6 +61,8 @@ const OrgContext = createContext<OrgState>({
   setupCompleted: false,
   preparesFood: false,
   shopType: null,
+  requiresShift: false,
+  requiresStockCountToClose: false,
   refresh: async () => {},
   signOut: async () => {},
 });
@@ -142,7 +147,13 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const { data: settingsRows } = await db
       .from("app_settings")
       .select("key, value")
-      .in("key", ["setup_completed", "prepares_food", "shop_type"]);
+      .in("key", [
+        "setup_completed",
+        "prepares_food",
+        "shop_type",
+        "requires_shift",
+        "requires_stock_count_to_close",
+      ]);
 
     const settingsMap: Record<string, string> = {};
     ((settingsRows || []) as { key: string; value: string }[]).forEach((row) => {
@@ -164,6 +175,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       setupCompleted: settingsMap.setup_completed === "true",
       preparesFood: settingsMap.prepares_food === "true",
       shopType: settingsMap.shop_type ?? null,
+      requiresShift: settingsMap.requires_shift === "true",
+      requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
     }));
   }
 
