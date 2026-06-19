@@ -5,7 +5,13 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { SHOP_PRESETS } from "@/lib/shop-presets";
-import { Store, Plus, X } from "lucide-react";
+import {
+  getPaymentPresetsForCurrency,
+  type PaymentMethodPreset,
+  type PaymentKind,
+} from "@/lib/payment-presets";
+import { DEFAULT_CURRENCY } from "@/lib/currency";
+import { Store, Plus, X, CreditCard } from "lucide-react";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -15,8 +21,28 @@ export default function SetupPage() {
   const [inventoryPrefix, setInventoryPrefix] = useState<string>("ITEM");
   const [categories, setCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
+  // Payment methods - seeded from the org's currency (country)
+  const [paymentMethods, setPaymentMethods] = useState<PaymentMethodPreset[]>([]);
+  const [newPaymentName, setNewPaymentName] = useState("");
+  const [newPaymentKind, setNewPaymentKind] = useState<PaymentKind>("mobile_money");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Seed the payment methods from the operator's currency once it loads.
+  useEffect(() => {
+    if (paymentMethods.length === 0) {
+      // org.shopType is null at this stage; rely on currency which is set on sign-up.
+      // Currency lives in localStorage too (CurrencyProvider cached it on signup).
+      let currency: string = DEFAULT_CURRENCY.code;
+      try {
+        currency = window.localStorage.getItem("tilify_currency") || currency;
+      } catch {
+        // ignore
+      }
+      setPaymentMethods(getPaymentPresetsForCurrency(currency));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Redirect away if setup is already done or auth has not loaded
   useEffect(() => {
@@ -52,6 +78,21 @@ export default function SetupPage() {
     setCategories(categories.filter((_, i) => i !== idx));
   }
 
+  function addPaymentMethod() {
+    const name = newPaymentName.trim();
+    if (!name) return;
+    if (paymentMethods.some((m) => m.name.toLowerCase() === name.toLowerCase())) {
+      setNewPaymentName("");
+      return;
+    }
+    setPaymentMethods([...paymentMethods, { name, kind: newPaymentKind }]);
+    setNewPaymentName("");
+  }
+
+  function removePaymentMethod(idx: number) {
+    setPaymentMethods(paymentMethods.filter((_, i) => i !== idx));
+  }
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
@@ -68,6 +109,10 @@ export default function SetupPage() {
       setError("Please add at least one product category.");
       return;
     }
+    if (paymentMethods.length === 0) {
+      setError("Please keep at least one payment method.");
+      return;
+    }
 
     setSaving(true);
 
@@ -80,6 +125,20 @@ export default function SetupPage() {
     );
     if (catErr) {
       setError("Could not save categories: " + catErr.message);
+      setSaving(false);
+      return;
+    }
+
+    // Save the org's payment method list.
+    const { error: pmErr } = await db.from("payment_methods").insert(
+      paymentMethods.map((m, i) => ({
+        name: m.name,
+        kind: m.kind,
+        sort_order: i,
+      }))
+    );
+    if (pmErr) {
+      setError("Could not save payment methods: " + pmErr.message);
       setSaving(false);
       return;
     }
@@ -235,6 +294,76 @@ export default function SetupPage() {
               className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
             <Button type="button" variant="secondary" onClick={addCategory}>
+              <Plus className="w-4 h-4 mr-1" /> Add
+            </Button>
+          </div>
+        </div>
+
+        {/* Payment methods */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <CreditCard className="w-4 h-4 text-gray-500" />
+            <label className="block text-sm font-medium text-gray-700">
+              How do customers pay you?
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            Suggested for your country based on your currency. Add, edit, or remove any of these
+            before saving. Mobile money and cash are pre-selected for SADC markets.
+          </p>
+          <div className="flex flex-wrap gap-2 mb-3 min-h-[2.5rem]">
+            {paymentMethods.length === 0 && (
+              <span className="text-sm text-gray-400 italic py-1">
+                Add at least one payment method below.
+              </span>
+            )}
+            {paymentMethods.map((m, i) => (
+              <span
+                key={`${m.name}-${i}`}
+                className="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 border border-blue-200 rounded-full text-sm text-blue-900"
+              >
+                <span className="font-medium">{m.name}</span>
+                <span className="text-xs text-blue-600 opacity-70">
+                  {m.kind === "mobile_money" ? "mobile" : m.kind}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePaymentMethod(i)}
+                  className="text-blue-600 hover:text-red-600"
+                  aria-label={`Remove ${m.name}`}
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </span>
+            ))}
+          </div>
+          <div className="flex gap-2">
+            <input
+              type="text"
+              value={newPaymentName}
+              onChange={(e) => setNewPaymentName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addPaymentMethod();
+                }
+              }}
+              placeholder="Payment method name"
+              className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            <select
+              value={newPaymentKind}
+              onChange={(e) => setNewPaymentKind(e.target.value as PaymentKind)}
+              className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            >
+              <option value="cash">Cash</option>
+              <option value="card">Card</option>
+              <option value="mobile_money">Mobile Money</option>
+              <option value="eft">EFT</option>
+              <option value="credit">Credit</option>
+              <option value="other">Other</option>
+            </select>
+            <Button type="button" variant="secondary" onClick={addPaymentMethod}>
               <Plus className="w-4 h-4 mr-1" /> Add
             </Button>
           </div>
