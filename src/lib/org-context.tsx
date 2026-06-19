@@ -86,6 +86,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     setupCompleted: false,
     preparesFood: false,
     shopType: null,
+    requiresShift: false,
+    requiresStockCountToClose: false,
     refresh: async () => {},
     signOut: async () => {},
   });
@@ -107,6 +109,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         setupCompleted: false,
         preparesFood: false,
         shopType: null,
+        requiresShift: false,
+        requiresStockCountToClose: false,
       }));
       return;
     }
@@ -135,6 +139,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         setupCompleted: false,
         preparesFood: false,
         shopType: null,
+        requiresShift: false,
+        requiresStockCountToClose: false,
       }));
       return;
     }
