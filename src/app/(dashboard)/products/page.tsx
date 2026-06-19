@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
-import { Product, CATEGORIES } from "@/types/database";
+import { Product } from "@/types/database";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -13,12 +13,25 @@ import { Plus, Search, Filter, Upload } from "lucide-react";
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+
+  // Load the org's categories (RLS scopes automatically)
+  useEffect(() => {
+    (async () => {
+      const { data } = await db
+        .from("categories")
+        .select("name")
+        .eq("active", true)
+        .order("sort_order");
+      setCategories(((data as { name: string }[]) || []).map((c) => c.name));
+    })();
+  }, []);
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
@@ -100,7 +113,7 @@ export default function ProductsPage() {
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
           >
             <option value="">All Categories</option>
-            {CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
