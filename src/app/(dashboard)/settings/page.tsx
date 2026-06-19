@@ -172,24 +172,27 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* iKhokha Payment Link */}
+        {/* Online Payment Link (generic) */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <Link className="w-5 h-5 text-gray-600" />
-            iKhokha Payment Link
+            Online Payment Link
           </h2>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Payment Link URL</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Payment Link URL (optional)
+            </label>
             <input
               type="url"
               value={ikhokhaLink}
               onChange={(e) => setIkhokhaLink(e.target.value)}
-              placeholder="https://pay.ikhokha.com/your-link"
+              placeholder="https://..."
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
             <p className="text-xs text-gray-500 mt-1">
-              This link will be included in WhatsApp invoices and statements so customers can pay online.
-              Get your payment link from the iKhokha app or dashboard.
+              Any URL where credit customers can pay you online — iKhokha, Yoco, Flutterwave, a bank
+              transfer page, a mobile money request link, or your own payment portal. It will be attached
+              to every WhatsApp credit invoice and statement you send. Leave blank if you do not have one.
             </p>
           </div>
         </div>

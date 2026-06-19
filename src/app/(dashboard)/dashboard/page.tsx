@@ -147,7 +147,7 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-3">
               <SalesBar label="Cash" amount={data.todayCash} total={data.todaySales} icon={Banknote} color="bg-green-500" />
-              <SalesBar label="Card (iKhokha)" amount={data.todayCard} total={data.todaySales} icon={CreditCard} color="bg-blue-500" />
+              <SalesBar label="Card" amount={data.todayCard} total={data.todaySales} icon={CreditCard} color="bg-blue-500" />
               <SalesBar label="Credit" amount={data.todayCredit} total={data.todaySales} icon={Users} color="bg-amber-500" />
               <div className="pt-3 border-t border-gray-100 flex justify-between text-sm font-semibold">
                 <span>Total</span>

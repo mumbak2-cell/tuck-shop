@@ -192,7 +192,7 @@ export default function ProfitLossPage() {
             </div>
             <div className="divide-y divide-gray-100">
               <PnLRow label="Cash Sales" amount={cashRevenue} />
-              <PnLRow label="Card Sales (iKhokha)" amount={cardRevenue} />
+              <PnLRow label="Card Sales" amount={cardRevenue} />
               <PnLRow label="Credit Sales" amount={creditRevenue} />
               <PnLRow label="Total Revenue" amount={totalRevenue} bold />
             </div>
