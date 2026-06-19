@@ -3,6 +3,7 @@ import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ShiftProvider } from "@/lib/shift-context";
 import { CurrencyProvider } from "@/lib/currency-context";
+import { OrgProvider } from "@/lib/org-context";
 
 export const metadata: Metadata = {
   title: "Tilify",
@@ -26,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="antialiased bg-gray-50 text-gray-900">
-        <CurrencyProvider><AuthProvider><ShiftProvider>{children}</ShiftProvider></AuthProvider></CurrencyProvider>
+        <OrgProvider><CurrencyProvider><AuthProvider><ShiftProvider>{children}</ShiftProvider></AuthProvider></CurrencyProvider></OrgProvider>
       </body>
     </html>
   );

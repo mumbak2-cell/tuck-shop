@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import type { UserRole } from "@/types/database";
 
 interface NavItem {
@@ -31,6 +32,8 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   roles: UserRole[];
+  // If true, the item only shows when the org has prepares_food = true
+  foodOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -42,7 +45,7 @@ const navItems: NavItem[] = [
   { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"] },
   { href: "/stock-adjustments", label: "Stock Adjustments", icon: Wrench, roles: ["admin"] },
   { href: "/products", label: "Products", icon: Package, roles: ["admin"] },
-  { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"] },
+  { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"], foodOnly: true },
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"] },
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin"] },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"] },
@@ -56,8 +59,11 @@ export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { role, name, logout } = useAuth();
+  const { preparesFood } = useOrg();
 
-  const visibleItems = navItems.filter((item) => role && item.roles.includes(role));
+  const visibleItems = navItems.filter(
+    (item) => role && item.roles.includes(role) && (!item.foodOnly || preparesFood)
+  );
 
   return (
     <>

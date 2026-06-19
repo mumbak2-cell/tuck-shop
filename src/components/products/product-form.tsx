@@ -1,11 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
-import { Product, CATEGORIES } from "@/types/database";
+import { Product } from "@/types/database";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
-import { formatMoney } from "@/lib/format";
+import { formatMoney, getActiveSymbol } from "@/lib/format";
+import { useOrg } from "@/lib/org-context";
 
 interface Props {
   product?: Product | null;
@@ -13,27 +14,46 @@ interface Props {
   onCancel: () => void;
 }
 
+interface CategoryRow {
+  id: string;
+  name: string;
+  sort_order: number;
+}
+
 export function ProductForm({ product, onSaved, onCancel }: Props) {
+  const { preparesFood } = useOrg();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
 
   const [form, setForm] = useState({
-    inventory_id: product?.inventory_id || "",
     name: product?.name || "",
     category: product?.category || "",
     package_price: product?.package_price?.toString() || "",
     qty_in_pack: product?.qty_in_pack?.toString() || "",
     selling_price: product?.selling_price?.toString() || "",
     is_prepared: product?.is_prepared || false,
-    is_sellable: (product as any)?.is_sellable !== false,
+    is_sellable: (product as unknown as { is_sellable?: boolean })?.is_sellable !== false,
     opening_stock: product?.opening_stock?.toString() || "0",
     reorder_level: product?.reorder_level?.toString() || "0",
   });
 
+  // Load categories from the org's categories table (RLS scopes automatically)
+  useEffect(() => {
+    (async () => {
+      const { data } = await db
+        .from("categories")
+        .select("id, name, sort_order")
+        .eq("active", true)
+        .order("sort_order");
+      setCategories((data as CategoryRow[]) || []);
+    })();
+  }, []);
+
   function update(field: string, value: string | boolean) {
     setForm((prev) => {
       const next = { ...prev, [field]: value };
-      // Auto-uncheck sellable when category is Ingredients
+      // Auto-uncheck sellable when category is Ingredients (legacy convention)
       if (field === "category" && value === "Ingredients") {
         next.is_sellable = false;
       }
@@ -46,8 +66,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     setError("");
     setLoading(true);
 
-    const payload = {
-      inventory_id: form.inventory_id.trim(),
+    const payload: Record<string, unknown> = {
       name: form.name.trim(),
       category: form.category,
       package_price: form.package_price ? parseFloat(form.package_price) : null,
@@ -59,7 +78,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       reorder_level: parseInt(form.reorder_level) || 0,
     };
 
-    if (!payload.inventory_id || !payload.name || !payload.category || !payload.selling_price) {
+    if (!payload.name || !payload.category || !payload.selling_price) {
       setError("Please fill in all required fields.");
       setLoading(false);
       return;
@@ -69,6 +88,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     if (product) {
       result = await db.from("products").update(payload).eq("id", product.id);
     } else {
+      // inventory_id is auto-generated server-side by the trigger
       result = await db.from("products").insert(payload);
     }
 
@@ -82,7 +102,8 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     onSaved();
   }
 
-  const categoryOptions = CATEGORIES.map((c) => ({ value: c, label: c }));
+  const categoryOptions = categories.map((c) => ({ value: c.name, label: c.name }));
+  const currencySymbol = getActiveSymbol();
 
   // Computed cost and margin
   const costPerUnit =
@@ -100,40 +121,42 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Input
-          label="Inventory ID *"
-          placeholder="e.g. IN0094"
-          value={form.inventory_id}
-          onChange={(e) => update("inventory_id", e.target.value)}
-          disabled={!!product}
-        />
-        <Input
-          label="Product Name *"
-          placeholder="e.g. Chocolate Bar"
-          value={form.name}
-          onChange={(e) => update("name", e.target.value)}
-        />
-      </div>
+      {product && (
+        <div className="text-xs text-gray-500">
+          Inventory ID:{" "}
+          <span className="font-mono font-medium text-gray-700">{product.inventory_id}</span>
+          <span className="ml-2 text-gray-400">(auto-generated)</span>
+        </div>
+      )}
+
+      <Input
+        label="Product Name *"
+        placeholder="e.g. A4 Ream, Blue Pen, Chocolate Bar"
+        value={form.name}
+        onChange={(e) => update("name", e.target.value)}
+      />
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <Select
           label="Category *"
           options={categoryOptions}
-          placeholder="Select category"
+          placeholder={categoryOptions.length === 0 ? "No categories - set up in Settings" : "Select category"}
           value={form.category}
           onChange={(e) => update("category", e.target.value)}
+          disabled={categoryOptions.length === 0}
         />
         <div className="flex flex-col gap-2 justify-end pb-1">
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={form.is_prepared}
-              onChange={(e) => update("is_prepared", e.target.checked)}
-              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-            />
-            Prepared food item (has recipe)
-          </label>
+          {preparesFood && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.is_prepared}
+                onChange={(e) => update("is_prepared", e.target.checked)}
+                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              Prepared food item (has recipe)
+            </label>
+          )}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -148,7 +171,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <Input
-          label="Package / Batch Price (R)"
+          label={`Package / Batch Price (${currencySymbol})`}
           type="number"
           step="0.01"
           placeholder="0.00"
@@ -163,7 +186,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           onChange={(e) => update("qty_in_pack", e.target.value)}
         />
         <Input
-          label="Selling Price (R) *"
+          label={`Selling Price (${currencySymbol}) *`}
           type="number"
           step="0.01"
           placeholder="0.00"
