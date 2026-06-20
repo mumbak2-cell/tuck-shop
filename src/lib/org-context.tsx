@@ -33,8 +33,19 @@ export interface OrgState {
   signOut: () => Promise<void>;
 }
 
-function computeWritable(status: string | null, trialEndsAt: string | null): boolean {
-  if (status === "active") return true;
+function computeWritable(
+  status: string | null,
+  trialEndsAt: string | null,
+  currentPeriodEnd: string | null
+): boolean {
+  if (status === "active") {
+    // For paid subscriptions, also respect the current period end.
+    // If a webhook has not extended the period, the org reverts to read-only.
+    if (currentPeriodEnd && new Date(currentPeriodEnd).getTime() <= Date.now()) {
+      return false;
+    }
+    return true;
+  }
   if (status === "trialing" && trialEndsAt) {
     return new Date(trialEndsAt).getTime() > Date.now();
   }
@@ -118,7 +129,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // Pull the user's org membership and the org row (RLS scoped automatically).
     const { data: membership } = await db
       .from("org_members")
-      .select("org_id, role, organizations(id, name, trial_ends_at, subscription_plan, subscription_status)")
+      .select("org_id, role, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end)")
       .eq("user_id", session.user.id)
       .limit(1)
       .maybeSingle();
@@ -148,6 +159,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const org = membership.organizations;
     const status = org?.subscription_status ?? null;
     const trialEndsAt = org?.trial_ends_at ?? null;
+    const currentPeriodEnd = org?.current_period_end ?? null;
 
     // Pull the setup-related settings (single round trip, RLS scoped to the org)
     const { data: settingsRows } = await db
@@ -176,7 +188,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       trialEndsAt,
       subscriptionPlan: org?.subscription_plan ?? null,
       subscriptionStatus: status,
-      isWritable: computeWritable(status, trialEndsAt),
+      isWritable: computeWritable(status, trialEndsAt, currentPeriodEnd),
       trialDaysLeft: computeDaysLeft(status, trialEndsAt),
       setupCompleted: settingsMap.setup_completed === "true",
       preparesFood: settingsMap.prepares_food === "true",
