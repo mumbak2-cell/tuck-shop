@@ -114,7 +114,7 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
     .select("location_id, quantity, direction, products(selling_price)")
     .eq("org_id", orgId)
     .eq("adjustment_date", date);
-  const adjustments = adjRows || [];
+  const adjustments = (adjRows as any[]) || [];
 
   const locSummaries: LocationSummary[] = locations.map((loc) => {
     const locSales = sales.filter((s: { location_id?: string }) => s.location_id === loc.id);
@@ -144,10 +144,12 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
       .filter((e: { location_id?: string }) => e.location_id === loc.id)
       .reduce((sum: number, e: { amount?: number }) => sum + (Number(e.amount) || 0), 0);
 
-    const adjustmentsLoss = adjustments
-      .filter((a: { location_id?: string; direction?: string }) => a.location_id === loc.id && a.direction === "decrease")
-      .reduce((sum: number, a: { quantity?: number; products?: { selling_price?: number } | null }) => {
-        const sellPrice = Number(a.products?.selling_price) || 0;
+    const adjustmentsLoss: number = adjustments
+      .filter((a: any) => a.location_id === loc.id && a.direction === "decrease")
+      .reduce((sum: number, a: any) => {
+        // products may come back as an object or an array depending on FK direction
+        const productRel = Array.isArray(a.products) ? a.products[0] : a.products;
+        const sellPrice = Number(productRel?.selling_price) || 0;
         return sum + sellPrice * (Number(a.quantity) || 0);
       }, 0);
 
