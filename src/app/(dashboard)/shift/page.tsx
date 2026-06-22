@@ -20,7 +20,7 @@ interface LastCount {
 export default function ShiftPage() {
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift } = useShift();
-  const { requiresStockCountToClose } = useOrg();
+  const { requiresStockCountToClose, currentLocationId, currentLocationName } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
@@ -28,6 +28,13 @@ export default function ShiftPage() {
   const [closing, setClosing] = useState(false);
   const [lastCount, setLastCount] = useState<LastCount | null>(null);
   const [loadingCount, setLoadingCount] = useState(true);
+
+  // Reset the local form inputs whenever the operator switches location so
+  // values typed for one shop do not pre-fill at another shop.
+  useEffect(() => {
+    setOpeningFloat("0");
+    setClosingCash("");
+  }, [currentLocationId]);
 
   const today = new Date().toLocaleDateString("en-ZA", {
     weekday: "long",
