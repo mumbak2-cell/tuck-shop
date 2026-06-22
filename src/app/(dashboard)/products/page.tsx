@@ -16,6 +16,10 @@ export default function ProductsPage() {
   const { currentLocationId, currentLocationName } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [stockByProduct, setStockByProduct] = useState<Record<string, number>>({});
+  /** True once the per-location product_stock query has returned. A missing
+   * entry in stockByProduct means "zero at this location" only after this
+   * flag flips - before then we cannot distinguish "no row" from "not loaded". */
+  const [perLocationLoaded, setPerLocationLoaded] = useState(false);
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -52,19 +56,28 @@ export default function ProductsPage() {
     else setProducts(data || []);
 
     // Fetch per-location stock for the current location so the table shows
-    // accurate stock for this shop instead of the org-wide total. Falls back
-    // to products.opening_stock when no per-location row exists yet.
+    // accurate stock for this shop. If the query succeeds we treat missing
+    // entries as 0 (the product simply has no allocation at this location).
+    // If the query errors (e.g. migration 024 not yet run, product_stock
+    // table does not exist), we fall back to the legacy products.opening_stock.
     if (currentLocationId) {
-      const { data: stockRows } = await db
+      const { data: stockRows, error: stockErr } = await db
         .from("product_stock")
         .select("product_id, quantity")
         .eq("location_id", currentLocationId);
-      const map: Record<string, number> = {};
-      ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
-        map[r.product_id] = r.quantity;
-      });
-      setStockByProduct(map);
+      if (stockErr) {
+        setPerLocationLoaded(false);
+        setStockByProduct({});
+      } else {
+        const map: Record<string, number> = {};
+        ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
+          map[r.product_id] = r.quantity;
+        });
+        setStockByProduct(map);
+        setPerLocationLoaded(true);
+      }
     } else {
+      setPerLocationLoaded(false);
       setStockByProduct({});
     }
 
@@ -174,11 +187,14 @@ export default function ProductsPage() {
                   const margin = p.cost_per_unit && p.selling_price
                     ? ((p.selling_price - p.cost_per_unit) / p.selling_price) * 100
                     : null;
-                  // Per-location stock: prefer the value from product_stock for
-                  // the current location, fall back to the legacy org-wide
-                  // products.opening_stock when no row exists yet.
+                  // Per-location stock: when product_stock has loaded for the
+                  // current location, treat a missing entry as 0 (no allocation
+                  // at this shop). Only fall back to the legacy org-wide
+                  // products.opening_stock if the per-location query itself failed.
                   const locStock = stockByProduct[p.id];
-                  const displayStock = locStock !== undefined ? locStock : p.opening_stock;
+                  const displayStock = perLocationLoaded
+                    ? (locStock ?? 0)
+                    : p.opening_stock;
                   const lowStock = displayStock <= p.reorder_level && p.reorder_level > 0;
                   return (
                     <tr key={p.id} className="hover:bg-gray-50">

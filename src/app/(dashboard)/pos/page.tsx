@@ -12,20 +12,54 @@ import Link from "next/link";
 
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
-  const { requiresShift } = useOrg();
+  const { requiresShift, currentLocationId } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
 
   const fetchProducts = useCallback(async () => {
-    const { data } = await db
+    const { data: allProducts } = await db
       .from("products")
       .select("*")
       .eq("discontinued", false)
-      .gt("opening_stock", 0)
       .order("name");
-    setProducts(data || []);
-  }, []);
+
+    if (!allProducts) {
+      setProducts([]);
+      return;
+    }
+
+    // Filter to products that have stock at the CURRENT LOCATION (per-location
+    // model). Falls back to the legacy org-wide opening_stock > 0 filter if
+    // product_stock cannot be read (migration 024 not yet run on this DB).
+    if (currentLocationId) {
+      const { data: stockRows, error: stockErr } = await db
+        .from("product_stock")
+        .select("product_id, quantity")
+        .eq("location_id", currentLocationId)
+        .gt("quantity", 0);
+
+      if (!stockErr) {
+        const sellableIds = new Set<string>(
+          ((stockRows as { product_id: string; quantity: number }[]) || []).map((r) => r.product_id)
+        );
+        // Replace each product's opening_stock with its per-location quantity
+        // so cart and stock-check downstream code reads the right number.
+        const stockMap: Record<string, number> = {};
+        ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
+          stockMap[r.product_id] = r.quantity;
+        });
+        const filtered = (allProducts as Product[])
+          .filter((p) => sellableIds.has(p.id))
+          .map((p) => ({ ...p, opening_stock: stockMap[p.id] ?? 0 }));
+        setProducts(filtered);
+        return;
+      }
+    }
+
+    // Fallback: legacy org-wide filter
+    setProducts((allProducts as Product[]).filter((p) => p.opening_stock > 0));
+  }, [currentLocationId]);
 
   useEffect(() => {
     fetchProducts();
