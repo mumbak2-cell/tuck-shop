@@ -23,10 +23,12 @@ import {
   Wrench,
   Warehouse,
   Send,
+  Store,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { LocationSwitcher } from "@/components/layout/location-switcher";
 import type { UserRole } from "@/types/database";
 
 interface NavItem {
@@ -58,6 +60,7 @@ const navItems: NavItem[] = [
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"] },
   { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"], retailOnly: true },
   { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"], retailOnly: true },
+  { href: "/locations", label: "Locations", icon: Store, roles: ["admin"] },
   // WMS items
   { href: "/warehouse", label: "Warehouse Stock", icon: Warehouse, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/receive", label: "WMS Receive", icon: PackagePlus, roles: ["admin"], wmsOnly: true },
@@ -105,6 +108,10 @@ export function Sidebar() {
           <button onClick={() => setOpen(false)} className="lg:hidden p-1">
             <X className="w-5 h-5" />
           </button>
+        </div>
+
+        <div className="px-4 pt-4">
+          <LocationSwitcher />
         </div>
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">

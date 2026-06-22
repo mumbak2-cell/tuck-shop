@@ -9,6 +9,15 @@ import {
 import { supabase, db } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
 
+export interface LocationRow {
+  id: string;
+  name: string;
+  address: string | null;
+  phone: string | null;
+  sort_order: number;
+  active: boolean;
+}
+
 export interface OrgState {
   loading: boolean;
   session: Session | null;
@@ -29,9 +38,17 @@ export interface OrgState {
   // Sales workflow flexibility
   requiresShift: boolean;
   requiresStockCountToClose: boolean;
-  // WMS module
+  // WMS module (parallel warehouse-system integration)
   wmsEnabled: boolean;
   wmsOnly: boolean;
+  // Multi-location state
+  locations: LocationRow[];
+  currentLocationId: string | null;
+  currentLocationName: string | null;
+  /** Owners and admins can switch; cashiers are pinned to their assigned location. */
+  canSwitchLocation: boolean;
+  assignedLocationId: string | null;
+  switchLocation: (locationId: string) => void;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -61,7 +78,9 @@ function computeDaysLeft(status: string | null, trialEndsAt: string | null): num
   return Math.ceil(msLeft / (1000 * 60 * 60 * 24));
 }
 
-const OrgContext = createContext<OrgState>({
+const LOCATION_CACHE_KEY = "tilify_current_location";
+
+const DEFAULT_STATE: OrgState = {
   loading: true,
   session: null,
   orgId: null,
@@ -79,58 +98,59 @@ const OrgContext = createContext<OrgState>({
   requiresStockCountToClose: false,
   wmsEnabled: false,
   wmsOnly: false,
+  locations: [],
+  currentLocationId: null,
+  currentLocationName: null,
+  canSwitchLocation: false,
+  assignedLocationId: null,
+  switchLocation: () => {},
   refresh: async () => {},
   signOut: async () => {},
-});
+};
+
+const OrgContext = createContext<OrgState>(DEFAULT_STATE);
 
 export function useOrg() {
   return useContext(OrgContext);
 }
 
 export function OrgProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<OrgState>({
-    loading: true,
-    session: null,
-    orgId: null,
-    orgName: null,
-    role: null,
-    trialEndsAt: null,
-    subscriptionPlan: null,
-    subscriptionStatus: null,
-    isWritable: false,
-    trialDaysLeft: null,
-    setupCompleted: false,
-    preparesFood: false,
-    shopType: null,
-    requiresShift: false,
-    requiresStockCountToClose: false,
-    wmsEnabled: false,
-    wmsOnly: false,
-    refresh: async () => {},
-    signOut: async () => {},
-  });
+  const [state, setState] = useState<OrgState>(DEFAULT_STATE);
+
+  function pickCurrentLocation(
+    locations: LocationRow[],
+    assignedLocationId: string | null,
+    role: "owner" | "admin" | "member" | null
+  ): LocationRow | null {
+    if (locations.length === 0) return null;
+    // Cashiers are pinned to their assigned location.
+    if (role === "member" && assignedLocationId) {
+      const pinned = locations.find((l) => l.id === assignedLocationId);
+      if (pinned) return pinned;
+    }
+    // Owners and admins: restore last-selected from localStorage if still valid.
+    try {
+      if (typeof window !== "undefined") {
+        const cached = window.localStorage.getItem(LOCATION_CACHE_KEY);
+        if (cached) {
+          const match = locations.find((l) => l.id === cached);
+          if (match) return match;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    return locations[0];
+  }
 
   async function loadOrg(session: Session | null) {
     if (!session) {
       setState((s) => ({
-        ...s,
+        ...DEFAULT_STATE,
         loading: false,
-        session: null,
-        orgId: null,
-        orgName: null,
-        role: null,
-        trialEndsAt: null,
-        subscriptionPlan: null,
-        subscriptionStatus: null,
-        isWritable: false,
-        trialDaysLeft: null,
-        setupCompleted: false,
-        preparesFood: false,
-        shopType: null,
-        requiresShift: false,
-        requiresStockCountToClose: false,
-        wmsEnabled: false,
-        wmsOnly: false,
+        switchLocation: s.switchLocation,
+        refresh: s.refresh,
+        signOut: s.signOut,
       }));
       return;
     }
@@ -138,31 +158,19 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // Pull the user's org membership and the org row (RLS scoped automatically).
     const { data: membership } = await db
       .from("org_members")
-      .select("org_id, role, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end)")
+      .select("org_id, role, assigned_location_id, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end)")
       .eq("user_id", session.user.id)
       .limit(1)
       .maybeSingle();
 
     if (!membership) {
       setState((s) => ({
-        ...s,
+        ...DEFAULT_STATE,
         loading: false,
         session,
-        orgId: null,
-        orgName: null,
-        role: null,
-        trialEndsAt: null,
-        subscriptionPlan: null,
-        subscriptionStatus: null,
-        isWritable: false,
-        trialDaysLeft: null,
-        setupCompleted: false,
-        preparesFood: false,
-        shopType: null,
-        requiresShift: false,
-        requiresStockCountToClose: false,
-        wmsEnabled: false,
-        wmsOnly: false,
+        switchLocation: s.switchLocation,
+        refresh: s.refresh,
+        signOut: s.signOut,
       }));
       return;
     }
@@ -171,8 +179,10 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const status = org?.subscription_status ?? null;
     const trialEndsAt = org?.trial_ends_at ?? null;
     const currentPeriodEnd = org?.current_period_end ?? null;
+    const role = (membership.role as OrgState["role"]) ?? null;
+    const assignedLocationId = (membership as { assigned_location_id?: string | null }).assigned_location_id ?? null;
 
-    // Pull the setup-related settings (single round trip, RLS scoped to the org)
+    // Pull setup + workflow + WMS settings (single round-trip, RLS-scoped)
     const { data: settingsRows } = await db
       .from("app_settings")
       .select("key, value")
@@ -191,13 +201,23 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       settingsMap[row.key] = row.value;
     });
 
+    // Pull the locations the user can see (RLS handles cashier scoping).
+    const { data: locRows } = await db
+      .from("locations")
+      .select("id, name, address, phone, sort_order, active")
+      .eq("active", true)
+      .order("sort_order");
+    const locations = (locRows as LocationRow[]) || [];
+
+    const currentLocation = pickCurrentLocation(locations, assignedLocationId, role);
+
     setState((s) => ({
       ...s,
       loading: false,
       session,
       orgId: membership.org_id,
       orgName: org?.name ?? null,
-      role: membership.role,
+      role,
       trialEndsAt,
       subscriptionPlan: org?.subscription_plan ?? null,
       subscriptionStatus: status,
@@ -210,6 +230,11 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
       wmsEnabled: settingsMap.wms_enabled === "true",
       wmsOnly: settingsMap.wms_only === "true",
+      locations,
+      currentLocationId: currentLocation?.id ?? null,
+      currentLocationName: currentLocation?.name ?? null,
+      canSwitchLocation: role === "owner" || role === "admin",
+      assignedLocationId,
     }));
   }
 
@@ -231,18 +256,38 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function switchLocation(locationId: string) {
+    setState((s) => {
+      // Cashiers cannot switch off their assigned location.
+      if (!(s.role === "owner" || s.role === "admin")) return s;
+      const match = s.locations.find((l) => l.id === locationId);
+      if (!match) return s;
+      try {
+        window.localStorage.setItem(LOCATION_CACHE_KEY, match.id);
+      } catch {
+        // ignore
+      }
+      return {
+        ...s,
+        currentLocationId: match.id,
+        currentLocationName: match.name,
+      };
+    });
+  }
+
   const value: OrgState = {
     ...state,
+    switchLocation,
     refresh: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       await loadOrg(session);
     },
     signOut: async () => {
       await supabase.auth.signOut();
-      // Clear device-level PIN session too
       try {
         sessionStorage.removeItem("tilify_auth");
         sessionStorage.removeItem("tuckshop_auth");
+        window.localStorage.removeItem(LOCATION_CACHE_KEY);
       } catch {
         // ignore
       }
@@ -251,3 +296,5 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
   return <OrgContext.Provider value={value}>{children}</OrgContext.Provider>;
 }
+
+export const TILIFY_LOCATION_CACHE_KEY = LOCATION_CACHE_KEY;

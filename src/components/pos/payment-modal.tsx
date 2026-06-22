@@ -4,6 +4,7 @@ import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
+import { useOrg } from "@/lib/org-context";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -53,6 +54,7 @@ const KIND_COLOR: Record<PaymentKind, string> = {
 };
 
 export function PaymentModal({ open, onClose, items, total, onComplete }: Props) {
+  const { currentLocationId } = useOrg();
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -117,6 +119,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         payment_method: selectedMethod.name,
         payment_reference: paymentReference.trim() || null,
         customer_id: selectedKind === "credit" ? selectedCustomer : null,
+        // Multi-location: tag every sale with the currently-selected location.
+        location_id: currentLocationId,
       }));
 
       const { error: salesError } = await db.from("sales").insert(saleRows);
