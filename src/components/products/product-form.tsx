@@ -21,7 +21,7 @@ interface CategoryRow {
 }
 
 export function ProductForm({ product, onSaved, onCancel }: Props) {
-  const { preparesFood } = useOrg();
+  const { preparesFood, currentLocationId, currentLocationName } = useOrg();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<CategoryRow[]>([]);
@@ -85,17 +85,37 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     }
 
     let result;
+    let newProductId: string | null = null;
     if (product) {
       result = await db.from("products").update(payload).eq("id", product.id);
     } else {
-      // inventory_id is auto-generated server-side by the trigger
-      result = await db.from("products").insert(payload);
+      // inventory_id is auto-generated server-side by the trigger.
+      // We need the inserted row's id so we can also write the opening
+      // stock into product_stock for the current location.
+      result = await db.from("products").insert(payload).select("id").single();
+      newProductId = result?.data?.id ?? null;
     }
 
     if (result.error) {
       setError(result.error.message);
       setLoading(false);
       return;
+    }
+
+    // Per-location stock: allocate the opening stock to the current location.
+    // If product_stock RPC fails (migration 024 not run), the legacy
+    // products.opening_stock value still recorded a sane number.
+    const targetProductId = product ? product.id : newProductId;
+    const openingStock = parseInt(form.opening_stock) || 0;
+    if (targetProductId && currentLocationId && openingStock > 0 && !product) {
+      // Only on CREATE: write the opening stock to the current location.
+      // On UPDATE we leave product_stock alone - operator should use
+      // Receive Stock to add more, or Stock Adjustments to correct.
+      await db.rpc("add_product_stock_at_location", {
+        p_product_id: targetProductId,
+        p_quantity: openingStock,
+        p_location_id: currentLocationId,
+      });
     }
 
     setLoading(false);
@@ -222,6 +242,12 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           onChange={(e) => update("reorder_level", e.target.value)}
         />
       </div>
+      {!product && currentLocationName && (
+        <p className="text-xs text-gray-500 -mt-2">
+          Opening stock will be allocated to <span className="font-medium text-gray-700">{currentLocationName}</span>.
+          To stock this product at another location, switch in the sidebar and use Receive Stock.
+        </p>
+      )}
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>

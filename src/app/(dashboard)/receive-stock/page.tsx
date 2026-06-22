@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { formatZAR, formatDate } from "@/lib/format";
 import { PackagePlus, Plus, Trash2, Search, Save, History } from "lucide-react";
@@ -29,6 +30,7 @@ interface PastReceipt {
 
 export default function ReceiveStockPage() {
   const { name } = useAuth();
+  const { currentLocationId, currentLocationName } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [lines, setLines] = useState<ReceiptLine[]>([]);
@@ -130,15 +132,28 @@ export default function ReceiveStockPage() {
       if (iErr) throw iErr;
 
       // 3. Increment stock for each line (packs × qty_in_pack = total units)
+      // Per-location: stock goes into product_stock for the current location.
+      // Falls back to org-wide add_product_stock if the location-aware RPC
+      // is missing (migration 024 has not yet run).
       for (const l of lines) {
         if (l.type === "product") {
           const totalUnits = Math.round(l.quantity * l.qtyInPack);
+          let locOk = false;
+          if (currentLocationId) {
+            const { error: locErr } = await db.rpc("add_product_stock_at_location", {
+              p_product_id: l.itemId,
+              p_quantity: totalUnits,
+              p_location_id: currentLocationId,
+            });
+            if (!locErr) locOk = true;
+          }
+          if (locOk) continue;
+          // Legacy fallback: org-wide
           const { error } = await db.rpc("add_product_stock", {
             p_product_id: l.itemId,
             p_quantity: totalUnits,
           });
           if (error) {
-            // Fallback: manual increment
             const { data: prod } = await db
               .from("products")
               .select("opening_stock")

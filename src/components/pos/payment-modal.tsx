@@ -126,14 +126,24 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const { error: salesError } = await db.from("sales").insert(saleRows);
       if (salesError) throw salesError;
 
-      // 2. Deduct stock via RPC
+      // 2. Deduct stock from the CURRENT LOCATION's per-location stock.
+      // Falls back to the org-wide deduct_stock RPC if the new RPC is not
+      // present (e.g. migration 024 has not run on this database yet).
       for (const item of items) {
+        if (currentLocationId) {
+          const { error: locErr } = await db.rpc("deduct_stock_at_location", {
+            p_product_id: item.productId,
+            p_quantity: item.quantity,
+            p_location_id: currentLocationId,
+          });
+          if (!locErr) continue;
+        }
+        // Fallback: legacy org-wide deduct (central stock mode)
         const { error: stockError } = await db.rpc("deduct_stock", {
           p_product_id: item.productId,
           p_quantity: item.quantity,
         });
         if (stockError) {
-          // Fallback in case the RPC is missing
           const { data: prod } = await db
             .from("products")
             .select("opening_stock")

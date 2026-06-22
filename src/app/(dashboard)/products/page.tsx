@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { Product } from "@/types/database";
 import { formatZAR } from "@/lib/format";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -12,7 +13,9 @@ import { CsvUploadModal } from "@/components/products/csv-upload";
 import { Plus, Search, Filter, Upload } from "lucide-react";
 
 export default function ProductsPage() {
+  const { currentLocationId, currentLocationName } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
+  const [stockByProduct, setStockByProduct] = useState<Record<string, number>>({});
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -47,8 +50,26 @@ export default function ProductsPage() {
     const { data, error } = await query;
     if (error) console.error("Error fetching products:", error);
     else setProducts(data || []);
+
+    // Fetch per-location stock for the current location so the table shows
+    // accurate stock for this shop instead of the org-wide total. Falls back
+    // to products.opening_stock when no per-location row exists yet.
+    if (currentLocationId) {
+      const { data: stockRows } = await db
+        .from("product_stock")
+        .select("product_id, quantity")
+        .eq("location_id", currentLocationId);
+      const map: Record<string, number> = {};
+      ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
+        map[r.product_id] = r.quantity;
+      });
+      setStockByProduct(map);
+    } else {
+      setStockByProduct({});
+    }
+
     setLoading(false);
-  }, [search, categoryFilter]);
+  }, [search, categoryFilter, currentLocationId]);
 
   useEffect(() => {
     fetchProducts();
@@ -82,7 +103,14 @@ export default function ProductsPage() {
   return (
     <div>
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <h1 className="text-2xl font-bold text-gray-900">Products</h1>
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
+          {currentLocationName && (
+            <p className="text-xs text-gray-500 mt-0.5">
+              Showing stock for <span className="font-medium text-gray-700">{currentLocationName}</span>. Product catalogue is shared across all locations.
+            </p>
+          )}
+        </div>
         <div className="flex gap-2">
           <Button variant="secondary" onClick={() => setShowCsv(true)}>
             <Upload className="w-4 h-4 mr-2" /> CSV Import
@@ -146,7 +174,12 @@ export default function ProductsPage() {
                   const margin = p.cost_per_unit && p.selling_price
                     ? ((p.selling_price - p.cost_per_unit) / p.selling_price) * 100
                     : null;
-                  const lowStock = p.opening_stock <= p.reorder_level && p.reorder_level > 0;
+                  // Per-location stock: prefer the value from product_stock for
+                  // the current location, fall back to the legacy org-wide
+                  // products.opening_stock when no row exists yet.
+                  const locStock = stockByProduct[p.id];
+                  const displayStock = locStock !== undefined ? locStock : p.opening_stock;
+                  const lowStock = displayStock <= p.reorder_level && p.reorder_level > 0;
                   return (
                     <tr key={p.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.inventory_id}</td>
@@ -168,7 +201,7 @@ export default function ProductsPage() {
                       </td>
                       <td className="px-4 py-3 text-right">
                         <span className={lowStock ? "text-red-600 font-semibold" : ""}>
-                          {p.opening_stock}
+                          {displayStock}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-right space-x-2">
