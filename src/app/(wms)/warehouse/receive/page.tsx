@@ -12,6 +12,7 @@ import {
   Search,
   Save,
   History,
+  Package,
 } from "lucide-react";
 
 interface WmsCatalogItem {
@@ -34,9 +35,11 @@ interface ReceiptLine {
 
 interface PastReceipt {
   id: number;
+  receipt_date: string;
   supplier: string | null;
   notes: string | null;
-  total_qty: number;
+  total_cost: number;
+  recorded_by: string | null;
   created_at: string;
 }
 
@@ -54,16 +57,17 @@ export default function WmsReceiveStockPage() {
   const [history, setHistory] = useState<PastReceipt[]>([]);
 
   const loadData = useCallback(async () => {
-    const { data: catalog } = await db
-      .from("wms_catalog")
-      .select("*")
-      .order("item_name");
+    const [{ data: catalog }, { data: receipts }] = await Promise.all([
+      db.from("wms_catalog").select("*").order("item_name"),
+      db
+        .from("wms_receipts")
+        .select("*")
+        .order("created_at", { ascending: false })
+        .limit(50),
+    ]);
 
     setCatalogItems((catalog || []) as any[]);
-
-    // Load recent dispatches with 'Received' type as proxy for receipt history
-    // For now, we load from wms_inventory update log concept
-    // Future: add a wms_receipts table if needed
+    setHistory((receipts || []) as any[]);
   }, []);
 
   useEffect(() => {
@@ -71,7 +75,6 @@ export default function WmsReceiveStockPage() {
   }, [loadData]);
 
   function addLine(item: WmsCatalogItem) {
-    // Don't add duplicates
     if (lines.some((l: ReceiptLine) => l.wmsItemId === item.id)) {
       setShowPicker(false);
       return;
@@ -111,45 +114,69 @@ export default function WmsReceiveStockPage() {
     setSuccess(false);
 
     try {
-      // Build items array for the RPC
-      const rpcItems = lines.map((l: ReceiptLine) => ({
+      const totalCost = lines.reduce(
+        (sum: number, l: ReceiptLine) => sum + l.packs * l.packSize * l.unitCost,
+        0
+      );
+
+      // 1. Create receipt header
+      const { data: receipt, error: recErr } = await db
+        .from("wms_receipts")
+        .insert({
+          receipt_date: new Date().toISOString().split("T")[0],
+          supplier: supplier.trim() || null,
+          notes: notes.trim() || null,
+          total_cost: totalCost,
+          recorded_by: userName || null,
+        })
+        .select("id")
+        .single();
+
+      if (recErr) throw recErr;
+      const receiptId = (receipt as any).id;
+
+      // 2. Insert receipt line items
+      const lineInserts = lines.map((l: ReceiptLine) => ({
+        receipt_id: receiptId,
         wms_item_id: l.wmsItemId,
-        qty: l.packs * l.packSize,
+        packs: l.packs,
+        pack_size: l.packSize,
+        total_units: l.packs * l.packSize,
+        unit_cost: l.unitCost,
+        line_total: l.packs * l.packSize * l.unitCost,
       }));
 
-      const { error } = await db.rpc("receive_wms_stock", {
-        p_org_id: null, // RLS will scope; the RPC uses SECURITY DEFINER
-        p_items: rpcItems,
-      });
+      const { error: lineErr } = await db
+        .from("wms_receipt_items")
+        .insert(lineInserts);
 
-      // If RPC doesn't exist yet or org_id is needed, fall back to manual updates
-      if (error) {
-        // Fallback: update each inventory row directly
-        for (const l of lines) {
-          const totalUnits = l.packs * l.packSize;
-          // Fetch current qty
-          const { data: inv } = await db
-            .from("wms_inventory")
-            .select("physical_qty")
-            .eq("wms_item_id", l.wmsItemId)
-            .single();
+      if (lineErr) throw lineErr;
 
-          const currentQty = (inv as any)?.physical_qty ?? 0;
+      // 3. Update WMS inventory quantities
+      for (const l of lines) {
+        const totalUnits = l.packs * l.packSize;
+        const { data: inv } = await db
+          .from("wms_inventory")
+          .select("physical_qty")
+          .eq("wms_item_id", l.wmsItemId)
+          .single();
 
-          await db
-            .from("wms_inventory")
-            .update({
-              physical_qty: currentQty + totalUnits,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("wms_item_id", l.wmsItemId);
-        }
+        const currentQty = (inv as any)?.physical_qty ?? 0;
+
+        await db
+          .from("wms_inventory")
+          .update({
+            physical_qty: currentQty + totalUnits,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("wms_item_id", l.wmsItemId);
       }
 
       setSuccess(true);
       setLines([]);
       setSupplier("");
       setNotes("");
+      await loadData();
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
       console.error("Error receiving stock:", err);
@@ -169,7 +196,6 @@ export default function WmsReceiveStockPage() {
     0
   );
 
-  // Filter catalog for picker
   const pickerItems = catalogItems.filter(
     (item: WmsCatalogItem) =>
       !search ||
@@ -180,16 +206,40 @@ export default function WmsReceiveStockPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-            <PackagePlus className="w-7 h-7 text-green-600" />
-            Receive Warehouse Stock
-          </h1>
-          <p className="text-sm text-gray-500 mt-1">
-            Log bulk supplier deliveries to the warehouse
-          </p>
-        </div>
+      <div>
+        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+          <PackagePlus className="w-7 h-7 text-green-600" />
+          Receive Warehouse Stock
+        </h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Log bulk supplier deliveries to the warehouse
+        </p>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+        <button
+          onClick={() => setTab("new")}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            tab === "new"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <PackagePlus className="w-4 h-4 inline mr-1" />
+          New Receipt
+        </button>
+        <button
+          onClick={() => setTab("history")}
+          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+            tab === "history"
+              ? "bg-white text-gray-900 shadow-sm"
+              : "text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          <History className="w-4 h-4 inline mr-1" />
+          History
+        </button>
       </div>
 
       {/* Success message */}
@@ -199,177 +249,191 @@ export default function WmsReceiveStockPage() {
         </div>
       )}
 
-      {/* Receipt Form */}
-      <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
-        {/* Supplier & Notes */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Supplier
-            </label>
-            <Input
-              value={supplier}
-              onChange={(e: any) => setSupplier(e.target.value)}
-              placeholder="Supplier name"
-            />
+      {tab === "new" ? (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+          {/* Supplier & Notes */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Supplier
+              </label>
+              <Input
+                value={supplier}
+                onChange={(e: any) => setSupplier(e.target.value)}
+                placeholder="Supplier name"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes
+              </label>
+              <Input
+                value={notes}
+                onChange={(e: any) => setNotes(e.target.value)}
+                placeholder="Optional delivery notes"
+              />
+            </div>
           </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">
-              Notes
-            </label>
-            <Input
-              value={notes}
-              onChange={(e: any) => setNotes(e.target.value)}
-              placeholder="Optional delivery notes"
-            />
-          </div>
-        </div>
 
-        {/* Line Items */}
-        <div>
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold text-gray-700">Line Items</h3>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => {
-                setSearch("");
-                setShowPicker(true);
-              }}
-            >
-              <Plus className="w-4 h-4 mr-1" />
-              Add Item
+          {/* Line Items */}
+          <div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-700">Line Items</h3>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  setSearch("");
+                  setShowPicker(true);
+                }}
+              >
+                <Plus className="w-4 h-4 mr-1" />
+                Add Item
+              </Button>
+            </div>
+
+            {lines.length === 0 ? (
+              <p className="text-sm text-gray-400 text-center py-6">
+                No items added yet. Click &quot;Add Item&quot; to select from the
+                warehouse catalog.
+              </p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-200 bg-gray-50">
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Item</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">SKU</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Pack Size</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Packs</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Total Units</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Unit Cost</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Line Total</th>
+                      <th className="px-3 py-2"></th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {lines.map((line: ReceiptLine) => (
+                      <tr key={line.id}>
+                        <td className="px-3 py-2 font-medium text-gray-900">
+                          {line.itemName}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-xs text-gray-500">
+                          {line.sku}
+                        </td>
+                        <td className="px-3 py-2 text-right text-gray-500">
+                          {line.packSize}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min="1"
+                            value={line.packs}
+                            onChange={(e: any) =>
+                              updateLine(line.id, "packs", parseInt(e.target.value) || 1)
+                            }
+                            className="w-16 text-right border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium">
+                          {line.packs * line.packSize}
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            value={line.unitCost}
+                            onChange={(e: any) =>
+                              updateLine(line.id, "unitCost", parseFloat(e.target.value) || 0)
+                            }
+                            className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right font-medium">
+                          {formatZAR(line.packs * line.packSize * line.unitCost)}
+                        </td>
+                        <td className="px-3 py-2 text-center">
+                          <button
+                            onClick={() => removeLine(line.id)}
+                            className="text-gray-400 hover:text-red-500 transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-gray-200 bg-gray-50">
+                      <td colSpan={4} className="px-3 py-2 text-right font-semibold text-gray-700">
+                        Totals
+                      </td>
+                      <td className="px-3 py-2 text-right font-bold">{totalUnits}</td>
+                      <td className="px-3 py-2"></td>
+                      <td className="px-3 py-2 text-right font-bold">{formatZAR(totalCost)}</td>
+                      <td></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Save */}
+          <div className="flex justify-end">
+            <Button onClick={handleSave} disabled={saving || lines.length === 0}>
+              <Save className="w-4 h-4 mr-1" />
+              {saving ? "Saving..." : "Receive Stock"}
             </Button>
           </div>
-
-          {lines.length === 0 ? (
-            <p className="text-sm text-gray-400 text-center py-6">
-              No items added yet. Click &quot;Add Item&quot; to select from the
-              warehouse catalog.
-            </p>
+        </div>
+      ) : (
+        /* History Tab */
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          {history.length === 0 ? (
+            <div className="text-center py-12">
+              <Package className="w-12 h-12 mx-auto text-gray-300 mb-3" />
+              <p className="text-gray-500">No receipts recorded yet</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
-                    <th className="text-left px-3 py-2 font-medium text-gray-600">
-                      Item
-                    </th>
-                    <th className="text-left px-3 py-2 font-medium text-gray-600">
-                      SKU
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">
-                      Pack Size
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">
-                      Packs
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">
-                      Total Units
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">
-                      Unit Cost
-                    </th>
-                    <th className="text-right px-3 py-2 font-medium text-gray-600">
-                      Line Total
-                    </th>
-                    <th className="px-3 py-2"></th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Date</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Supplier</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Notes</th>
+                    <th className="text-right px-4 py-3 font-medium text-gray-600">Total Cost</th>
+                    <th className="text-left px-4 py-3 font-medium text-gray-600">Recorded By</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {lines.map((line: ReceiptLine) => (
-                    <tr key={line.id}>
-                      <td className="px-3 py-2 font-medium text-gray-900">
-                        {line.itemName}
+                  {history.map((r: PastReceipt) => (
+                    <tr key={r.id} className="hover:bg-gray-50">
+                      <td className="px-4 py-3 text-gray-500">
+                        {formatDate(r.created_at)}
                       </td>
-                      <td className="px-3 py-2 font-mono text-xs text-gray-500">
-                        {line.sku}
+                      <td className="px-4 py-3 text-gray-900">
+                        {r.supplier || "—"}
                       </td>
-                      <td className="px-3 py-2 text-right text-gray-500">
-                        {line.packSize}
+                      <td className="px-4 py-3 text-gray-500">
+                        {r.notes || "—"}
                       </td>
-                      <td className="px-3 py-2 text-right">
-                        <input
-                          type="number"
-                          min="1"
-                          value={line.packs}
-                          onChange={(e: any) =>
-                            updateLine(
-                              line.id,
-                              "packs",
-                              parseInt(e.target.value) || 1
-                            )
-                          }
-                          className="w-16 text-right border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
+                      <td className="px-4 py-3 text-right font-medium">
+                        {formatZAR(r.total_cost)}
                       </td>
-                      <td className="px-3 py-2 text-right font-medium">
-                        {line.packs * line.packSize}
-                      </td>
-                      <td className="px-3 py-2 text-right">
-                        <input
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={line.unitCost}
-                          onChange={(e: any) =>
-                            updateLine(
-                              line.id,
-                              "unitCost",
-                              parseFloat(e.target.value) || 0
-                            )
-                          }
-                          className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
-                        />
-                      </td>
-                      <td className="px-3 py-2 text-right font-medium">
-                        {formatZAR(line.packs * line.packSize * line.unitCost)}
-                      </td>
-                      <td className="px-3 py-2 text-center">
-                        <button
-                          onClick={() => removeLine(line.id)}
-                          className="text-gray-400 hover:text-red-500 transition-colors"
-                        >
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                      <td className="px-4 py-3 text-gray-500">
+                        {r.recorded_by || "—"}
                       </td>
                     </tr>
                   ))}
                 </tbody>
-                <tfoot>
-                  <tr className="border-t border-gray-200 bg-gray-50">
-                    <td
-                      colSpan={4}
-                      className="px-3 py-2 text-right font-semibold text-gray-700"
-                    >
-                      Totals
-                    </td>
-                    <td className="px-3 py-2 text-right font-bold">
-                      {totalUnits}
-                    </td>
-                    <td className="px-3 py-2"></td>
-                    <td className="px-3 py-2 text-right font-bold">
-                      {formatZAR(totalCost)}
-                    </td>
-                    <td></td>
-                  </tr>
-                </tfoot>
               </table>
             </div>
           )}
         </div>
-
-        {/* Save */}
-        <div className="flex justify-end">
-          <Button
-            onClick={handleSave}
-            disabled={saving || lines.length === 0}
-          >
-            <Save className="w-4 h-4 mr-1" />
-            {saving ? "Saving..." : "Receive Stock"}
-          </Button>
-        </div>
-      </div>
+      )}
 
       {/* Item Picker Modal */}
       {showPicker && (
@@ -392,9 +456,7 @@ export default function WmsReceiveStockPage() {
             </div>
             <div className="overflow-y-auto flex-1 p-2">
               {pickerItems.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
-                  No items found
-                </p>
+                <p className="text-sm text-gray-400 text-center py-6">No items found</p>
               ) : (
                 pickerItems.map((item: WmsCatalogItem) => (
                   <button
@@ -403,9 +465,7 @@ export default function WmsReceiveStockPage() {
                     className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-green-50 transition-colors flex items-center justify-between"
                   >
                     <div>
-                      <p className="font-medium text-gray-900 text-sm">
-                        {item.item_name}
-                      </p>
+                      <p className="font-medium text-gray-900 text-sm">{item.item_name}</p>
                       <p className="text-xs text-gray-500">
                         SKU: {item.sku} · Pack: {item.pack_size}
                       </p>
@@ -416,11 +476,7 @@ export default function WmsReceiveStockPage() {
               )}
             </div>
             <div className="p-3 border-t border-gray-200">
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => setShowPicker(false)}
-              >
+              <Button variant="secondary" className="w-full" onClick={() => setShowPicker(false)}>
                 Close
               </Button>
             </div>

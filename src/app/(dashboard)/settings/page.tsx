@@ -6,6 +6,7 @@ import { Settings, Save, Key, Link, Building2, Coins, Warehouse } from "lucide-r
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
+import { DailyDigestSection } from "@/components/settings/daily-digest-section";
 
 export default function SettingsPage() {
   const [adminPin, setAdminPin] = useState("");
@@ -241,6 +242,9 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* Daily Email Digest - self-contained section reading from report_subscriptions */}
+        <DailyDigestSection />
 
         {/* Save */}
         <div className="flex items-center gap-4">

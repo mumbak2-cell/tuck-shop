@@ -74,6 +74,64 @@ CREATE TABLE wms_dispatch_items (
 CREATE INDEX idx_wms_dispatch_items_dispatch ON wms_dispatch_items(dispatch_id);
 CREATE INDEX idx_wms_dispatch_items_org ON wms_dispatch_items(org_id);
 
+-- Warehouse Receipts (audit trail for supplier deliveries)
+CREATE TABLE wms_receipts (
+  id          BIGSERIAL PRIMARY KEY,
+  org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  receipt_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  supplier    TEXT,
+  notes       TEXT,
+  total_cost  NUMERIC(12,2) NOT NULL DEFAULT 0,
+  recorded_by TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_wms_receipts_org ON wms_receipts(org_id);
+
+-- Receipt Line Items
+CREATE TABLE wms_receipt_items (
+  id          BIGSERIAL PRIMARY KEY,
+  org_id      UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  receipt_id  BIGINT NOT NULL REFERENCES wms_receipts(id) ON DELETE CASCADE,
+  wms_item_id BIGINT NOT NULL REFERENCES wms_catalog(id) ON DELETE CASCADE,
+  packs       INT NOT NULL DEFAULT 1,
+  pack_size   INT NOT NULL DEFAULT 1,
+  total_units INT NOT NULL,
+  unit_cost   NUMERIC(12,2) NOT NULL DEFAULT 0,
+  line_total  NUMERIC(12,2) NOT NULL DEFAULT 0
+);
+
+CREATE INDEX idx_wms_receipt_items_receipt ON wms_receipt_items(receipt_id);
+CREATE INDEX idx_wms_receipt_items_org ON wms_receipt_items(org_id);
+
+-- Warehouse Stock Adjustments (breakage, theft, expired, corrections)
+CREATE TABLE wms_adjustments (
+  id              BIGSERIAL PRIMARY KEY,
+  org_id          UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  adjustment_date DATE NOT NULL DEFAULT CURRENT_DATE,
+  wms_item_id     BIGINT NOT NULL REFERENCES wms_catalog(id) ON DELETE CASCADE,
+  reason          TEXT NOT NULL CHECK (reason IN ('Breakage', 'Expired', 'Theft', 'Correction', 'Other')),
+  adjustment_qty  INT NOT NULL,    -- positive = add, negative = remove
+  notes           TEXT,
+  recorded_by     TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_wms_adjustments_org ON wms_adjustments(org_id);
+CREATE INDEX idx_wms_adjustments_item ON wms_adjustments(wms_item_id);
+
+-- ============================================================
+-- 1b. Auto-populate org_id on INSERT (same pattern as migration 017)
+-- ============================================================
+
+ALTER TABLE wms_catalog ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_inventory ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_dispatches ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_dispatch_items ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_receipts ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_receipt_items ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+ALTER TABLE wms_adjustments ALTER COLUMN org_id SET DEFAULT default_user_org_id();
+
 -- ============================================================
 -- 2. RLS Policies (org-scoped via current_user_org_ids)
 -- ============================================================
@@ -95,6 +153,21 @@ CREATE POLICY "org_isolation" ON wms_dispatches FOR ALL
 
 ALTER TABLE wms_dispatch_items ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "org_isolation" ON wms_dispatch_items FOR ALL
+  USING (org_id IN (SELECT current_user_org_ids()))
+  WITH CHECK (org_id IN (SELECT current_user_org_ids()));
+
+ALTER TABLE wms_receipts ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "org_isolation" ON wms_receipts FOR ALL
+  USING (org_id IN (SELECT current_user_org_ids()))
+  WITH CHECK (org_id IN (SELECT current_user_org_ids()));
+
+ALTER TABLE wms_receipt_items ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "org_isolation" ON wms_receipt_items FOR ALL
+  USING (org_id IN (SELECT current_user_org_ids()))
+  WITH CHECK (org_id IN (SELECT current_user_org_ids()));
+
+ALTER TABLE wms_adjustments ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "org_isolation" ON wms_adjustments FOR ALL
   USING (org_id IN (SELECT current_user_org_ids()))
   WITH CHECK (org_id IN (SELECT current_user_org_ids()));
 

@@ -65,6 +65,7 @@ const navItems: NavItem[] = [
   { href: "/warehouse", label: "Warehouse Stock", icon: Warehouse, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/receive", label: "WMS Receive", icon: PackagePlus, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/dispatch", label: "WMS Dispatch", icon: Send, roles: ["admin"], wmsOnly: true },
+  { href: "/warehouse/adjustments", label: "WMS Adjustments", icon: Wrench, roles: ["admin"], wmsOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 

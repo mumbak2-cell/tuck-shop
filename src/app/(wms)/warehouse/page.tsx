@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { WmsCsvUploadModal } from "@/components/wms/csv-catalog-upload";
 import {
   Warehouse,
   Search,
@@ -14,6 +15,7 @@ import {
   AlertTriangle,
   Package,
   Filter,
+  Upload,
 } from "lucide-react";
 
 interface WmsCatalogItem {
@@ -55,6 +57,7 @@ export default function WarehousePage() {
   const [formPackSize, setFormPackSize] = useState("1");
   const [formReorderLevel, setFormReorderLevel] = useState("10");
   const [formReorderQty, setFormReorderQty] = useState("50");
+  const [showCsv, setShowCsv] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
@@ -203,10 +206,16 @@ export default function WarehousePage() {
           </p>
         </div>
         {role === "admin" && (
-          <Button onClick={openAddForm}>
-            <Plus className="w-4 h-4 mr-1" />
-            Add Item
-          </Button>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={() => setShowCsv(true)}>
+              <Upload className="w-4 h-4 mr-1" />
+              CSV Import
+            </Button>
+            <Button onClick={openAddForm}>
+              <Plus className="w-4 h-4 mr-1" />
+              Add Item
+            </Button>
+          </div>
         )}
       </div>
 
@@ -406,6 +415,13 @@ export default function WarehousePage() {
           </div>
         </div>
       </Modal>
+
+      {/* CSV Import Modal */}
+      <WmsCsvUploadModal
+        open={showCsv}
+        onClose={() => setShowCsv(false)}
+        onComplete={fetchData}
+      />
     </div>
   );
 }
