@@ -2,7 +2,7 @@
 import { useState } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
-import { PLANS, providerForCurrency, type Plan, type PlanCode } from "@/lib/plans";
+import { PLANS, BILLING_CURRENCY, type Plan, type PlanCode } from "@/lib/plans";
 import { Check, Sparkles, AlertCircle } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { supabase } from "@/lib/supabase";
@@ -20,28 +20,22 @@ export function PricingModal({ open, onClose }: Props) {
   const [submitting, setSubmitting] = useState<PlanCode | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Find the operator's currency from the org context. Fall back to ZAR.
-  // CurrencyProvider caches it in localStorage so it is available on open.
-  let currency = "ZAR";
+  // All subscriptions are billed in ZAR via Paystack regardless of the
+  // operator's display currency. Their POS still uses their local currency.
+  const billingCurrency = BILLING_CURRENCY;
+
+  // Determine the operator's display currency for informational context only.
+  let displayCurrency = "ZAR";
   try {
     if (typeof window !== "undefined") {
-      currency = window.localStorage.getItem("tilify_currency") || "ZAR";
+      displayCurrency = window.localStorage.getItem("tilify_currency") || "ZAR";
     }
   } catch {
     // ignore
   }
 
-  const provider = providerForCurrency(currency);
-
   async function upgrade(plan: Plan) {
     setError(null);
-    if (provider === "manual") {
-      setError(
-        `Subscriptions in ${currency} are not yet available through self-service. Please email support@mkglobal.co.za and we will invoice you directly.`
-      );
-      return;
-    }
-
     setSubmitting(plan.code);
     try {
       const { data: sessionData } = await supabase.auth.getSession();
@@ -104,7 +98,7 @@ export function PricingModal({ open, onClose }: Props) {
         {/* Plans */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {PLANS.map((plan) => {
-            const price = plan.prices[currency];
+            const price = plan.prices[billingCurrency];
             const display = price
               ? cycle === "monthly"
                 ? price.monthlyDisplay
@@ -130,17 +124,13 @@ export function PricingModal({ open, onClose }: Props) {
                 <p className="text-xs text-gray-500 mt-0.5">{plan.tagline}</p>
 
                 <div className="mt-4">
-                  {display ? (
+                  {display && (
                     <>
                       <span className="text-3xl font-bold text-gray-900">{display}</span>
                       <span className="text-sm text-gray-500 ml-1">
                         / {cycle === "monthly" ? "month" : "year"}
                       </span>
                     </>
-                  ) : (
-                    <span className="text-sm text-gray-500 italic">
-                      Contact us for pricing in {currency}
-                    </span>
                   )}
                 </div>
 
@@ -175,7 +165,14 @@ export function PricingModal({ open, onClose }: Props) {
         )}
 
         <p className="text-xs text-gray-500 text-center">
-          Billed via {provider === "paystack" ? "Paystack" : provider === "flutterwave" ? "Flutterwave" : "manual invoice"}.
+          {displayCurrency !== "ZAR" && (
+            <>
+              <span className="font-medium">Billed in ZAR via Paystack.</span> Your POS, products,
+              and customer balances stay in {displayCurrency}; only the Tilify subscription is in
+              Rand. Pay with any Visa or Mastercard — your card issuer handles the conversion.
+              <br />
+            </>
+          )}
           Cancel anytime. Annual plans get the equivalent of 2 months free.
         </p>
       </div>

@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse } from "lucide-react";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
@@ -14,6 +14,8 @@ export default function SettingsPage() {
   const [businessName, setBusinessName] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
   const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
+  const [wmsEnabled, setWmsEnabled] = useState(false);
+  const [wmsOnly, setWmsOnly] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -33,6 +35,8 @@ export default function SettingsPage() {
     setBusinessName(map.business_name || "My Shop");
     setBusinessPhone(map.business_phone || "");
     setCurrency((map.currency as CurrencyCode) || DEFAULT_CURRENCY.code);
+    setWmsEnabled(map.wms_enabled === "true");
+    setWmsOnly(map.wms_only === "true");
     setLoading(false);
   }
 
@@ -47,6 +51,8 @@ export default function SettingsPage() {
       { key: "business_name", value: businessName || "My Shop" },
       { key: "business_phone", value: businessPhone },
       { key: "currency", value: currency || DEFAULT_CURRENCY.code },
+      { key: "wms_enabled", value: wmsEnabled ? "true" : "false" },
+      { key: "wms_only", value: wmsOnly ? "true" : "false" },
     ];
 
     for (const s of settings) {
@@ -194,6 +200,45 @@ export default function SettingsPage() {
               transfer page, a mobile money request link, or your own payment portal. It will be attached
               to every WhatsApp credit invoice and statement you send. Leave blank if you do not have one.
             </p>
+          </div>
+        </div>
+
+        {/* Warehouse Management */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Warehouse className="w-5 h-5 text-gray-600" />
+            Warehouse Management (WMS)
+          </h2>
+          <div className="space-y-4">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={wmsEnabled}
+                onChange={(e) => {
+                  setWmsEnabled(e.target.checked);
+                  if (!e.target.checked) setWmsOnly(false);
+                }}
+                className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-700">Enable Warehouse Module</p>
+                <p className="text-xs text-gray-500">Adds Warehouse Stock, Receive, and Dispatch to the sidebar</p>
+              </div>
+            </label>
+            {wmsEnabled && (
+              <label className="flex items-center gap-3 cursor-pointer ml-7">
+                <input
+                  type="checkbox"
+                  checked={wmsOnly}
+                  onChange={(e) => setWmsOnly(e.target.checked)}
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-700">WMS-Only Mode</p>
+                  <p className="text-xs text-gray-500">Hides POS, Shift, and retail stock views. Use when this account is a warehouse only.</p>
+                </div>
+              </label>
+            )}
           </div>
         </div>
 

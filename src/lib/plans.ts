@@ -143,18 +143,20 @@ export function isAtLeastPlan(orgPlan: string | null | undefined, required: Plan
 }
 
 /**
- * Decide which billing provider handles a given currency.
- * ZAR runs on Paystack (the merchant account Mumba already has).
- * Everything else routes to Flutterwave, which covers Malawi mobile
- * money and most of SADC. Currencies neither covers are handled by
- * the "contact us for manual invoicing" path in the UI.
+ * All Tilify subscriptions are billed in ZAR via Paystack, regardless of the
+ * operator's display currency. The operator's local-currency view of their
+ * POS, products, and customer balances is unaffected - only the monthly
+ * Tilify fee is in ZAR. This keeps billing simple and reaches all 16 SADC
+ * countries from day one without needing Flutterwave, DPO, or per-country
+ * integrations.
+ *
+ * Operators pay with any card accepted by Paystack - their card issuer
+ * handles the FX conversion automatically.
  */
-export type BillingProvider = "paystack" | "flutterwave" | "manual";
+export type BillingProvider = "paystack";
 
-export function providerForCurrency(currency: string): BillingProvider {
-  if (currency === "ZAR") return "paystack";
-  // Flutterwave currency coverage relevant to SADC:
-  const flutterwaveCurrencies = ["MWK", "TZS", "ZMW", "RWF", "UGX", "KES", "GHS", "NGN", "USD"];
-  if (flutterwaveCurrencies.includes(currency)) return "flutterwave";
-  return "manual";
+export const BILLING_CURRENCY = "ZAR";
+
+export function providerForCurrency(_currency: string): BillingProvider {
+  return "paystack";
 }

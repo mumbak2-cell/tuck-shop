@@ -21,6 +21,8 @@ import {
   ShieldCheck,
   Clock,
   Wrench,
+  Warehouse,
+  Send,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -34,24 +36,32 @@ interface NavItem {
   roles: UserRole[];
   // If true, the item only shows when the org has prepares_food = true
   foodOnly?: boolean;
+  // If true, the item only shows when WMS is enabled
+  wmsOnly?: boolean;
+  // If true, the item is hidden when the org is in WMS-only mode
+  retailOnly?: boolean;
 }
 
 const navItems: NavItem[] = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "cashier"] },
-  { href: "/shift", label: "Shift", icon: Clock, roles: ["admin", "cashier"] },
-  { href: "/pos", label: "Point of Sale", icon: ShoppingCart, roles: ["admin", "cashier"] },
-  { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"] },
-  { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"] },
-  { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"] },
-  { href: "/stock-adjustments", label: "Stock Adjustments", icon: Wrench, roles: ["admin"] },
-  { href: "/products", label: "Products", icon: Package, roles: ["admin"] },
+  { href: "/shift", label: "Shift", icon: Clock, roles: ["admin", "cashier"], retailOnly: true },
+  { href: "/pos", label: "Point of Sale", icon: ShoppingCart, roles: ["admin", "cashier"], retailOnly: true },
+  { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"], retailOnly: true },
+  { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"], retailOnly: true },
+  { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"], retailOnly: true },
+  { href: "/stock-adjustments", label: "Stock Adjustments", icon: Wrench, roles: ["admin"], retailOnly: true },
+  { href: "/products", label: "Products", icon: Package, roles: ["admin"], retailOnly: true },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"], foodOnly: true },
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"] },
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin"] },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"] },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"] },
-  { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"] },
-  { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"] },
+  { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"], retailOnly: true },
+  { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"], retailOnly: true },
+  // WMS items
+  { href: "/warehouse", label: "Warehouse Stock", icon: Warehouse, roles: ["admin"], wmsOnly: true },
+  { href: "/warehouse/receive", label: "WMS Receive", icon: PackagePlus, roles: ["admin"], wmsOnly: true },
+  { href: "/warehouse/dispatch", label: "WMS Dispatch", icon: Send, roles: ["admin"], wmsOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 
@@ -59,11 +69,15 @@ export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { role, name, logout } = useAuth();
-  const { preparesFood } = useOrg();
+  const { preparesFood, wmsEnabled, wmsOnly } = useOrg();
 
-  const visibleItems = navItems.filter(
-    (item) => role && item.roles.includes(role) && (!item.foodOnly || preparesFood)
-  );
+  const visibleItems = navItems.filter((item) => {
+    if (!role || !item.roles.includes(role)) return false;
+    if (item.foodOnly && !preparesFood) return false;
+    if (item.wmsOnly && !wmsEnabled) return false;
+    if (item.retailOnly && wmsOnly) return false;
+    return true;
+  });
 
   return (
     <>

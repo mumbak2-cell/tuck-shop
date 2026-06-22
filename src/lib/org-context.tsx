@@ -29,6 +29,9 @@ export interface OrgState {
   // Sales workflow flexibility
   requiresShift: boolean;
   requiresStockCountToClose: boolean;
+  // WMS module
+  wmsEnabled: boolean;
+  wmsOnly: boolean;
   refresh: () => Promise<void>;
   signOut: () => Promise<void>;
 }
@@ -74,6 +77,8 @@ const OrgContext = createContext<OrgState>({
   shopType: null,
   requiresShift: false,
   requiresStockCountToClose: false,
+  wmsEnabled: false,
+  wmsOnly: false,
   refresh: async () => {},
   signOut: async () => {},
 });
@@ -99,6 +104,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     shopType: null,
     requiresShift: false,
     requiresStockCountToClose: false,
+    wmsEnabled: false,
+    wmsOnly: false,
     refresh: async () => {},
     signOut: async () => {},
   });
@@ -122,6 +129,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         shopType: null,
         requiresShift: false,
         requiresStockCountToClose: false,
+        wmsEnabled: false,
+        wmsOnly: false,
       }));
       return;
     }
@@ -152,6 +161,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         shopType: null,
         requiresShift: false,
         requiresStockCountToClose: false,
+        wmsEnabled: false,
+        wmsOnly: false,
       }));
       return;
     }
@@ -171,6 +182,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         "shop_type",
         "requires_shift",
         "requires_stock_count_to_close",
+        "wms_enabled",
+        "wms_only",
       ]);
 
     const settingsMap: Record<string, string> = {};
@@ -195,6 +208,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       shopType: settingsMap.shop_type ?? null,
       requiresShift: settingsMap.requires_shift === "true",
       requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
+      wmsEnabled: settingsMap.wms_enabled === "true",
+      wmsOnly: settingsMap.wms_only === "true",
     }));
   }
 
