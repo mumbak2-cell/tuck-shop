@@ -81,13 +81,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         .then(({ data }: { data: PaymentMethodRow[] | null }) => {
           setMethods(data || []);
         });
-      // Load customers for credit sales
-      db.from("customers")
-        .select("*")
-        .order("name")
-        .then(({ data }: { data: Customer[] | null }) => {
-          setCustomers(data || []);
-        });
+      // Load customers for credit sales - scoped to the current location.
+      let customerQuery = db.from("customers").select("*").order("name");
+      if (currentLocationId) {
+        customerQuery = customerQuery.eq("location_id", currentLocationId);
+      }
+      customerQuery.then(({ data }: { data: Customer[] | null }) => {
+        setCustomers(data || []);
+      });
     }
   }, [open]);
 

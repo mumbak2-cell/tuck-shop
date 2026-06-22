@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { useOrg } from "@/lib/org-context";
 import { Customer, CustomerPayment, Sale } from "@/types/database";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -32,15 +33,19 @@ export default function CustomersPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
 
+  const { currentLocationId, currentLocationName } = useOrg();
+
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
-    const { data } = await db
-      .from("customers")
-      .select("*")
-      .order("name");
+    let q = db.from("customers").select("*").order("name");
+    if (currentLocationId) {
+      // Per-location credit book: only show this shop's customers.
+      q = q.eq("location_id", currentLocationId);
+    }
+    const { data } = await q;
     setCustomers(data || []);
     setLoading(false);
-  }, []);
+  }, [currentLocationId]);
 
   useEffect(() => {
     fetchCustomers();
@@ -280,6 +285,7 @@ function CustomerFormModal({
   customer: Customer | null;
   onSaved: () => void;
 }) {
+  const { currentLocationId, currentLocationName } = useOrg();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [creditLimit, setCreditLimit] = useState("500");
@@ -322,6 +328,8 @@ function CustomerFormModal({
       dbError = res.error;
     } else {
       payload.balance = parseFloat(balance) || 0;
+      // Customers are per-location: each shop has its own credit book.
+      payload.location_id = currentLocationId;
       const res = await db
         .from("customers")
         .insert(payload);
@@ -421,11 +429,13 @@ function PaymentModal({
     setSaving(true);
     setError("");
 
-    // Insert payment record
+    // Insert payment record. The customer row is already tagged to a location;
+    // we copy that down so the payment lives at the same shop for reporting.
     const { error: payErr } = await db.from("customer_payments").insert({
       customer_id: customer.id,
       payment_date: new Date().toISOString().split("T")[0],
       amount: val,
+      location_id: (customer as { location_id?: string | null }).location_id ?? null,
     });
 
     if (payErr) {

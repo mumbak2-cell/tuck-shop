@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from "react";
 import { db } from "@/lib/supabase";
+import { useOrg } from "@/lib/org-context";
 
 interface Shift {
   id: string;
@@ -13,6 +14,7 @@ interface Shift {
   closing_cash: number | null;
   stock_count_done: boolean;
   status: string;
+  location_id: string | null;
 }
 
 interface ShiftState {
@@ -40,20 +42,27 @@ export function useShift() {
 }
 
 export function ShiftProvider({ children }: { children: ReactNode }) {
+  const { currentLocationId } = useOrg();
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true);
 
   const today = new Date().toISOString().split("T")[0];
 
+  // Shifts are per-location. Each shop opens and closes its own shift independently.
   const fetchShift = useCallback(async () => {
     setLoading(true);
-    // Look for today's shift (open or closed)
-    const { data } = await db
+    let query = db
       .from("shifts")
       .select("*")
       .eq("shift_date", today)
       .order("opened_at", { ascending: false })
       .limit(1);
+
+    if (currentLocationId) {
+      query = query.eq("location_id", currentLocationId);
+    }
+
+    const { data } = await query;
 
     if (data && data.length > 0) {
       setShift(data[0] as Shift);
@@ -61,13 +70,18 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
       setShift(null);
     }
     setLoading(false);
-  }, [today]);
+  }, [today, currentLocationId]);
 
   useEffect(() => {
     fetchShift();
   }, [fetchShift]);
 
   async function openShift(openedBy: string, openingFloat: number): Promise<boolean> {
+    if (!currentLocationId) {
+      alert("Cannot open a shift without a location selected.");
+      return false;
+    }
+
     const { data, error } = await db
       .from("shifts")
       .insert({
@@ -75,6 +89,7 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
         opened_by: openedBy,
         opening_float: openingFloat,
         status: "open",
+        location_id: currentLocationId,
       })
       .select()
       .single();

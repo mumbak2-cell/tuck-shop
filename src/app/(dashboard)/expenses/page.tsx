@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -11,6 +12,7 @@ import { EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/
 
 export default function ExpensesPage() {
   const { name } = useAuth();
+  const { currentLocationId, currentLocationName } = useOrg();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -34,7 +36,7 @@ export default function ExpensesPage() {
 
   useEffect(() => {
     loadExpenses();
-  }, [filterCategory, filterFrom, filterTo]);
+  }, [filterCategory, filterFrom, filterTo, currentLocationId]);
 
   async function loadExpenses() {
     setLoading(true);
@@ -47,6 +49,10 @@ export default function ExpensesPage() {
 
     if (filterCategory !== "all") {
       query = query.eq("category", filterCategory);
+    }
+    // Per-location: show only this shop's expenses.
+    if (currentLocationId) {
+      query = query.eq("location_id", currentLocationId);
     }
 
     const { data } = await query;
@@ -65,6 +71,7 @@ export default function ExpensesPage() {
       amount: parseFloat(formAmount),
       director_name: formCategory === "Director Withdrawal" ? formDirectorName || null : null,
       recorded_by: name,
+      location_id: currentLocationId,
     });
 
     if (error) {
