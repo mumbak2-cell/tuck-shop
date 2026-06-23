@@ -211,12 +211,14 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Stock Mode (visible only when org has 2+ locations) */}
-        {locations.length > 1 && (
-          <div className="bg-white border border-gray-200 rounded-xl p-6">
+        {/* Stock Mode — always visible so single-shop orgs can pre-pick before adding a second location */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
               <Boxes className="w-5 h-5 text-gray-600" />
               Stock Mode
+              {locations.length <= 1 && (
+                <span className="text-xs font-normal text-gray-400 ml-1">(takes effect when you add a second shop)</span>
+              )}
             </h2>
             <p className="text-sm text-gray-500 mb-4">
               How stock is shared across your shops. Default: each shop holds its own stock — sales decrement the shop where the sale happened, and stock counts only show that shop&apos;s products.
@@ -257,7 +259,6 @@ export default function SettingsPage() {
               </label>
             </div>
           </div>
-        )}
 
         {/* Warehouse Management */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
