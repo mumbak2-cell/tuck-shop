@@ -11,7 +11,7 @@ import {
   type PaymentKind,
 } from "@/lib/payment-presets";
 import { DEFAULT_CURRENCY } from "@/lib/currency";
-import { Store, Plus, X, CreditCard } from "lucide-react";
+import { Store, Plus, X, CreditCard, Boxes } from "lucide-react";
 
 export default function SetupPage() {
   const router = useRouter();
@@ -19,6 +19,7 @@ export default function SetupPage() {
   const [shopType, setShopType] = useState<string>("");
   const [preparesFood, setPreparesFood] = useState<boolean>(false);
   const [inventoryPrefix, setInventoryPrefix] = useState<string>("ITEM");
+  const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
   const [categories, setCategories] = useState<string[]>([]);
   const [newCategory, setNewCategory] = useState("");
   // Payment methods - seeded from the org's currency (country)
@@ -148,6 +149,7 @@ export default function SetupPage() {
       { key: "shop_type", value: shopType },
       { key: "prepares_food", value: preparesFood ? "true" : "false" },
       { key: "inventory_id_prefix", value: inventoryPrefix.toUpperCase().trim() },
+      { key: "stock_mode", value: stockMode },
       { key: "setup_completed", value: "true" },
     ];
     for (const s of settings) {
@@ -248,6 +250,48 @@ export default function SetupPage() {
             <span className="text-sm text-gray-500">
               Inventory IDs will look like <span className="font-mono font-medium text-gray-700">{(inventoryPrefix || "ITEM").trim().toUpperCase()}0001</span>, auto-generated as you add products.
             </span>
+          </div>
+        </div>
+
+        {/* Stock mode (matters once a second shop is added; pick now so you don't have to think later) */}
+        <div>
+          <div className="flex items-center gap-2 mb-2">
+            <Boxes className="w-4 h-4 text-gray-500" />
+            <label className="block text-sm font-medium text-gray-700">
+              Stock model for multiple shops
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 mb-3">
+            You can change this later in Settings. Most retailers keep separate stock per shop; pick
+            central if you plan to share one inventory pool across all branches.
+          </p>
+          <div className="space-y-2">
+            <label className="flex items-start gap-3 cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <input
+                type="radio"
+                name="stockMode"
+                checked={stockMode === "per_location"}
+                onChange={() => setStockMode("per_location")}
+                className="mt-1 w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Per-location stock <span className="text-xs text-gray-500 font-normal">(recommended)</span></p>
+                <p className="text-xs text-gray-500 mt-0.5">Each shop owns its inventory. Counts, sales and adjustments stay scoped to one shop.</p>
+              </div>
+            </label>
+            <label className="flex items-start gap-3 cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+              <input
+                type="radio"
+                name="stockMode"
+                checked={stockMode === "central"}
+                onChange={() => setStockMode("central")}
+                className="mt-1 w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Central stock <span className="text-xs text-gray-500 font-normal">(McDonald&apos;s pattern)</span></p>
+                <p className="text-xs text-gray-500 mt-0.5">All shops draw from one shared inventory pool replenished from a central warehouse.</p>
+              </div>
+            </label>
           </div>
         </div>
 

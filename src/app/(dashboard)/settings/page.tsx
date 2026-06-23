@@ -2,7 +2,8 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes } from "lucide-react";
+import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
@@ -17,6 +18,8 @@ export default function SettingsPage() {
   const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
   const [wmsEnabled, setWmsEnabled] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
+  const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
+  const { locations, refresh: refreshOrg } = useOrg();
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -38,6 +41,7 @@ export default function SettingsPage() {
     setCurrency((map.currency as CurrencyCode) || DEFAULT_CURRENCY.code);
     setWmsEnabled(map.wms_enabled === "true");
     setWmsOnly(map.wms_only === "true");
+    setStockMode(map.stock_mode === "central" ? "central" : "per_location");
     setLoading(false);
   }
 
@@ -54,6 +58,7 @@ export default function SettingsPage() {
       { key: "currency", value: currency || DEFAULT_CURRENCY.code },
       { key: "wms_enabled", value: wmsEnabled ? "true" : "false" },
       { key: "wms_only", value: wmsOnly ? "true" : "false" },
+      { key: "stock_mode", value: stockMode },
     ];
 
     for (const s of settings) {
@@ -73,6 +78,8 @@ export default function SettingsPage() {
     setSuccess(true);
     setSaving(false);
     setTimeout(() => setSuccess(false), 3000);
+    // Refresh OrgContext so stockMode/etc are immediately visible to other tabs.
+    refreshOrg();
   }
 
   if (loading) {
@@ -203,6 +210,54 @@ export default function SettingsPage() {
             </p>
           </div>
         </div>
+
+        {/* Stock Mode (visible only when org has 2+ locations) */}
+        {locations.length > 1 && (
+          <div className="bg-white border border-gray-200 rounded-xl p-6">
+            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+              <Boxes className="w-5 h-5 text-gray-600" />
+              Stock Mode
+            </h2>
+            <p className="text-sm text-gray-500 mb-4">
+              How stock is shared across your shops. Default: each shop holds its own stock — sales decrement the shop where the sale happened, and stock counts only show that shop&apos;s products.
+            </p>
+            <div className="space-y-3">
+              <label className="flex items-start gap-3 cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="stockMode"
+                  checked={stockMode === "per_location"}
+                  onChange={() => setStockMode("per_location")}
+                  className="mt-1 w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Per-location stock <span className="text-xs text-gray-500 font-normal">(default)</span></p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Each shop owns its own inventory. Best for independent retail shops with separate
+                    physical stock at each location. Counts, sales and adjustments stay scoped to one shop.
+                  </p>
+                </div>
+              </label>
+              <label className="flex items-start gap-3 cursor-pointer p-3 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors">
+                <input
+                  type="radio"
+                  name="stockMode"
+                  checked={stockMode === "central"}
+                  onChange={() => setStockMode("central")}
+                  className="mt-1 w-4 h-4 text-green-600 border-gray-300 focus:ring-green-500"
+                />
+                <div>
+                  <p className="text-sm font-medium text-gray-900">Central stock</p>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    All shops draw from one shared inventory pool (McDonald&apos;s pattern). Pick this when
+                    you replenish from a central warehouse and the &quot;location&quot; is really just a till.
+                    Counts and adjustments are still done per shop, but reporting treats the pool as one.
+                  </p>
+                </div>
+              </label>
+            </div>
+          </div>
+        )}
 
         {/* Warehouse Management */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">

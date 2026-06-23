@@ -38,6 +38,11 @@ export interface OrgState {
   // Sales workflow flexibility
   requiresShift: boolean;
   requiresStockCountToClose: boolean;
+  // Stock mode: "per_location" (each shop holds its own stock) or
+  // "central" (McDonald's pattern — one shared pool across shops).
+  // Default per_location. Behavior is identical under the hood; this
+  // setting is a UX hint for stock screens.
+  stockMode: "per_location" | "central";
   // WMS module (parallel warehouse-system integration)
   wmsEnabled: boolean;
   wmsOnly: boolean;
@@ -96,6 +101,7 @@ const DEFAULT_STATE: OrgState = {
   shopType: null,
   requiresShift: false,
   requiresStockCountToClose: false,
+  stockMode: "per_location",
   wmsEnabled: false,
   wmsOnly: false,
   locations: [],
@@ -192,6 +198,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         "shop_type",
         "requires_shift",
         "requires_stock_count_to_close",
+        "stock_mode",
         "wms_enabled",
         "wms_only",
       ]);
@@ -228,6 +235,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       shopType: settingsMap.shop_type ?? null,
       requiresShift: settingsMap.requires_shift === "true",
       requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
+      stockMode: settingsMap.stock_mode === "central" ? "central" : "per_location",
       wmsEnabled: settingsMap.wms_enabled === "true",
       wmsOnly: settingsMap.wms_only === "true",
       locations,
