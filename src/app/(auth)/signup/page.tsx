@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { supabase, db } from "@/lib/supabase";
@@ -12,8 +12,21 @@ export default function SignupPage() {
   const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [referralCode, setReferralCode] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Auto-fill referral code from ?ref=CODE in the URL so a tracked link
+  // pre-fills the field on first paint.
+  useEffect(() => {
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const ref = params.get("ref") || params.get("referral");
+      if (ref) setReferralCode(ref.toUpperCase().slice(0, 32));
+    } catch {
+      // ignore
+    }
+  }, []);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -64,6 +77,7 @@ export default function SignupPage() {
     const { data: orgIdResult, error: rpcError } = await db.rpc("create_organization_for_user", {
       p_name: shopName.trim(),
       p_currency: currency,
+      p_referral_code: referralCode.trim() || null,
     });
 
     if (rpcError) {
@@ -143,6 +157,22 @@ export default function SignupPage() {
             className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
           />
           <p className="text-xs text-gray-500 mt-1">At least 8 characters.</p>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">
+            Referral code <span className="text-xs text-gray-400 font-normal">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={referralCode}
+            onChange={(e) => setReferralCode(e.target.value.toUpperCase().slice(0, 32))}
+            placeholder="e.g. JIMMY2026"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-wider focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+          <p className="text-xs text-gray-500 mt-1">
+            If a Tilify partner referred you, paste their code here so they get credit.
+          </p>
         </div>
 
         {error && (
