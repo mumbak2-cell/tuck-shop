@@ -8,6 +8,8 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw } from "lucide-react";
+import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
+import { useOrg } from "@/lib/org-context";
 
 interface SaleSummary {
   cash: number;
@@ -37,6 +39,12 @@ interface SaleRecord {
 
 export default function SalesPage() {
   const { role, name: userName } = useAuth();
+  const { role: orgRole, assignedLocationId, currentLocationId, locations } = useOrg();
+  const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
+  const effectiveLoc = orgRole === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
+  const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
+  const filteredLocName = isFiltered ? (locations.find((l) => l.id === effectiveLoc)?.name || "") : "";
+
   const [summary, setSummary] = useState<SaleSummary>({ cash: 0, card: 0, credit: 0, total: 0, count: 0 });
   const [recon, setRecon] = useState<ReconData>({ opening_float: "0", actual_cash: "" });
   const [reconSaved, setReconSaved] = useState(false);
@@ -56,11 +64,13 @@ export default function SalesPage() {
     setLoading(true);
 
     // Fetch all transactions for today (including voided for display)
-    const { data: allSales } = await db
+    let salesQ = db
       .from("sales")
       .select("id, product_id, quantity, unit_price, total_amount, payment_method, customer_id, created_at, voided, products(name)")
       .eq("sale_date", today)
       .order("created_at", { ascending: false });
+    if (isFiltered) salesQ = salesQ.eq("location_id", effectiveLoc);
+    const { data: allSales } = await salesQ;
 
     const salesArr: any[] = allSales || [];
 
@@ -101,7 +111,7 @@ export default function SalesPage() {
     }
 
     setLoading(false);
-  }, [today]);
+  }, [today, effectiveLoc, isFiltered]);
 
   useEffect(() => {
     fetchSummary();
@@ -200,7 +210,15 @@ export default function SalesPage() {
 
   return (
     <div className="max-w-4xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Today&apos;s Sales</h1>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">
+          Today&apos;s Sales
+          {isFiltered && filteredLocName && (
+            <span className="ml-2 text-base font-normal text-gray-500">· {filteredLocName}</span>
+          )}
+        </h1>
+        <LocationFilter value={locFilter} onChange={setLocFilter} />
+      </div>
 
       {/* Sales breakdown — clickable to filter */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">

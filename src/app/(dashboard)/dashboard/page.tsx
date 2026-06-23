@@ -16,6 +16,8 @@ import {
   FileSpreadsheet,
   Receipt,
 } from "lucide-react";
+import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
+import { useOrg } from "@/lib/org-context";
 
 interface DashboardData {
   totalProducts: number;
@@ -37,10 +39,16 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
+  const { role, assignedLocationId, currentLocationId } = useOrg();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
+  const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
 
   const today = new Date().toISOString().split("T")[0];
+
+  // Cashiers are pinned to their own location for reports.
+  const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
+  const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
 
   const fetchDashboard = useCallback(async () => {
     setLoading(true);
@@ -48,12 +56,25 @@ export default function DashboardPage() {
     // Get first of month for expenses query
     const monthStart = (() => { const d = new Date(); d.setDate(1); return d.toISOString().split("T")[0]; })();
 
+    // Build queries with optional location filter.
+    let salesQ = db.from("sales").select("total_amount, payment_method").eq("sale_date", today).eq("voided", false);
+    let customersQ = db.from("customers").select("balance");
+    let recentQ = db.from("sales").select("id, quantity, total_amount, payment_method, created_at, products(name)").eq("sale_date", today).eq("voided", false).order("created_at", { ascending: false }).limit(10);
+    let expensesQ = db.from("expenses").select("category, amount").gte("expense_date", monthStart).lte("expense_date", today);
+
+    if (isFiltered) {
+      salesQ = salesQ.eq("location_id", effectiveLoc);
+      customersQ = customersQ.eq("location_id", effectiveLoc);
+      recentQ = recentQ.eq("location_id", effectiveLoc);
+      expensesQ = expensesQ.eq("location_id", effectiveLoc);
+    }
+
     const [productsRes, salesRes, customersRes, recentRes, expensesRes] = await Promise.all([
       db.from("products").select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued").eq("discontinued", false),
-      db.from("sales").select("total_amount, payment_method").eq("sale_date", today).eq("voided", false),
-      db.from("customers").select("balance"),
-      db.from("sales").select("id, quantity, total_amount, payment_method, created_at, products(name)").eq("sale_date", today).eq("voided", false).order("created_at", { ascending: false }).limit(10),
-      db.from("expenses").select("category, amount").gte("expense_date", monthStart).lte("expense_date", today),
+      salesQ,
+      customersQ,
+      recentQ,
+      expensesQ,
     ]);
 
     const products: any[] = productsRes.data || [];
@@ -111,7 +132,7 @@ export default function DashboardPage() {
     });
 
     setLoading(false);
-  }, [today]);
+  }, [today, effectiveLoc, isFiltered]);
 
   useEffect(() => {
     fetchDashboard();
@@ -123,7 +144,10 @@ export default function DashboardPage() {
 
   return (
     <div className="max-w-5xl">
-      <h1 className="text-2xl font-bold text-gray-900 mb-6">Dashboard</h1>
+      <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
+        <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
+        <LocationFilter value={locFilter} onChange={setLocFilter} />
+      </div>
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">

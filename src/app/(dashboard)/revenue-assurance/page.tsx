@@ -7,6 +7,8 @@ import {
   ShieldCheck, AlertTriangle, Eye, Calendar, Info,
   MessageSquare, Wrench, Send,
 } from "lucide-react";
+import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
+import { useOrg } from "@/lib/org-context";
 
 interface CountOption {
   key: string;
@@ -48,6 +50,12 @@ const ADJUSTMENT_REASONS = ["Breakage", "Expired", "Theft", "Damaged", "Samples"
 
 export default function RevenueAssurancePage() {
   const { name: userName } = useAuth();
+  const { role: orgRole, assignedLocationId, currentLocationId, locations } = useOrg();
+  const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
+  const effectiveLoc = orgRole === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
+  const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
+  const filteredLocName = isFiltered ? (locations.find((l) => l.id === effectiveLoc)?.name || "") : "";
+
   const [rows, setRows] = useState<AssuranceRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterMode, setFilterMode] = useState<"all" | "discrepancies">("discrepancies");
@@ -150,7 +158,7 @@ export default function RevenueAssurancePage() {
       setLoading(false);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [openingIdx, closingIdx, loadingOptions]);
+  }, [openingIdx, closingIdx, loadingOptions, effectiveLoc, isFiltered]);
 
   async function getCountsForOption(opt: CountOption, fields: string) {
     if (opt.sessionId) {
@@ -235,13 +243,16 @@ export default function RevenueAssurancePage() {
 
     let salesData: any[] = [];
     if (openingTimestamp && closingTimestamp && dateFrom === dateTo) {
-      const { data } = await db.from("sales").select("product_id, quantity, total_amount")
+      let q = db.from("sales").select("product_id, quantity, total_amount")
         .eq("voided", false).gte("created_at", openingTimestamp).lte("created_at", closingTimestamp);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      const { data } = await q;
       salesData = (data || []) as any[];
     } else {
       let q = db.from("sales").select("product_id, quantity, total_amount").eq("voided", false);
       if (dateFrom === dateTo) { q = q.eq("sale_date", dateTo); }
       else { q = q.gte("sale_date", dateFrom).lte("sale_date", dateTo); }
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
       const { data } = await q;
       salesData = (data || []) as any[];
     }
@@ -376,14 +387,21 @@ export default function RevenueAssurancePage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <ShieldCheck className="w-7 h-7 text-green-600" />
-          Revenue Assurance
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">
-          Compare two stock counts to find discrepancies between stock movement and POS sales
-        </p>
+      <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <ShieldCheck className="w-7 h-7 text-green-600" />
+            Revenue Assurance
+            {isFiltered && filteredLocName && (
+              <span className="ml-1 text-base font-normal text-gray-500">· {filteredLocName}</span>
+            )}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Compare two stock counts to find discrepancies between stock movement and POS sales
+            {isFiltered && <span className="block mt-1 text-xs text-amber-600">Note: stock-count comparison stays chain-wide; only POS sales are filtered by location for now.</span>}
+          </p>
+        </div>
+        <LocationFilter value={locFilter} onChange={setLocFilter} />
       </div>
 
       {countOptions.length === 0 ? (

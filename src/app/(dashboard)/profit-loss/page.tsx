@@ -3,10 +3,18 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { FileBarChart } from "lucide-react";
+import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
+import { useOrg } from "@/lib/org-context";
 
 type Period = "today" | "week" | "month" | "custom";
 
 export default function ProfitLossPage() {
+  const { role, assignedLocationId, currentLocationId, locations } = useOrg();
+  const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
+  const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
+  const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
+  const filteredLocName = isFiltered ? (locations.find((l) => l.id === effectiveLoc)?.name || "") : "";
+
   const [period, setPeriod] = useState<Period>("month");
   const [customFrom, setCustomFrom] = useState(() => {
     const d = new Date();
@@ -27,7 +35,8 @@ export default function ProfitLossPage() {
 
   useEffect(() => {
     loadPnL();
-  }, [period, customFrom, customTo]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [period, customFrom, customTo, effectiveLoc, isFiltered]);
 
   function getDateRange(): { from: string; to: string } {
     const today = new Date().toISOString().split("T")[0];
@@ -50,12 +59,14 @@ export default function ProfitLossPage() {
     const { from, to } = getDateRange();
 
     // 1. Revenue by payment method
-    const { data: sales } = await db
+    let salesQ = db
       .from("sales")
       .select("payment_method, total_amount, quantity, product_id")
       .gte("sale_date", from)
       .lte("sale_date", to)
       .eq("voided", false);
+    if (isFiltered) salesQ = salesQ.eq("location_id", effectiveLoc);
+    const { data: sales } = await salesQ;
 
     let cash = 0, card = 0, credit = 0;
     ((sales || []) as any[]).forEach((s: any) => {
@@ -91,11 +102,13 @@ export default function ProfitLossPage() {
     setCogs(totalCogs);
 
     // 3. Expenses
-    const { data: expenses } = await db
+    let expQ = db
       .from("expenses")
       .select("category, amount")
       .gte("expense_date", from)
       .lte("expense_date", to);
+    if (isFiltered) expQ = expQ.eq("location_id", effectiveLoc);
+    const { data: expenses } = await expQ;
 
     let opex = 0, dirW = 0;
     const catTotals: Record<string, number> = {};
@@ -133,12 +146,18 @@ export default function ProfitLossPage() {
 
   return (
     <div>
-      <div className="mb-6">
-        <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
-          <FileBarChart className="w-7 h-7 text-green-600" />
-          Profit & Loss
-        </h1>
-        <p className="text-sm text-gray-500 mt-1">Revenue, costs, expenses, and net profit</p>
+      <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            <FileBarChart className="w-7 h-7 text-green-600" />
+            Profit &amp; Loss
+            {isFiltered && filteredLocName && (
+              <span className="ml-1 text-base font-normal text-gray-500">· {filteredLocName}</span>
+            )}
+          </h1>
+          <p className="text-sm text-gray-500 mt-1">Revenue, costs, expenses, and net profit</p>
+        </div>
+        <LocationFilter value={locFilter} onChange={setLocFilter} />
       </div>
 
       {/* Period selector */}
