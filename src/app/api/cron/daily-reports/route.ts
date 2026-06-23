@@ -10,7 +10,12 @@
 
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { buildDailySummary, renderDailyEmail } from "@/lib/daily-report";
+import { buildDailySummary, renderDailyEmail, buildDailyItemsCsv } from "@/lib/daily-report";
+
+interface Attachment {
+  filename: string;
+  content: string; // base64 encoded
+}
 
 export const runtime = "nodejs";
 // 60s headroom for sending many emails.
@@ -23,11 +28,22 @@ interface SubscriptionRow {
   send_hour_local: number;
 }
 
-async function sendViaResend(toEmail: string, subject: string, html: string, text: string): Promise<{ ok: boolean; error?: string }> {
+async function sendViaResend(toEmail: string, subject: string, html: string, text: string, attachments?: Attachment[]): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   const fromAddress = process.env.RESEND_FROM_ADDRESS || "Tilify <reports@mkglobal.co.za>";
   if (!apiKey) {
     return { ok: false, error: "RESEND_API_KEY not configured" };
+  }
+
+  const payload: Record<string, unknown> = {
+    from: fromAddress,
+    to: [toEmail],
+    subject,
+    html,
+    text,
+  };
+  if (attachments && attachments.length > 0) {
+    payload.attachments = attachments;
   }
 
   const res = await fetch("https://api.resend.com/emails", {
@@ -36,13 +52,7 @@ async function sendViaResend(toEmail: string, subject: string, html: string, tex
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify({
-      from: fromAddress,
-      to: [toEmail],
-      subject,
-      html,
-      text,
-    }),
+    body: JSON.stringify(payload),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -91,7 +101,17 @@ export async function GET(req: Request) {
       }
 
       const { subject, html, text } = renderDailyEmail(summary);
-      const sendResult = await sendViaResend(sub.email, subject, html, text);
+
+      // Build CSV attachment of every line item for the day.
+      const itemsCsv = await buildDailyItemsCsv(sub.org_id);
+      const attachments: Attachment[] = itemsCsv
+        ? [{
+            filename: `sales-${itemsCsv.date}.csv`,
+            content: Buffer.from(itemsCsv.csv, "utf-8").toString("base64"),
+          }]
+        : [];
+
+      const sendResult = await sendViaResend(sub.email, subject, html, text, attachments);
 
       if (!sendResult.ok) {
         await supabase

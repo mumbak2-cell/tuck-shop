@@ -257,7 +257,10 @@ export function renderDailyEmail(summary: OrgDailySummary): { subject: string; h
         </div>
         ${rollupBlock}
         ${locationBlocks}
-        <p style="margin-top:24px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;">
+        <p style="margin-top:24px;padding-top:16px;font-size:13px;color:#374151;">
+          A CSV of every line item sold yesterday is attached — open it in Excel or Google Sheets for full sale-by-sale detail.
+        </p>
+        <p style="margin-top:8px;padding-top:16px;border-top:1px solid #e5e7eb;font-size:12px;color:#9ca3af;">
           You are receiving this because you enabled the daily digest in Tilify Settings.
           To turn it off, sign in and toggle Daily Email Digest off.
         </p>
@@ -294,4 +297,92 @@ function escapeHtml(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+/**
+ * Escape a single CSV cell - wraps in quotes when the value contains a
+ * comma, quote, or newline, and doubles any embedded quote.
+ */
+function csvCell(v: string | number | null | undefined): string {
+  if (v === null || v === undefined) return "";
+  const s = String(v);
+  if (s.includes(",") || s.includes('"') || s.includes("\n")) {
+    return `"${s.replace(/"/g, '""')}"`;
+  }
+  return s;
+}
+
+/**
+ * Build a CSV string listing every sale line item for the org for the
+ * given date (defaults to yesterday). Returns null when there are no
+ * sales. Server-side ONLY (uses supabaseAdmin to bypass RLS).
+ *
+ * Columns: Sale ID, Time, Location, Inventory ID, Product, Quantity,
+ *          Unit Price, Total, Payment Method, Customer
+ */
+export async function buildDailyItemsCsv(orgId: string, isoDate?: string): Promise<{ csv: string; rowCount: number; date: string } | null> {
+  const supabase = getSupabaseAdmin();
+  const date = isoDate ?? yesterdayDate();
+
+  const { data: salesRows } = await supabase
+    .from("sales")
+    .select("id, created_at, location_id, product_id, quantity, unit_price, total_amount, payment_method, customer_id")
+    .eq("org_id", orgId)
+    .eq("sale_date", date)
+    .order("created_at", { ascending: true });
+
+  const sales = (salesRows as any[]) || [];
+  if (sales.length === 0) return null;
+
+  // Lookup tables: locations, products (name + inventory id), customers
+  const locIds = Array.from(new Set(sales.map((s) => s.location_id).filter(Boolean))) as string[];
+  const productIds = Array.from(new Set(sales.map((s) => s.product_id).filter(Boolean))) as string[];
+  const customerIds = Array.from(new Set(sales.map((s) => s.customer_id).filter(Boolean))) as string[];
+
+  const locNames: Record<string, string> = {};
+  if (locIds.length > 0) {
+    const { data } = await supabase.from("locations").select("id, name").in("id", locIds);
+    ((data as any[]) || []).forEach((l) => { locNames[l.id] = l.name; });
+  }
+
+  const productInfo: Record<string, { name: string; inventoryId: string }> = {};
+  if (productIds.length > 0) {
+    const { data } = await supabase.from("products").select("id, name, inventory_id").in("id", productIds);
+    ((data as any[]) || []).forEach((p) => {
+      productInfo[p.id] = { name: p.name, inventoryId: p.inventory_id || "" };
+    });
+  }
+
+  const customerNames: Record<string, string> = {};
+  if (customerIds.length > 0) {
+    const { data } = await supabase.from("customers").select("id, name").in("id", customerIds);
+    ((data as any[]) || []).forEach((c) => { customerNames[c.id] = c.name; });
+  }
+
+  const header = ["Sale ID", "Time", "Location", "Inventory ID", "Product", "Quantity", "Unit Price", "Total", "Payment Method", "Customer"];
+  const lines: string[] = [header.map(csvCell).join(",")];
+
+  for (const s of sales) {
+    const created = s.created_at ? new Date(s.created_at) : null;
+    const time = created
+      ? created.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZone: "Africa/Johannesburg" })
+      : "";
+    const info = s.product_id ? productInfo[s.product_id] : undefined;
+    const unitPrice = Number(s.unit_price) || (Number(s.total_amount) / Math.max(1, Number(s.quantity) || 1));
+    const row = [
+      s.id || "",
+      time,
+      s.location_id ? locNames[s.location_id] || "" : "",
+      info?.inventoryId || "",
+      info?.name || "",
+      Number(s.quantity) || 0,
+      Number(unitPrice).toFixed(2),
+      Number(s.total_amount).toFixed(2),
+      s.payment_method || "",
+      s.customer_id ? customerNames[s.customer_id] || "" : "",
+    ];
+    lines.push(row.map(csvCell).join(","));
+  }
+
+  return { csv: lines.join("\r\n"), rowCount: sales.length, date };
 }
