@@ -5,6 +5,7 @@ import { Product } from "@/types/database";
 import { formatZAR } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -13,10 +14,12 @@ import {
   Search,
   Package,
   Plus,
+  MapPin,
 } from "lucide-react";
 
 interface StockRow {
   product: Product;
+  expected: number; // product_stock.quantity at currentLocationId
   closingCount: string; // text input value
   saved: boolean;
 }
@@ -32,6 +35,7 @@ interface ExistingSession {
 export default function StockCountPage() {
   const { name: userName } = useAuth();
   const { markStockCountDone } = useShift();
+  const { currentLocationId, currentLocationName, locations } = useOrg();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -46,6 +50,10 @@ export default function StockCountPage() {
   const today = new Date().toISOString().split("T")[0];
 
   const fetchProducts = useCallback(async (forSessionId?: string) => {
+    if (!currentLocationId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
 
     // Get active products
@@ -56,11 +64,22 @@ export default function StockCountPage() {
       .order("category")
       .order("name");
 
-    // Find today's existing count sessions
+    // Get expected stock for THIS location
+    const { data: stockRows } = await db
+      .from("product_stock")
+      .select("product_id, quantity")
+      .eq("location_id", currentLocationId);
+    const expectedMap = new Map<string, number>();
+    ((stockRows || []) as { product_id: string; quantity: number }[]).forEach((r) => {
+      expectedMap.set(r.product_id, Number(r.quantity) || 0);
+    });
+
+    // Find today's existing count sessions FOR THIS LOCATION
     const { data: todayCounts } = await db
       .from("stock_counts")
       .select("session_id, session_label, counted_by, counted_at")
       .eq("count_date", today)
+      .eq("location_id", currentLocationId)
       .order("counted_at", { ascending: false });
 
     // Group into distinct sessions
@@ -94,28 +113,30 @@ export default function StockCountPage() {
     }
     setSessionId(activeSessionId);
 
-    // Load counts for this session
+    // Load counts for this session (filtered to current location)
     const { data: existingCounts } = await db
       .from("stock_counts")
       .select("product_id, closing_units")
-      .eq("session_id", activeSessionId);
+      .eq("session_id", activeSessionId)
+      .eq("location_id", currentLocationId);
 
     const countMap = new Map<string, number>();
     ((existingCounts || []) as any[]).forEach((c: any) => {
       countMap.set(c.product_id, c.closing_units);
     });
 
-    const stockRows: StockRow[] = ((products || []) as any[]).map((p: any) => ({
+    const stockRowsForUi: StockRow[] = ((products || []) as any[]).map((p: any) => ({
       product: p,
+      expected: expectedMap.get(p.id) ?? 0,
       closingCount: countMap.has(p.id) ? countMap.get(p.id)!.toString() : "",
       saved: countMap.has(p.id),
     }));
 
-    setRows(stockRows);
-    setSavedCount(stockRows.filter((r) => r.saved).length);
+    setRows(stockRowsForUi);
+    setSavedCount(stockRowsForUi.filter((r) => r.saved).length);
     setLoading(false);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [today]);
+  }, [today, currentLocationId]);
 
   useEffect(() => {
     fetchProducts();
@@ -147,6 +168,10 @@ export default function StockCountPage() {
   }
 
   async function saveAllCounts() {
+    if (!currentLocationId) {
+      alert("Pick a location before counting.");
+      return;
+    }
     const toSave = rows.filter(
       (r) => r.closingCount !== "" && !r.saved
     );
@@ -155,11 +180,12 @@ export default function StockCountPage() {
     setSaving(true);
     const now = new Date().toISOString();
 
-    // Check for existing counts in this session to detect edits
+    // Check for existing counts in this session+location to detect edits
     const { data: existingCounts } = await db
       .from("stock_counts")
       .select("id, product_id, closing_units, update_count")
-      .eq("session_id", sessionId);
+      .eq("session_id", sessionId)
+      .eq("location_id", currentLocationId);
 
     const existingMap = new Map<string, { id: string; closing_units: number; update_count: number }>();
     ((existingCounts || []) as any[]).forEach((c: any) => {
@@ -173,7 +199,8 @@ export default function StockCountPage() {
         session_label: sessionLabel,
         count_date: today,
         product_id: r.product.id,
-        opening_units: r.product.opening_stock,
+        location_id: currentLocationId,
+        opening_units: r.expected,
         closing_units: parseInt(r.closingCount) || 0,
         replenished_units: 0,
         counted_by: userName,
@@ -185,19 +212,20 @@ export default function StockCountPage() {
 
     const { error } = await db
       .from("stock_counts")
-      .upsert(payload, { onConflict: "session_id,product_id" });
+      .upsert(payload, { onConflict: "session_id,product_id,location_id" });
 
     if (error) {
       alert("Error saving: " + error.message);
     } else {
       // Log audit entries for any edits (where count changed)
-      const auditEntries: { stock_count_id: string; product_id: string; count_date: string; closing_units_old: number; closing_units_new: number; changed_by: string; changed_at: string }[] = [];
+      const auditEntries: { stock_count_id: string; product_id: string; location_id: string; count_date: string; closing_units_old: number; closing_units_new: number; changed_by: string; changed_at: string }[] = [];
       for (const r of toSave) {
         const existing = existingMap.get(r.product.id);
         if (existing && existing.closing_units !== (parseInt(r.closingCount) || 0)) {
           auditEntries.push({
             stock_count_id: existing.id,
             product_id: r.product.id,
+            location_id: currentLocationId,
             count_date: today,
             closing_units_old: existing.closing_units,
             closing_units_new: parseInt(r.closingCount) || 0,
@@ -210,12 +238,22 @@ export default function StockCountPage() {
         await db.from("stock_count_audit").insert(auditEntries);
       }
 
-      // Update opening_stock on products to match closing count
+      // Set product_stock at this location to the counted quantity.
+      // The trigger on product_stock auto-syncs products.opening_stock to
+      // the org-wide sum, so legacy callers still see a sane total.
       for (const r of toSave) {
+        const counted = parseInt(r.closingCount) || 0;
         await db
-          .from("products")
-          .update({ opening_stock: parseInt(r.closingCount) || 0 })
-          .eq("id", r.product.id);
+          .from("product_stock")
+          .upsert(
+            {
+              product_id: r.product.id,
+              location_id: currentLocationId,
+              quantity: counted,
+              last_updated: now,
+            },
+            { onConflict: "product_id,location_id" }
+          );
       }
 
       setRows((prev) =>
@@ -255,9 +293,19 @@ export default function StockCountPage() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Stock Count</h1>
+          <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
+            Stock Count
+            {locations.length > 1 && currentLocationName && (
+              <span className="inline-flex items-center gap-1 text-xs font-medium text-green-700 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">
+                <MapPin className="w-3 h-3" /> {currentLocationName}
+              </span>
+            )}
+          </h1>
           <p className="text-sm text-gray-500 mt-1">
             {today} · {savedCount}/{rows.length} products counted
+            {locations.length > 1 && (
+              <span className="ml-1 text-gray-400">· Switch the location in the sidebar to count another shop.</span>
+            )}
           </p>
         </div>
         <Button
@@ -382,7 +430,7 @@ export default function StockCountPage() {
             const closing = parseInt(row.closingCount);
             const variance =
               row.closingCount !== ""
-                ? closing - row.product.opening_stock
+                ? closing - row.expected
                 : null;
             const isLow =
               row.closingCount !== "" &&
@@ -406,7 +454,7 @@ export default function StockCountPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {row.product.category} · Expected: {row.product.opening_stock} · {formatZAR(row.product.selling_price)}
+                    {row.product.category} · Expected: {row.expected} · {formatZAR(row.product.selling_price)}
                   </p>
                 </div>
 

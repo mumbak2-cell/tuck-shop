@@ -77,15 +77,18 @@ export default function RevenueAssurancePage() {
 
   useEffect(() => {
     loadCountOptions();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveLoc, isFiltered]);
 
   async function loadCountOptions() {
     setLoadingOptions(true);
 
-    const { data: counts } = await db
+    let q = db
       .from("stock_counts")
-      .select("session_id, session_label, count_date, counted_by, counted_at")
+      .select("session_id, session_label, count_date, counted_by, counted_at, location_id")
       .order("counted_at", { ascending: false });
+    if (isFiltered) q = q.eq("location_id", effectiveLoc);
+    const { data: counts } = await q;
 
     if (!counts || counts.length === 0) {
       setCountOptions([]);
@@ -94,13 +97,22 @@ export default function RevenueAssurancePage() {
       return;
     }
 
+    // Lookup table: location id -> name
+    const locNameById = new Map<string, string>(locations.map((l) => [l.id, l.name]));
+
     const groupMap = new Map<string, {
       key: string; sessionId: string | null; sessionLabel: string;
       date: string; countedBy: string; countedAt: string; productCount: number;
+      locationId: string | null;
     }>();
 
     (counts as any[]).forEach((c: any) => {
-      const groupKey = c.session_id || `date:${c.count_date}`;
+      // Group per (session_id, location_id) so a session covering two
+      // locations stays distinct in the picker. Falls back to count_date
+      // for very old rows that pre-date sessions.
+      const sid = c.session_id || `date:${c.count_date}`;
+      const locId = c.location_id || "no-loc";
+      const groupKey = `${sid}:${locId}`;
       if (!groupMap.has(groupKey)) {
         groupMap.set(groupKey, {
           key: groupKey,
@@ -110,6 +122,7 @@ export default function RevenueAssurancePage() {
           countedBy: c.counted_by || "Unknown",
           countedAt: c.counted_at || "",
           productCount: 0,
+          locationId: c.location_id || null,
         });
       }
       groupMap.get(groupKey)!.productCount++;
@@ -124,9 +137,15 @@ export default function RevenueAssurancePage() {
         ? new Date(info.countedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })
         : "";
 
+      const locName = info.locationId ? (locNameById.get(info.locationId) || "Unknown shop") : "";
       const labelParts = [dateStr];
       if (timeStr) labelParts[0] += ` at ${timeStr}`;
-      labelParts.push(`${info.sessionLabel} · ${info.countedBy} (${info.productCount} items)`);
+      const meta: string[] = [];
+      if (locName && !isFiltered) meta.push(locName);
+      meta.push(info.sessionLabel);
+      meta.push(info.countedBy);
+      meta.push(`${info.productCount} items`);
+      labelParts.push(meta.join(" · "));
 
       options.push({
         key: info.key, sessionId: info.sessionId, date: info.date,
@@ -398,7 +417,6 @@ export default function RevenueAssurancePage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             Compare two stock counts to find discrepancies between stock movement and POS sales
-            {isFiltered && <span className="block mt-1 text-xs text-amber-600">Note: stock-count comparison stays chain-wide; only POS sales are filtered by location for now.</span>}
           </p>
         </div>
         <LocationFilter value={locFilter} onChange={setLocFilter} />
