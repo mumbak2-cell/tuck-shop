@@ -5,6 +5,7 @@ import { formatZAR } from "@/lib/format";
 import { FileBarChart } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
+import { paymentBucket } from "@/lib/payment-buckets";
 
 type Period = "today" | "week" | "month" | "custom";
 
@@ -70,9 +71,11 @@ export default function ProfitLossPage() {
 
     let cash = 0, card = 0, credit = 0;
     ((sales || []) as any[]).forEach((s: any) => {
-      if (s.payment_method === "cash") cash += s.total_amount;
-      else if (s.payment_method === "card") card += s.total_amount;
-      else if (s.payment_method === "credit") credit += s.total_amount;
+      const amt = Number(s.total_amount) || 0;
+      const bucket = paymentBucket(s.payment_method);
+      if (bucket === "cash") cash += amt;
+      else if (bucket === "credit") credit += amt;
+      else card += amt;
     });
     setCashRevenue(cash);
     setCardRevenue(card);

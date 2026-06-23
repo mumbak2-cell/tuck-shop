@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
+import { paymentBucket, type PaymentBucket } from "@/lib/payment-buckets";
 
 interface SaleSummary {
   cash: number;
@@ -90,9 +91,14 @@ export default function SalesPage() {
 
     // Calculate summary from non-voided sales only
     const activeSales = salesArr.filter((s: any) => !s.voided);
-    const cash = activeSales.filter((s: any) => s.payment_method === "cash").reduce((sum: number, s: any) => sum + s.total_amount, 0);
-    const card = activeSales.filter((s: any) => s.payment_method === "card").reduce((sum: number, s: any) => sum + s.total_amount, 0);
-    const credit = activeSales.filter((s: any) => s.payment_method === "credit").reduce((sum: number, s: any) => sum + s.total_amount, 0);
+    let cash = 0, card = 0, credit = 0;
+    activeSales.forEach((s: any) => {
+      const amt = Number(s.total_amount) || 0;
+      const bucket = paymentBucket(s.payment_method);
+      if (bucket === "cash") cash += amt;
+      else if (bucket === "credit") credit += amt;
+      else card += amt;
+    });
     setSummary({ cash, card, credit, total: cash + card + credit, count: activeSales.length });
 
     // Check if recon already exists for today
@@ -259,7 +265,9 @@ export default function SalesPage() {
           <div className="px-5 py-8 text-center text-gray-400 text-sm">No transactions today.</div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {transactions.filter((txn) => filterMethod === "all" || txn.payment_method === filterMethod).map((txn) => (
+            {transactions.filter((txn) => filterMethod === "all" || paymentBucket(txn.payment_method) === filterMethod).map((txn) => {
+              const bucket: PaymentBucket = paymentBucket(txn.payment_method);
+              return (
               <div
                 key={txn.id}
                 className={`px-5 py-3 flex items-center justify-between ${txn.voided ? "bg-red-50/50 opacity-60" : ""}`}
@@ -269,8 +277,8 @@ export default function SalesPage() {
                     <span className={`text-sm font-medium ${txn.voided ? "line-through text-gray-400" : "text-gray-900"}`}>
                       {txn.product_name}
                     </span>
-                    <Badge color={txn.payment_method === "cash" ? "green" : txn.payment_method === "card" ? "blue" : "amber"}>
-                      {txn.payment_method === "card" ? "Card" : txn.payment_method === "credit" ? "Credit" : "Cash"}
+                    <Badge color={bucket === "cash" ? "green" : bucket === "card" ? "blue" : "amber"}>
+                      {txn.payment_method || "—"}
                     </Badge>
                     {txn.voided && <Badge color="red">Voided</Badge>}
                   </div>
@@ -293,7 +301,8 @@ export default function SalesPage() {
                   )}
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

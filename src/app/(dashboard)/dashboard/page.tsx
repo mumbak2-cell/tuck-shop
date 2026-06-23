@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
+import { paymentBucket } from "@/lib/payment-buckets";
 
 interface DashboardData {
   totalProducts: number;
@@ -88,9 +89,14 @@ export default function DashboardPage() {
       .slice(0, 8)
       .map((p: any) => ({ name: p.name, stock: p.opening_stock, reorder: p.reorder_level }));
 
-    const cash = sales.filter((s: any) => s.payment_method === "cash").reduce((sum: number, s: any) => sum + s.total_amount, 0);
-    const card = sales.filter((s: any) => s.payment_method === "card").reduce((sum: number, s: any) => sum + s.total_amount, 0);
-    const credit = sales.filter((s: any) => s.payment_method === "credit").reduce((sum: number, s: any) => sum + s.total_amount, 0);
+    let cash = 0, card = 0, credit = 0;
+    sales.forEach((s: any) => {
+      const amt = Number(s.total_amount) || 0;
+      const bucket = paymentBucket(s.payment_method);
+      if (bucket === "cash") cash += amt;
+      else if (bucket === "credit") credit += amt;
+      else card += amt;
+    });
 
     // Process expenses
     const expensesData: any[] = expensesRes.data || [];
@@ -268,7 +274,7 @@ export default function DashboardPage() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{sale.product_name}</p>
                     <p className="text-xs text-gray-500">
-                      Qty {sale.quantity} · {sale.payment_method === "card" ? "Card" : sale.payment_method === "credit" ? "Credit" : "Cash"}
+                      Qty {sale.quantity} · {sale.payment_method || "—"}
                       {" · "}{new Date(sale.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}
                     </p>
                   </div>
@@ -437,9 +443,11 @@ async function downloadPnLReport(date: string) {
 
   let cash = 0, card = 0, credit = 0;
   ((sales || []) as any[]).forEach((s: any) => {
-    if (s.payment_method === "cash") cash += s.total_amount;
-    else if (s.payment_method === "card") card += s.total_amount;
-    else credit += s.total_amount;
+    const amt = Number(s.total_amount) || 0;
+    const bucket = paymentBucket(s.payment_method);
+    if (bucket === "cash") cash += amt;
+    else if (bucket === "credit") credit += amt;
+    else card += amt;
   });
   const totalRevenue = cash + card + credit;
 
