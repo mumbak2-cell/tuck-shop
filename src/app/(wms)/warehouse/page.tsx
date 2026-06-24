@@ -24,6 +24,9 @@ interface WmsCatalogItem {
   item_name: string;
   category: string | null;
   pack_size: number;
+  abc_class: string;
+  count_frequency_days: number;
+  last_counted_at: string | null;
 }
 
 interface WmsInventoryRow {
@@ -57,6 +60,8 @@ export default function WarehousePage() {
   const [formPackSize, setFormPackSize] = useState("1");
   const [formReorderLevel, setFormReorderLevel] = useState("10");
   const [formReorderQty, setFormReorderQty] = useState("50");
+  const [formAbcClass, setFormAbcClass] = useState("C");
+  const [formFrequency, setFormFrequency] = useState("30");
   const [showCsv, setShowCsv] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -71,11 +76,9 @@ export default function WarehousePage() {
     const catalogItems: WmsCatalogItem[] = (catalog || []) as any[];
     const inventoryItems: WmsInventoryRow[] = (inventory || []) as any[];
 
-    // Build inventory lookup
     const invMap = new Map<number, WmsInventoryRow>();
     inventoryItems.forEach((inv: any) => invMap.set(inv.wms_item_id, inv));
 
-    // Extract unique categories
     const cats = new Set<string>();
     catalogItems.forEach((c: any) => {
       if (c.category) cats.add(c.category);
@@ -103,6 +106,8 @@ export default function WarehousePage() {
     setFormPackSize("1");
     setFormReorderLevel("10");
     setFormReorderQty("50");
+    setFormAbcClass("C");
+    setFormFrequency("30");
     setShowForm(true);
   }
 
@@ -114,6 +119,8 @@ export default function WarehousePage() {
     setFormPackSize(String(item.pack_size));
     setFormReorderLevel(String(inv?.reorder_level ?? 10));
     setFormReorderQty(String(inv?.reorder_qty ?? 50));
+    setFormAbcClass(item.abc_class || "C");
+    setFormFrequency(String(item.count_frequency_days ?? 30));
     setShowForm(true);
   }
 
@@ -123,7 +130,6 @@ export default function WarehousePage() {
 
     try {
       if (editing) {
-        // Update catalog
         await db
           .from("wms_catalog")
           .update({
@@ -131,10 +137,11 @@ export default function WarehousePage() {
             item_name: formName.trim(),
             category: formCategory.trim() || null,
             pack_size: parseInt(formPackSize) || 1,
+            abc_class: formAbcClass,
+            count_frequency_days: parseInt(formFrequency) || 30,
           })
           .eq("id", editing.id);
 
-        // Update inventory thresholds
         await db
           .from("wms_inventory")
           .update({
@@ -143,7 +150,6 @@ export default function WarehousePage() {
           })
           .eq("wms_item_id", editing.id);
       } else {
-        // Insert catalog item
         const { data: newItem, error: catErr } = await db
           .from("wms_catalog")
           .insert({
@@ -151,13 +157,14 @@ export default function WarehousePage() {
             item_name: formName.trim(),
             category: formCategory.trim() || null,
             pack_size: parseInt(formPackSize) || 1,
+            abc_class: formAbcClass,
+            count_frequency_days: parseInt(formFrequency) || 30,
           })
           .select("id")
           .single();
 
         if (catErr) throw catErr;
 
-        // Create inventory row
         await db.from("wms_inventory").insert({
           wms_item_id: (newItem as any).id,
           physical_qty: 0,
@@ -176,7 +183,6 @@ export default function WarehousePage() {
     }
   }
 
-  // Filter rows
   const filtered = rows.filter((r: StockRow) => {
     const matchSearch =
       !search ||
@@ -186,7 +192,6 @@ export default function WarehousePage() {
     return matchSearch && matchCategory;
   });
 
-  // Reorder alerts
   const alerts = rows.filter(
     (r: StockRow) =>
       r.inventory && r.inventory.physical_qty <= r.inventory.reorder_level
@@ -194,7 +199,6 @@ export default function WarehousePage() {
 
   return (
     <div className="space-y-6">
-      {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
@@ -219,7 +223,6 @@ export default function WarehousePage() {
         )}
       </div>
 
-      {/* Reorder Alerts */}
       {alerts.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
           <h2 className="text-sm font-semibold text-amber-800 flex items-center gap-2 mb-2">
@@ -237,7 +240,6 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* Search & Filter */}
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -265,7 +267,6 @@ export default function WarehousePage() {
         </div>
       </div>
 
-      {/* Stock Table */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : filtered.length === 0 ? (
@@ -286,6 +287,7 @@ export default function WarehousePage() {
                   <th className="text-left px-4 py-3 font-medium text-gray-600">SKU</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Item Name</th>
                   <th className="text-left px-4 py-3 font-medium text-gray-600">Category</th>
+                  <th className="text-center px-4 py-3 font-medium text-gray-600">ABC</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Pack Size</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Qty on Hand</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Reorder Level</th>
@@ -313,6 +315,19 @@ export default function WarehousePage() {
                       </td>
                       <td className="px-4 py-3 text-gray-500">
                         {r.catalog.category || "—"}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        <Badge
+                          variant={
+                            r.catalog.abc_class === "A"
+                              ? "red"
+                              : r.catalog.abc_class === "B"
+                              ? "amber"
+                              : "blue"
+                          }
+                        >
+                          {r.catalog.abc_class}
+                        </Badge>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-500">
                         {r.catalog.pack_size}
@@ -349,7 +364,6 @@ export default function WarehousePage() {
         </div>
       )}
 
-      {/* Add/Edit Modal */}
       <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? "Edit Warehouse Item" : "Add Warehouse Item"}>
         <div className="space-y-4">
           <div>
@@ -405,6 +419,37 @@ export default function WarehousePage() {
               />
             </div>
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">ABC Class</label>
+              <select
+                value={formAbcClass}
+                onChange={(e: any) => {
+                  const cls = e.target.value;
+                  setFormAbcClass(cls);
+                  const defaults: Record<string, string> = { A: "7", B: "14", C: "30" };
+                  setFormFrequency(defaults[cls] || "30");
+                }}
+                className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+              >
+                <option value="A">A — High value / fast moving</option>
+                <option value="B">B — Medium</option>
+                <option value="C">C — Low value / slow moving</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Count Frequency (days)</label>
+              <Input
+                type="number"
+                min="1"
+                value={formFrequency}
+                onChange={(e: any) => setFormFrequency(e.target.value)}
+              />
+              <p className="text-xs text-gray-400 mt-1">
+                Suggested: A=7, B=14, C=30
+              </p>
+            </div>
+          </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setShowForm(false)}>
               Cancel
@@ -416,7 +461,6 @@ export default function WarehousePage() {
         </div>
       </Modal>
 
-      {/* CSV Import Modal */}
       <WmsCsvUploadModal
         open={showCsv}
         onClose={() => setShowCsv(false)}

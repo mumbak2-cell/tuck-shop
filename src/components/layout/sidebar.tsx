@@ -24,6 +24,7 @@ import {
   Warehouse,
   Send,
   Store,
+  ClipboardCheck,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -36,11 +37,8 @@ interface NavItem {
   label: string;
   icon: React.ElementType;
   roles: UserRole[];
-  // If true, the item only shows when the org has prepares_food = true
   foodOnly?: boolean;
-  // If true, the item only shows when WMS is enabled
   wmsOnly?: boolean;
-  // If true, the item is hidden when the org is in WMS-only mode
   retailOnly?: boolean;
 }
 
@@ -62,10 +60,12 @@ const navItems: NavItem[] = [
   { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"], retailOnly: true },
   { href: "/locations", label: "Locations", icon: Store, roles: ["admin"] },
   // WMS items
+  { href: "/warehouse/dashboard", label: "WMS Dashboard", icon: BarChart3, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse", label: "Warehouse Stock", icon: Warehouse, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/receive", label: "WMS Receive", icon: PackagePlus, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/dispatch", label: "WMS Dispatch", icon: Send, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/adjustments", label: "WMS Adjustments", icon: Wrench, roles: ["admin"], wmsOnly: true },
+  { href: "/warehouse/stock-count", label: "WMS Stock Count", icon: ClipboardCheck, roles: ["admin"], wmsOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 
