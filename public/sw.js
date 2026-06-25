@@ -1,4 +1,4 @@
-const CACHE_NAME = "tilify-v1-2026-06-18";
+const CACHE_NAME = "tilify-v2-2026-06-25-offline-msg";
 const OFFLINE_URL = "/offline";
 
 self.addEventListener("install", (e) => {
