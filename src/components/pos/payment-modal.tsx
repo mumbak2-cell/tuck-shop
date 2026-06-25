@@ -6,6 +6,8 @@ import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { useOnline } from "@/lib/use-online";
+import { readCache } from "@/lib/offline-store";
+import { submitSaleBatch } from "@/lib/offline-ops";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -17,7 +19,7 @@ import {
   Smartphone,
   Building2,
   CircleDollarSign,
-  WifiOff,
+  CloudOff,
 } from "lucide-react";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
@@ -56,11 +58,12 @@ const KIND_COLOR: Record<PaymentKind, string> = {
 };
 
 export function PaymentModal({ open, onClose, items, total, onComplete }: Props) {
-  const { currentLocationId } = useOrg();
+  const { currentLocationId, orgId } = useOrg();
   const online = useOnline();
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
   const [methodsLoaded, setMethodsLoaded] = useState(false);
   const [methodsError, setMethodsError] = useState(false);
+  const [queuedToast, setQueuedToast] = useState(false);
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
@@ -80,32 +83,49 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setError("");
       setMethodsLoaded(false);
       setMethodsError(false);
-      // Load this org's payment methods (RLS scopes automatically). Track
-      // whether the query actually completed so we can distinguish a true
-      // "no methods configured" state from a "request failed because we
-      // are offline" state when the modal renders below.
+      setQueuedToast(false);
+
+      // Try a live query first. If it fails or returns empty AND we have a
+      // cached copy from the most recent sync, render from cache so the POS
+      // works when the network is misbehaving.
+      const cachedMethods = orgId
+        ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
+            .filter((m) => (m as PaymentMethodRow & { active?: boolean }).active !== false)
+            .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        : [];
+
       db.from("payment_methods")
         .select("id, name, kind, sort_order")
         .eq("active", true)
         .order("sort_order")
         .then(({ data, error: err }: { data: PaymentMethodRow[] | null; error: { message: string } | null }) => {
-          if (err) {
+          if (err && cachedMethods.length > 0) {
+            // Live query failed but we have cache — use it, no error UI.
+            setMethods(cachedMethods);
+          } else if (err) {
             setMethodsError(true);
           } else {
-            setMethods(data || []);
+            setMethods(data && data.length > 0 ? data : cachedMethods);
           }
           setMethodsLoaded(true);
         });
-      // Load customers for credit sales - scoped to the current location.
+
+      // Customers — same pattern. Fall back to cache, optionally filtered to
+      // the current location.
+      const cachedCustomers = orgId
+        ? (readCache<Customer & { location_id?: string | null }>(orgId, "customers") ?? [])
+            .filter((c) => !currentLocationId || !c.location_id || c.location_id === currentLocationId)
+            .sort((a, b) => a.name.localeCompare(b.name))
+        : [];
       let customerQuery = db.from("customers").select("*").order("name");
       if (currentLocationId) {
         customerQuery = customerQuery.eq("location_id", currentLocationId);
       }
       customerQuery.then(({ data }: { data: Customer[] | null }) => {
-        setCustomers(data || []);
+        setCustomers(data && data.length > 0 ? data : cachedCustomers);
       });
     }
-  }, [open, currentLocationId]);
+  }, [open, currentLocationId, orgId]);
 
   const selectedMethod = methods.find((m) => m.id === selectedMethodId) || null;
   const selectedKind = selectedMethod?.kind ?? null;
@@ -120,83 +140,49 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setError("Please enter the mobile money transaction reference.");
       return;
     }
+    if (!orgId || !currentLocationId) {
+      setError("Shop not loaded yet. Try again in a moment.");
+      return;
+    }
 
     setProcessing(true);
     setError("");
 
-    try {
-      // 1. Insert sale records using the method NAME (legacy column kept as TEXT)
-      const saleRows = items.map((item) => ({
-        sale_date: new Date().toISOString().split("T")[0],
+    // Use the idempotent batch RPC. Client-generated UUIDs make the call
+    // safely retriable, so if we are offline (or the network blips mid-call)
+    // the operation lands in the queue and the cashier sees the same
+    // "sale complete" outcome — Tilify replays it on reconnect.
+    const result = await submitSaleBatch({
+      org_id: orgId,
+      location_id: currentLocationId,
+      payment_method: selectedMethod.name,
+      payment_reference: paymentReference.trim() || null,
+      customer_id: selectedKind === "credit" ? selectedCustomer : null,
+      sale_date: new Date().toISOString().split("T")[0],
+      created_at: new Date().toISOString(),
+      lines: items.map((item) => ({
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
         total_amount: item.unitPrice * item.quantity,
-        payment_method: selectedMethod.name,
-        payment_reference: paymentReference.trim() || null,
-        customer_id: selectedKind === "credit" ? selectedCustomer : null,
-        // Multi-location: tag every sale with the currently-selected location.
-        location_id: currentLocationId,
-      }));
+      })),
+    });
 
-      const { error: salesError } = await db.from("sales").insert(saleRows);
-      if (salesError) throw salesError;
+    setProcessing(false);
 
-      // 2. Deduct stock from the CURRENT LOCATION's per-location stock.
-      // Falls back to the org-wide deduct_stock RPC if the new RPC is not
-      // present (e.g. migration 024 has not run on this database yet).
-      for (const item of items) {
-        if (currentLocationId) {
-          const { error: locErr } = await db.rpc("deduct_stock_at_location", {
-            p_product_id: item.productId,
-            p_quantity: item.quantity,
-            p_location_id: currentLocationId,
-          });
-          if (!locErr) continue;
-        }
-        // Fallback: legacy org-wide deduct (central stock mode)
-        const { error: stockError } = await db.rpc("deduct_stock", {
-          p_product_id: item.productId,
-          p_quantity: item.quantity,
-        });
-        if (stockError) {
-          const { data: prod } = await db
-            .from("products")
-            .select("opening_stock")
-            .eq("id", item.productId)
-            .single();
-          if (prod) {
-            await db
-              .from("products")
-              .update({
-                opening_stock: Math.max((prod.opening_stock || 0) - item.quantity, 0),
-              })
-              .eq("id", item.productId);
-          }
-        }
-      }
-
-      // 3. Update customer balance on credit sales
-      if (selectedKind === "credit" && selectedCustomer) {
-        const customer = customers.find((c) => c.id === selectedCustomer);
-        if (customer) {
-          await db
-            .from("customers")
-            .update({ balance: customer.balance + total })
-            .eq("id", selectedCustomer);
-        }
-      }
-
-      setSuccess(true);
-      setTimeout(() => {
-        onComplete();
-      }, 1500);
-    } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Failed to process sale";
-      setError(message);
-    } finally {
-      setProcessing(false);
+    if (!result.ok) {
+      setError(result.error || "Failed to process sale");
+      return;
     }
+
+    if (result.queued) {
+      setQueuedToast(true);
+    }
+
+    setSuccess(true);
+    setTimeout(() => {
+      onComplete();
+    }, result.queued ? 2000 : 1500);
   }
 
   function sendWhatsAppInvoice() {
@@ -235,6 +221,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           <p className="text-sm text-gray-500 mt-1">
             Paid by {selectedMethod?.name ?? "—"}
           </p>
+          {queuedToast && (
+            <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
+              <CloudOff className="w-4 h-4 text-amber-700" />
+              <span className="text-xs text-amber-900">
+                Queued — will sync when you&apos;re back online
+              </span>
+            </div>
+          )}
           {selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total && (
             <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-6 py-3 text-center">
               <p className="text-sm text-green-600">Change Due</p>
@@ -265,21 +259,22 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           <p className="text-xs text-gray-400 mt-1">{items.length} item(s)</p>
         </div>
 
+        {/* Offline ribbon: still let the cashier complete the sale (it queues) */}
+        {!online && methods.length > 0 && (
+          <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
+            <CloudOff className="w-4 h-4 text-amber-600 flex-shrink-0" />
+            <span className="text-amber-900">
+              <strong>Offline.</strong> This sale will queue locally and sync when you&apos;re back online.
+            </span>
+          </div>
+        )}
+
         {/* Payment method selection */}
         <div>
           <p className="text-sm font-medium text-gray-700 mb-3">Select payment method</p>
           {!methodsLoaded ? (
             <div className="text-sm text-gray-400 italic py-6 text-center border border-dashed border-gray-200 rounded-lg">
               Loading payment methods...
-            </div>
-          ) : !online || methodsError ? (
-            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-5 text-center">
-              <WifiOff className="w-6 h-6 text-amber-600 mx-auto mb-2" />
-              <p className="text-sm font-medium text-amber-900">You&apos;re offline</p>
-              <p className="text-xs text-amber-700 mt-1">
-                Payment methods can&apos;t load right now. Close this modal and retry once the
-                connection is back. Your cart is preserved.
-              </p>
             </div>
           ) : methods.length === 0 ? (
             <div className="text-sm text-gray-400 italic py-6 text-center border border-dashed border-gray-200 rounded-lg">

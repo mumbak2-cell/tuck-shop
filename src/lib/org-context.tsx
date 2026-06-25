@@ -8,6 +8,8 @@ import {
 } from "react";
 import { supabase, db } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
+import { startSyncLoop, stopSyncLoop } from "@/lib/offline-sync";
+import { clearOfflineStore } from "@/lib/offline-store";
 
 export interface LocationRow {
   id: string;
@@ -264,6 +266,18 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Start (or restart) the offline sync loop whenever the signed-in org changes.
+  // It refreshes the local cache from Supabase on mount, runs every 5 minutes,
+  // and drains the write queue whenever the browser comes back online.
+  useEffect(() => {
+    if (!state.orgId) {
+      stopSyncLoop();
+      return;
+    }
+    const stop = startSyncLoop(state.orgId);
+    return () => stop();
+  }, [state.orgId]);
+
   function switchLocation(locationId: string) {
     setState((s) => {
       // Cashiers cannot switch off their assigned location.
@@ -291,6 +305,12 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       await loadOrg(session);
     },
     signOut: async () => {
+      // Wipe the offline cache + queue for this org BEFORE losing the orgId,
+      // so the next signed-in user doesn't accidentally see or replay our work.
+      if (state.orgId) {
+        try { clearOfflineStore(state.orgId); } catch { /* ignore */ }
+      }
+      stopSyncLoop();
       await supabase.auth.signOut();
       try {
         sessionStorage.removeItem("tilify_auth");

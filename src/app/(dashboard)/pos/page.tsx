@@ -7,25 +7,43 @@ import { Cart, CartItem } from "@/components/pos/cart";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
+import { readCache } from "@/lib/offline-store";
 import { Play } from "lucide-react";
 import Link from "next/link";
 
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
-  const { requiresShift, currentLocationId } = useOrg();
+  const { requiresShift, currentLocationId, orgId } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
 
   const fetchProducts = useCallback(async () => {
-    const { data: allProducts } = await db
+    const { data: allProducts, error: prodErr } = await db
       .from("products")
       .select("*")
       .eq("discontinued", false)
       .order("name");
 
-    if (!allProducts) {
-      setProducts([]);
+    // Cached fallback when the live query fails or returns nothing — keeps
+    // the POS usable through brief network blips.
+    const fromCache = (): Product[] => {
+      if (!orgId) return [];
+      const cachedProducts = (readCache<Product>(orgId, "products") ?? []).filter((p) => !p.discontinued);
+      const cachedStock = (readCache<{ product_id: string; quantity: number; location_id: string }>(orgId, "product_stock") ?? [])
+        .filter((s) => !currentLocationId || s.location_id === currentLocationId);
+      const stockMap = new Map<string, number>();
+      cachedStock.forEach((s) => stockMap.set(s.product_id, s.quantity));
+      if (stockMap.size > 0) {
+        return cachedProducts
+          .filter((p) => (stockMap.get(p.id) ?? 0) > 0)
+          .map((p) => ({ ...p, opening_stock: stockMap.get(p.id) ?? 0 }));
+      }
+      return cachedProducts.filter((p) => p.opening_stock > 0);
+    };
+
+    if (prodErr || !allProducts) {
+      setProducts(fromCache());
       return;
     }
 
@@ -52,14 +70,15 @@ export default function POSPage() {
         const filtered = (allProducts as Product[])
           .filter((p) => sellableIds.has(p.id))
           .map((p) => ({ ...p, opening_stock: stockMap[p.id] ?? 0 }));
-        setProducts(filtered);
+        setProducts(filtered.length > 0 ? filtered : fromCache());
         return;
       }
     }
 
     // Fallback: legacy org-wide filter
-    setProducts((allProducts as Product[]).filter((p) => p.opening_stock > 0));
-  }, [currentLocationId]);
+    const filtered = (allProducts as Product[]).filter((p) => p.opening_stock > 0);
+    setProducts(filtered.length > 0 ? filtered : fromCache());
+  }, [currentLocationId, orgId]);
 
   useEffect(() => {
     fetchProducts();

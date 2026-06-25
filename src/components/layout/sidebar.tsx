@@ -32,6 +32,7 @@ import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { LocationSwitcher } from "@/components/layout/location-switcher";
+import { OfflineIndicator } from "@/components/layout/offline-indicator";
 import type { UserRole } from "@/types/database";
 
 interface NavItem {
@@ -77,7 +78,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { role, name, logout } = useAuth();
-  const { preparesFood, wmsEnabled, wmsOnly } = useOrg();
+  const { preparesFood, wmsEnabled, wmsOnly, orgId } = useOrg();
 
   const visibleItems = navItems.filter((item) => {
     if (!role || !item.roles.includes(role)) return false;
@@ -118,6 +119,7 @@ export function Sidebar() {
         <div className="px-4 pt-4">
           <LocationSwitcher />
         </div>
+        <OfflineIndicator orgId={orgId} />
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1">
           {visibleItems.map((item) => {
