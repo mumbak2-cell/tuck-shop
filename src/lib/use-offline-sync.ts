@@ -17,15 +17,18 @@ export function usePendingCount(orgId: string | null): number {
       setCount(0);
       return;
     }
-    setCount(pendingCount(orgId));
+    // Capture orgId in a const so TypeScript can prove non-null inside
+    // the nested event handlers below.
+    const id: string = orgId;
+    setCount(pendingCount(id));
 
     function onChange(e: Event) {
       const detail = (e as CustomEvent).detail as { orgId: string; count: number };
-      if (detail.orgId === orgId) setCount(detail.count);
+      if (detail.orgId === id) setCount(detail.count);
     }
     function onStorage(e: StorageEvent) {
-      if (e.key && e.key.startsWith(`tilify_queue_${orgId}`)) {
-        setCount(pendingCount(orgId));
+      if (e.key && e.key.startsWith(`tilify_queue_${id}`)) {
+        setCount(pendingCount(id));
       }
     }
 
@@ -57,13 +60,16 @@ export function useQueue(orgId: string | null): QueuedOp[] {
 
   useEffect(() => {
     refresh();
+    if (!orgId) return;
+    // Capture orgId in a const so TypeScript narrows it for the nested handlers.
+    const id: string = orgId;
 
     function onChange(e: Event) {
       const detail = (e as CustomEvent).detail as { orgId: string };
-      if (detail.orgId === orgId) refresh();
+      if (detail.orgId === id) refresh();
     }
     function onStorage(e: StorageEvent) {
-      if (e.key && e.key.includes(`tilify_queue_${orgId}`)) refresh();
+      if (e.key && e.key.includes(`tilify_queue_${id}`)) refresh();
     }
 
     window.addEventListener("tilify:queue-changed", onChange as EventListener);
