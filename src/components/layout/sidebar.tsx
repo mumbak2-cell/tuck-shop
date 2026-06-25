@@ -26,6 +26,7 @@ import {
   Store,
   ClipboardCheck,
   FileText,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -51,6 +52,7 @@ const navItems: NavItem[] = [
   { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin"], retailOnly: true },
   { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"], retailOnly: true },
   { href: "/stock-adjustments", label: "Stock Adjustments", icon: Wrench, roles: ["admin"], retailOnly: true },
+  { href: "/stock-transfers", label: "Stock Transfers", icon: ArrowRightLeft, roles: ["admin"], retailOnly: true },
   { href: "/products", label: "Products", icon: Package, roles: ["admin"], retailOnly: true },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"], foodOnly: true },
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"] },
