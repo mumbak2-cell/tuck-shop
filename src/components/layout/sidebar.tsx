@@ -25,6 +25,7 @@ import {
   Send,
   Store,
   ClipboardCheck,
+  FileText,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -66,6 +67,7 @@ const navItems: NavItem[] = [
   { href: "/warehouse/dispatch", label: "WMS Dispatch", icon: Send, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/adjustments", label: "WMS Adjustments", icon: Wrench, roles: ["admin"], wmsOnly: true },
   { href: "/warehouse/stock-count", label: "WMS Stock Count", icon: ClipboardCheck, roles: ["admin"], wmsOnly: true },
+  { href: "/warehouse/purchase-orders", label: "WMS Purchase Orders", icon: FileText, roles: ["admin"], wmsOnly: true },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 

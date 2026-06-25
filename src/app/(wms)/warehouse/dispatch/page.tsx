@@ -17,6 +17,8 @@ import {
   CheckCircle,
   Clock,
   ArrowRight,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 
 interface WmsCatalogItem {
@@ -50,6 +52,13 @@ interface PastDispatch {
   created_at: string;
 }
 
+interface DispatchDetailItem {
+  wms_item_id: number;
+  item_name: string;
+  sku: string;
+  qty_sent: number;
+}
+
 type DestinationType = "Internal Shop" | "External Client" | "Wholesale";
 
 export default function WmsDispatchPage() {
@@ -72,6 +81,11 @@ export default function WmsDispatchPage() {
   const [tab, setTab] = useState<"new" | "history">("new");
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch] = useState("");
+
+  // Inline expand for history
+  const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [detailCache, setDetailCache] = useState<Map<number, DispatchDetailItem[]>>(new Map());
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     const [{ data: catalog }, { data: inventory }, { data: dispatches }] =
@@ -99,6 +113,38 @@ export default function WmsDispatchPage() {
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  async function toggleExpand(dispatchId: number) {
+    if (expandedId === dispatchId) {
+      setExpandedId(null);
+      return;
+    }
+
+    setExpandedId(dispatchId);
+
+    // Check cache
+    if (detailCache.has(dispatchId)) return;
+
+    setDetailLoading(true);
+    const { data: items } = await db
+      .from("wms_dispatch_items")
+      .select("wms_item_id, qty_sent, wms_catalog(item_name, sku)")
+      .eq("dispatch_id", dispatchId);
+
+    const parsed: DispatchDetailItem[] = ((items || []) as any[]).map((row: any) => ({
+      wms_item_id: row.wms_item_id,
+      qty_sent: row.qty_sent,
+      item_name: row.wms_catalog?.item_name || "Unknown",
+      sku: row.wms_catalog?.sku || "",
+    }));
+
+    setDetailCache((prev: Map<number, DispatchDetailItem[]>) => {
+      const next = new Map(prev);
+      next.set(dispatchId, parsed);
+      return next;
+    });
+    setDetailLoading(false);
+  }
 
   function addLine(item: WmsCatalogItem) {
     if (lines.some((l: DispatchLine) => l.wmsItemId === item.id)) {
@@ -150,9 +196,8 @@ export default function WmsDispatchPage() {
       }));
 
       if (destinationType === "Internal Shop") {
-        // Use the POS integration RPC
         const { error } = await db.rpc("process_tilify_dispatch", {
-          p_org_id: null, // RLS scoped
+          p_org_id: null,
           p_destination_id: destinationId.trim(),
           p_items: items,
           p_notes: notes.trim() || null,
@@ -161,7 +206,6 @@ export default function WmsDispatchPage() {
 
         if (error) throw error;
       } else {
-        // Standalone dispatch: create header + items + deduct stock manually
         const { data: dispatch, error: dispErr } = await db
           .from("wms_dispatches")
           .insert({
@@ -178,7 +222,6 @@ export default function WmsDispatchPage() {
 
         const dispatchId = (dispatch as any).id;
 
-        // Insert line items
         const lineInserts = lines.map((l: DispatchLine) => ({
           dispatch_id: dispatchId,
           wms_item_id: l.wmsItemId,
@@ -191,7 +234,6 @@ export default function WmsDispatchPage() {
 
         if (lineErr) throw lineErr;
 
-        // Deduct from WMS inventory
         for (const l of lines) {
           const currentQty = inventoryMap.get(l.wmsItemId) ?? 0;
           await db
@@ -208,6 +250,7 @@ export default function WmsDispatchPage() {
       setLines([]);
       setDestinationId("");
       setNotes("");
+      setDetailCache(new Map());
       await loadData();
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
@@ -255,22 +298,22 @@ export default function WmsDispatchPage() {
       <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
         <button
           onClick={() => setTab("new")}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={"px-4 py-2 rounded-md text-sm font-medium transition-colors " + (
             tab === "new"
               ? "bg-white text-gray-900 shadow-sm"
               : "text-gray-500 hover:text-gray-700"
-          }`}
+          )}
         >
           <Send className="w-4 h-4 inline mr-1" />
           New Dispatch
         </button>
         <button
           onClick={() => setTab("history")}
-          className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+          className={"px-4 py-2 rounded-md text-sm font-medium transition-colors " + (
             tab === "history"
               ? "bg-white text-gray-900 shadow-sm"
               : "text-gray-500 hover:text-gray-700"
-          }`}
+          )}
         >
           <History className="w-4 h-4 inline mr-1" />
           History
@@ -417,11 +460,11 @@ export default function WmsDispatchPage() {
                                   parseInt(e.target.value) || 1
                                 )
                               }
-                              className={`w-20 text-right border rounded px-2 py-1 text-sm ${
+                              className={"w-20 text-right border rounded px-2 py-1 text-sm " + (
                                 over
                                   ? "border-red-400 text-red-600"
                                   : "border-gray-300"
-                              }`}
+                              )}
                             />
                             {over && (
                               <p className="text-xs text-red-500 mt-1">
@@ -475,6 +518,7 @@ export default function WmsDispatchPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-200 bg-gray-50">
+                    <th className="w-8 px-2 py-3"></th>
                     <th className="text-left px-4 py-3 font-medium text-gray-600">
                       Date
                     </th>
@@ -496,54 +540,116 @@ export default function WmsDispatchPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100">
-                  {history.map((d: PastDispatch) => (
-                    <tr key={d.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-500">
-                        {formatDate(d.created_at)}
-                      </td>
-                      <td className="px-4 py-3 text-gray-900">
-                        {d.destination_type}
-                      </td>
-                      <td className="px-4 py-3 text-gray-900">
-                        {d.destination_id}
-                      </td>
-                      <td className="px-4 py-3">
-                        <Badge variant={statusColor(d.status) as any}>
-                          {d.status}
-                        </Badge>
-                      </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {d.created_by || "—"}
-                      </td>
-                      <td className="px-4 py-3 text-center">
-                        {d.status === "Pending" && (
-                          <button
-                            onClick={() =>
-                              updateDispatchStatus(d.id, "Dispatched")
-                            }
-                            className="text-xs text-blue-600 hover:underline mr-2"
-                          >
-                            Mark Dispatched
-                          </button>
+                  {history.map((d: PastDispatch) => {
+                    const isExpanded = expandedId === d.id;
+                    const detailItems = detailCache.get(d.id);
+                    return (
+                      <>
+                        <tr
+                          key={d.id}
+                          className={"cursor-pointer transition-colors " + (isExpanded ? "bg-green-50/50" : "hover:bg-gray-50")}
+                          onClick={() => toggleExpand(d.id)}
+                        >
+                          <td className="px-2 py-3 text-gray-400">
+                            {isExpanded ? (
+                              <ChevronDown className="w-4 h-4" />
+                            ) : (
+                              <ChevronRight className="w-4 h-4" />
+                            )}
+                          </td>
+                          <td className="px-4 py-3 text-gray-500">
+                            {formatDate(d.created_at)}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {d.destination_type}
+                          </td>
+                          <td className="px-4 py-3 text-gray-900">
+                            {d.destination_id}
+                          </td>
+                          <td className="px-4 py-3">
+                            <Badge variant={statusColor(d.status) as any}>
+                              {d.status}
+                            </Badge>
+                          </td>
+                          <td className="px-4 py-3 text-gray-500">
+                            {d.created_by || "—"}
+                          </td>
+                          <td className="px-4 py-3 text-center" onClick={(e: any) => e.stopPropagation()}>
+                            {d.status === "Pending" && (
+                              <button
+                                onClick={() =>
+                                  updateDispatchStatus(d.id, "Dispatched")
+                                }
+                                className="text-xs text-blue-600 hover:underline mr-2"
+                              >
+                                Mark Dispatched
+                              </button>
+                            )}
+                            {d.status === "Dispatched" && (
+                              <button
+                                onClick={() =>
+                                  updateDispatchStatus(d.id, "Received")
+                                }
+                                className="text-xs text-green-600 hover:underline"
+                              >
+                                Mark Received
+                              </button>
+                            )}
+                            {d.status === "Received" && (
+                              <span className="text-xs text-gray-400">
+                                Complete
+                              </span>
+                            )}
+                          </td>
+                        </tr>
+                        {isExpanded && (
+                          <tr key={"detail-" + d.id}>
+                            <td colSpan={7} className="bg-gray-50/80 px-4 py-3">
+                              {detailLoading && !detailItems ? (
+                                <p className="text-xs text-gray-400 py-2">Loading items...</p>
+                              ) : !detailItems || detailItems.length === 0 ? (
+                                <p className="text-xs text-gray-400 py-2">No line items found.</p>
+                              ) : (
+                                <div className="ml-6">
+                                  {d.notes && (
+                                    <p className="text-xs text-gray-500 mb-2">
+                                      <span className="font-medium">Notes:</span> {d.notes}
+                                    </p>
+                                  )}
+                                  <table className="w-full text-xs">
+                                    <thead>
+                                      <tr className="border-b border-gray-200">
+                                        <th className="text-left py-1.5 pr-4 font-medium text-gray-500">Item</th>
+                                        <th className="text-left py-1.5 pr-4 font-medium text-gray-500">SKU</th>
+                                        <th className="text-right py-1.5 font-medium text-gray-500">Qty Sent</th>
+                                      </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                      {detailItems.map((item: DispatchDetailItem, idx: number) => (
+                                        <tr key={idx}>
+                                          <td className="py-1.5 pr-4 text-gray-900">{item.item_name}</td>
+                                          <td className="py-1.5 pr-4 font-mono text-gray-500">{item.sku}</td>
+                                          <td className="py-1.5 text-right font-medium text-gray-900">{item.qty_sent}</td>
+                                        </tr>
+                                      ))}
+                                    </tbody>
+                                    <tfoot>
+                                      <tr className="border-t border-gray-200">
+                                        <td colSpan={2} className="py-1.5 text-right font-medium text-gray-600">Total units:</td>
+                                        <td className="py-1.5 text-right font-bold text-gray-900">
+                                          {detailItems.reduce((sum: number, item: DispatchDetailItem) => sum + item.qty_sent, 0)}
+                                        </td>
+                                      </tr>
+                                    </tfoot>
+                                  </table>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
                         )}
-                        {d.status === "Dispatched" && (
-                          <button
-                            onClick={() =>
-                              updateDispatchStatus(d.id, "Received")
-                            }
-                            className="text-xs text-green-600 hover:underline"
-                          >
-                            Mark Received
-                          </button>
-                        )}
-                        {d.status === "Received" && (
-                          <span className="text-xs text-gray-400">
-                            Complete
-                          </span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
+                      </>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -583,18 +689,18 @@ export default function WmsDispatchPage() {
                       key={item.id}
                       onClick={() => addLine(item)}
                       disabled={avail === 0}
-                      className={`w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between ${
+                      className={"w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between " + (
                         avail === 0
                           ? "opacity-40 cursor-not-allowed"
                           : "hover:bg-green-50"
-                      }`}
+                      )}
                     >
                       <div>
                         <p className="font-medium text-gray-900 text-sm">
                           {item.item_name}
                         </p>
                         <p className="text-xs text-gray-500">
-                          SKU: {item.sku} · Available: {avail}
+                          SKU: {item.sku} &middot; Available: {avail}
                         </p>
                       </div>
                       {avail > 0 && <Plus className="w-4 h-4 text-green-600" />}

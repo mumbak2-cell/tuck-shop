@@ -75,21 +75,41 @@ export async function POST(req: Request) {
     `)
     .eq("partner_id", body.partner_id);
 
+  // Supabase foreign-key embeds may come back as either an object or an array
+  // depending on relationship inference, so normalise to a single record.
+  type OrgRel = { subscription_plan: string | null; subscription_status: string | null };
+  type RefRaw = {
+    org_id: string;
+    status: string;
+    converted_at: string | null;
+    organizations: OrgRel | OrgRel[] | null;
+  };
   type Ref = {
     org_id: string;
     status: string;
     converted_at: string | null;
-    organizations: { subscription_plan: string | null; subscription_status: string | null } | null;
+    organizations: OrgRel | null;
   };
-  const refRows = (referrals as unknown as Ref[]) || [];
+  const refRows: Ref[] = ((referrals as unknown as RefRaw[]) || []).map((r) => ({
+    org_id: r.org_id,
+    status: r.status,
+    converted_at: r.converted_at,
+    organizations: Array.isArray(r.organizations) ? r.organizations[0] ?? null : r.organizations,
+  }));
 
-  const periodEnd = new Date(body.period_end).getTime();
+  // Treat period_end as inclusive of the whole day. Compare date strings
+  // (YYYY-MM-DD) directly so we don't get bitten by timezone-vs-midnight edge
+  // cases when a referral converts on the same calendar day as period_end.
+  const periodEndDate = body.period_end; // YYYY-MM-DD
 
   let activeCount = 0;
   let totalMrr = 0;
   for (const r of refRows) {
     if (r.status !== "active") continue;
-    if (r.converted_at && new Date(r.converted_at).getTime() > periodEnd) continue;
+    if (r.converted_at) {
+      const convertedDate = r.converted_at.split("T")[0]; // YYYY-MM-DD
+      if (convertedDate > periodEndDate) continue;
+    }
     activeCount += 1;
     totalMrr += mrrForPlan(r.organizations?.subscription_plan);
   }
