@@ -63,39 +63,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Partner not found" }, { status: 404 });
   }
 
-  // Active referrals during the period: referred at or before period_end,
-  // and either still active OR converted within the period. Simple v1: include
-  // any referral whose status is currently 'active' that was converted before
-  // period_end. More precise time-weighted accrual lands later.
-  const { data: referrals } = await admin
+  // Step 1: fetch the partner's referrals (no FK embed - we found that
+  // PostgREST's relationship inference for this join doesn't reliably hand
+  // back the related org columns in production builds).
+  const { data: referralsRaw, error: refsErr } = await admin
     .from("referrals")
-    .select(`
-      org_id, status, converted_at,
-      organizations:org_id ( subscription_plan, subscription_status )
-    `)
+    .select("id, org_id, status, converted_at")
     .eq("partner_id", body.partner_id);
 
-  // Supabase foreign-key embeds may come back as either an object or an array
-  // depending on relationship inference, so normalise to a single record.
-  type OrgRel = { subscription_plan: string | null; subscription_status: string | null };
-  type RefRaw = {
-    org_id: string;
-    status: string;
-    converted_at: string | null;
-    organizations: OrgRel | OrgRel[] | null;
-  };
-  type Ref = {
-    org_id: string;
-    status: string;
-    converted_at: string | null;
-    organizations: OrgRel | null;
-  };
-  const refRows: Ref[] = ((referrals as unknown as RefRaw[]) || []).map((r) => ({
-    org_id: r.org_id,
-    status: r.status,
-    converted_at: r.converted_at,
-    organizations: Array.isArray(r.organizations) ? r.organizations[0] ?? null : r.organizations,
-  }));
+  if (refsErr) {
+    return NextResponse.json({ error: `Referrals query: ${refsErr.message}` }, { status: 500 });
+  }
+  const referrals = (referralsRaw as Array<{
+    id: string; org_id: string; status: string; converted_at: string | null;
+  }>) || [];
+
+  // Step 2: bulk-fetch the orgs in a separate query and join in memory.
+  const orgIds = referrals.map((r) => r.org_id);
+  const orgPlanById = new Map<string, { plan: string | null; status: string | null }>();
+  if (orgIds.length > 0) {
+    const { data: orgsRaw, error: orgErr } = await admin
+      .from("organizations")
+      .select("id, subscription_plan, subscription_status")
+      .in("id", orgIds);
+    if (orgErr) {
+      return NextResponse.json({ error: `Orgs query: ${orgErr.message}` }, { status: 500 });
+    }
+    ((orgsRaw as Array<{ id: string; subscription_plan: string | null; subscription_status: string | null }>) || []).forEach((o) => {
+      orgPlanById.set(o.id, { plan: o.subscription_plan, status: o.subscription_status });
+    });
+  }
 
   // Treat period_end as inclusive of the whole day. Compare date strings
   // (YYYY-MM-DD) directly so we don't get bitten by timezone-vs-midnight edge
@@ -104,14 +101,15 @@ export async function POST(req: Request) {
 
   let activeCount = 0;
   let totalMrr = 0;
-  for (const r of refRows) {
+  for (const r of referrals) {
     if (r.status !== "active") continue;
     if (r.converted_at) {
       const convertedDate = r.converted_at.split("T")[0]; // YYYY-MM-DD
       if (convertedDate > periodEndDate) continue;
     }
+    const org = orgPlanById.get(r.org_id);
     activeCount += 1;
-    totalMrr += mrrForPlan(r.organizations?.subscription_plan);
+    totalMrr += mrrForPlan(org?.plan);
   }
 
   const commissionPct = Number(partner.commission_pct);
