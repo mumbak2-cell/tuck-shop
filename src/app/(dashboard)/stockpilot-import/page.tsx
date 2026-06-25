@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { TruckIcon, Upload, Check, AlertTriangle } from "lucide-react";
 import type { Product } from "@/types/database";
 import { useShift } from "@/lib/shift-context";
+import { useOrg } from "@/lib/org-context";
 
 interface StockPilotRow {
   inventoryId: string;
@@ -27,6 +28,7 @@ interface MatchedRow {
 
 export default function StockPilotImportPage() {
   const { markStockCountDone } = useShift();
+  const { currentLocationId, currentLocationName } = useOrg();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [matches, setMatches] = useState<MatchedRow[]>([]);
@@ -149,6 +151,10 @@ export default function StockPilotImportPage() {
   }
 
   async function applyImport() {
+    if (!currentLocationId) {
+      alert("Pick a shop location before importing — switch in the sidebar.");
+      return;
+    }
     setSaving(true);
     let updated = 0;
     let skipped = 0;
@@ -164,20 +170,30 @@ export default function StockPilotImportPage() {
         continue;
       }
 
-      // Update opening_stock to the counted value
+      // Per-location stock model (Slice 5+): write to product_stock at the
+      // current location. The trigger from migration 024 keeps
+      // products.opening_stock in sync as the sum across locations.
       if (m.row.qtyCounted !== m.currentStock) {
-        const { error } = await db
-          .from("products")
-          .update({ opening_stock: m.row.qtyCounted })
-          .eq("id", m.product.id);
+        const { error: stockErr } = await db
+          .from("product_stock")
+          .upsert(
+            {
+              product_id: m.product.id,
+              location_id: currentLocationId,
+              quantity: m.row.qtyCounted,
+              last_updated: new Date().toISOString(),
+            },
+            { onConflict: "product_id,location_id" }
+          );
 
-        if (error) {
+        if (stockErr) {
           skipped++;
         } else {
           updated++;
         }
 
-        // Also record as a stock count for the day
+        // Also record as a per-location stock count for the day so Revenue
+        // Assurance has the audit trail.
         const countDate = m.row.sessionDate || new Date().toISOString().split("T")[0];
         await db.from("stock_counts").upsert(
           {
@@ -185,6 +201,7 @@ export default function StockPilotImportPage() {
             session_label: `StockPilot Import`,
             count_date: countDate,
             product_id: m.product.id,
+            location_id: currentLocationId,
             opening_units: m.currentStock,
             closing_units: m.row.qtyCounted,
             replenished_units: 0,
@@ -193,7 +210,7 @@ export default function StockPilotImportPage() {
             updated_at: new Date().toISOString(),
             update_count: 1,
           },
-          { onConflict: "session_id,product_id" }
+          { onConflict: "session_id,product_id,location_id" }
         );
       } else {
         skipped++;
@@ -223,6 +240,11 @@ export default function StockPilotImportPage() {
         </h1>
         <p className="text-sm text-gray-500 mt-1">
           Import stock-take results from your StockPilot offline app
+          {currentLocationName && (
+            <span className="ml-1 text-green-700 font-medium">
+              · stock will land at <strong>{currentLocationName}</strong>
+            </span>
+          )}
         </p>
       </div>
 
