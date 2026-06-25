@@ -6,11 +6,14 @@ import { PinPad } from "@/components/auth/pin-pad";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { useOnline } from "@/lib/use-online";
+import { WifiOff } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { authenticated } = useAuth();
   const org = useOrg();
+  const online = useOnline();
 
   // While org context is loading the session and membership, show a brief loader.
   useEffect(() => {
@@ -20,6 +23,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       router.replace("/setup");
     }
   }, [org.loading, org.session, org.orgId, org.setupCompleted, router]);
+
+  // When the network comes back, if the org load failed during the outage
+  // (org.orgId still null but we have a session), retry the load automatically
+  // so the cashier doesn't have to refresh manually.
+  useEffect(() => {
+    if (online && org.session && !org.orgId) {
+      org.refresh();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [online]);
 
   if (org.loading) {
     return (
@@ -34,9 +47,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return null;
   }
 
-  // Signed in but no organization membership. This should not normally happen
-  // (sign-up always creates one) but if it does, send the operator back to /signup.
+  // Signed in but no organization membership. Two distinct cases:
+  //   1. Truly no org (sign-up edge case) — show the genuine help message.
+  //   2. Offline and org couldn't be fetched from Supabase — show honest
+  //      "you're offline" UI with NO destructive Sign Out button so a
+  //      cashier under pressure doesn't kill their session.
   if (!org.orgId) {
+    if (!online) {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-6 bg-amber-50">
+          <div className="max-w-md text-center bg-white rounded-2xl shadow p-6 border border-amber-200">
+            <WifiOff className="w-10 h-10 text-amber-600 mx-auto mb-3" />
+            <h2 className="text-lg font-semibold text-gray-900">You&apos;re offline</h2>
+            <p className="text-sm text-gray-600 mt-2">
+              Your shop will load as soon as the connection comes back. Stay on this screen —
+              do not sign out. Your session is still active.
+            </p>
+            <p className="text-xs text-gray-400 mt-4">Tilify is retrying in the background.</p>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">

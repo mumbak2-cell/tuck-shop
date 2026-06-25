@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
+import { useOnline } from "@/lib/use-online";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -16,6 +17,7 @@ import {
   Smartphone,
   Building2,
   CircleDollarSign,
+  WifiOff,
 } from "lucide-react";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
@@ -55,7 +57,10 @@ const KIND_COLOR: Record<PaymentKind, string> = {
 
 export function PaymentModal({ open, onClose, items, total, onComplete }: Props) {
   const { currentLocationId } = useOrg();
+  const online = useOnline();
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
+  const [methodsLoaded, setMethodsLoaded] = useState(false);
+  const [methodsError, setMethodsError] = useState(false);
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
@@ -73,13 +78,23 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setPaymentReference("");
       setSuccess(false);
       setError("");
-      // Load this org's payment methods (RLS scopes automatically)
+      setMethodsLoaded(false);
+      setMethodsError(false);
+      // Load this org's payment methods (RLS scopes automatically). Track
+      // whether the query actually completed so we can distinguish a true
+      // "no methods configured" state from a "request failed because we
+      // are offline" state when the modal renders below.
       db.from("payment_methods")
         .select("id, name, kind, sort_order")
         .eq("active", true)
         .order("sort_order")
-        .then(({ data }: { data: PaymentMethodRow[] | null }) => {
-          setMethods(data || []);
+        .then(({ data, error: err }: { data: PaymentMethodRow[] | null; error: { message: string } | null }) => {
+          if (err) {
+            setMethodsError(true);
+          } else {
+            setMethods(data || []);
+          }
+          setMethodsLoaded(true);
         });
       // Load customers for credit sales - scoped to the current location.
       let customerQuery = db.from("customers").select("*").order("name");
@@ -90,7 +105,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         setCustomers(data || []);
       });
     }
-  }, [open]);
+  }, [open, currentLocationId]);
 
   const selectedMethod = methods.find((m) => m.id === selectedMethodId) || null;
   const selectedKind = selectedMethod?.kind ?? null;
@@ -253,7 +268,20 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         {/* Payment method selection */}
         <div>
           <p className="text-sm font-medium text-gray-700 mb-3">Select payment method</p>
-          {methods.length === 0 ? (
+          {!methodsLoaded ? (
+            <div className="text-sm text-gray-400 italic py-6 text-center border border-dashed border-gray-200 rounded-lg">
+              Loading payment methods...
+            </div>
+          ) : !online || methodsError ? (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-5 text-center">
+              <WifiOff className="w-6 h-6 text-amber-600 mx-auto mb-2" />
+              <p className="text-sm font-medium text-amber-900">You&apos;re offline</p>
+              <p className="text-xs text-amber-700 mt-1">
+                Payment methods can&apos;t load right now. Close this modal and retry once the
+                connection is back. Your cart is preserved.
+              </p>
+            </div>
+          ) : methods.length === 0 ? (
             <div className="text-sm text-gray-400 italic py-6 text-center border border-dashed border-gray-200 rounded-lg">
               No payment methods configured. Re-run shop setup or add methods in Settings.
             </div>
