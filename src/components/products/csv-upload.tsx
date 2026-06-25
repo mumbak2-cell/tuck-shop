@@ -36,12 +36,13 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [matches, setMatches] = useState<MatchResult[]>([]);
   const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState({ updated: 0, skipped: 0 });
+  const [results, setResults] = useState({ inserted: 0, updated: 0, skipped: 0 });
+  const [insertNew, setInsertNew] = useState(true);
 
   function reset() {
     setStep("upload");
     setMatches([]);
-    setResults({ updated: 0, skipped: 0 });
+    setResults({ inserted: 0, updated: 0, skipped: 0 });
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -149,31 +150,75 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
 
   async function applyUpdates() {
     setSaving(true);
+    let inserted = 0;
     let updated = 0;
     let skipped = 0;
 
+    // Pre-fetch the prefix + counter for auto-generating inventory IDs on
+    // any new rows that didn't supply one.
+    let prefix = "ITEM";
+    let nextNum = 1;
+    if (insertNew) {
+      const { data: settings } = await db
+        .from("app_settings")
+        .select("key, value")
+        .in("key", ["inventory_id_prefix", "next_inventory_number"]);
+      ((settings as { key: string; value: string }[] | null) || []).forEach((s) => {
+        if (s.key === "inventory_id_prefix" && s.value) prefix = s.value;
+        if (s.key === "next_inventory_number" && s.value) nextNum = parseInt(s.value) || 1;
+      });
+    }
+
     for (const m of matches) {
-      if (!m.productId || m.changes.length === 0) {
-        skipped++;
+      // Case 1 — existing product, has changes → UPDATE
+      if (m.productId && m.changes.length > 0) {
+        const update: Record<string, number> = {};
+        if (m.csvRow.opening_stock !== undefined && m.csvRow.opening_stock !== "") update.opening_stock = parseInt(m.csvRow.opening_stock) || 0;
+        if (m.csvRow.package_price) update.package_price = parseFloat(m.csvRow.package_price) || 0;
+        if (m.csvRow.qty_in_pack) update.qty_in_pack = parseInt(m.csvRow.qty_in_pack) || 0;
+        if (m.csvRow.selling_price) update.selling_price = parseFloat(m.csvRow.selling_price) || 0;
+
+        const { error } = await db.from("products").update(update).eq("id", m.productId);
+        if (error) skipped++;
+        else updated++;
         continue;
       }
 
-      const update: Record<string, number> = {};
-      if (m.csvRow.opening_stock !== undefined && m.csvRow.opening_stock !== "") update.opening_stock = parseInt(m.csvRow.opening_stock) || 0;
-      if (m.csvRow.package_price) update.package_price = parseFloat(m.csvRow.package_price) || 0;
-      if (m.csvRow.qty_in_pack) update.qty_in_pack = parseInt(m.csvRow.qty_in_pack) || 0;
-      if (m.csvRow.selling_price) update.selling_price = parseFloat(m.csvRow.selling_price) || 0;
+      // Case 2 — no match, insert-new turned on → INSERT
+      if (!m.productId && insertNew && m.csvRow.name) {
+        const inventoryId = m.csvRow.inventory_id || `${prefix}${String(nextNum).padStart(4, "0")}`;
+        if (!m.csvRow.inventory_id) nextNum += 1;
 
-      const { error } = await db
-        .from("products")
-        .update(update)
-        .eq("id", m.productId);
+        const newRow: Record<string, unknown> = {
+          inventory_id: inventoryId,
+          name: m.csvRow.name,
+          category: m.csvRow.category || "Uncategorized",
+          opening_stock: parseInt(m.csvRow.opening_stock ?? "0") || 0,
+          package_price: parseFloat(m.csvRow.package_price ?? "0") || 0,
+          qty_in_pack: parseInt(m.csvRow.qty_in_pack ?? "1") || 1,
+          selling_price: parseFloat(m.csvRow.selling_price ?? "0") || 0,
+          reorder_level: 0,
+          discontinued: false,
+        };
+        const { error } = await db.from("products").insert(newRow);
+        if (error) skipped++;
+        else inserted++;
+        continue;
+      }
 
-      if (error) skipped++;
-      else updated++;
+      // Case 3 — match exists but no changes → skip silently
+      skipped++;
     }
 
-    setResults({ updated, skipped });
+    // Persist the bumped counter so subsequent imports continue the sequence.
+    if (insertNew && inserted > 0) {
+      await db.from("app_settings").upsert(
+        { key: "next_inventory_number", value: String(nextNum), updated_at: new Date().toISOString() },
+        { onConflict: "org_id,key" }
+      );
+    }
+
+    setResults({ inserted, updated, skipped });
     setStep("done");
     setSaving(false);
   }
@@ -202,6 +247,8 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
   const matched = matches.filter((m) => m.productId);
   const unmatched = matches.filter((m) => !m.productId);
   const withChanges = matches.filter((m) => m.productId && m.changes.length > 0);
+  const willInsert = insertNew ? unmatched.filter((m) => m.csvRow.name).length : 0;
+  const totalChanges = withChanges.length + willInsert;
 
   return (
     <Modal open={open} onClose={handleClose} title="CSV Import" wide>
@@ -250,22 +297,46 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
 
       {step === "preview" && (
         <div className="space-y-4">
-          <div className="flex gap-3">
-            <div className="flex-1 bg-green-50 rounded-lg px-3 py-2 text-sm">
+          <div className="flex gap-3 flex-wrap">
+            <div className="flex-1 min-w-[120px] bg-green-50 rounded-lg px-3 py-2 text-sm">
               <span className="font-semibold text-green-700">{matched.length}</span>{" "}
               <span className="text-green-600">matched</span>
             </div>
-            <div className="flex-1 bg-blue-50 rounded-lg px-3 py-2 text-sm">
+            <div className="flex-1 min-w-[120px] bg-blue-50 rounded-lg px-3 py-2 text-sm">
               <span className="font-semibold text-blue-700">{withChanges.length}</span>{" "}
               <span className="text-blue-600">to update</span>
             </div>
             {unmatched.length > 0 && (
-              <div className="flex-1 bg-red-50 rounded-lg px-3 py-2 text-sm">
-                <span className="font-semibold text-red-700">{unmatched.length}</span>{" "}
-                <span className="text-red-600">not found</span>
+              <div className={`flex-1 min-w-[120px] rounded-lg px-3 py-2 text-sm ${
+                insertNew ? "bg-emerald-50" : "bg-red-50"
+              }`}>
+                <span className={`font-semibold ${insertNew ? "text-emerald-700" : "text-red-700"}`}>
+                  {unmatched.length}
+                </span>{" "}
+                <span className={insertNew ? "text-emerald-600" : "text-red-600"}>
+                  {insertNew ? "new to add" : "not found"}
+                </span>
               </div>
             )}
           </div>
+
+          {unmatched.length > 0 && (
+            <label className="flex items-start gap-3 cursor-pointer bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
+              <input
+                type="checkbox"
+                checked={insertNew}
+                onChange={(e) => setInsertNew(e.target.checked)}
+                className="mt-0.5 w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+              />
+              <div className="text-sm">
+                <p className="font-medium text-gray-900">Also create new products for unmatched rows</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Each unmatched row becomes a new product. If a row has no <code>inventory_id</code>,
+                  one is auto-generated using your shop&apos;s prefix.
+                </p>
+              </div>
+            </label>
+          )}
 
           <div className="max-h-72 overflow-y-auto space-y-2">
             {matches.map((m, idx) => (
@@ -284,7 +355,8 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
                     <span className="text-xs font-mono text-gray-400">{m.inventoryId}</span>
                   )}
                   <span className="font-medium text-gray-900">{m.productName || m.csvRow.name}</span>
-                  {!m.productId && <Badge color="red">Not found</Badge>}
+                  {!m.productId && insertNew && m.csvRow.name && <Badge color="green">New</Badge>}
+                  {!m.productId && (!insertNew || !m.csvRow.name) && <Badge color="red">Not found</Badge>}
                   {m.productId && m.changes.length === 0 && <Badge color="gray">No changes</Badge>}
                 </div>
                 {m.changes.length > 0 && (
@@ -303,10 +375,14 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
             <Button
               onClick={applyUpdates}
               loading={saving}
-              disabled={withChanges.length === 0}
+              disabled={totalChanges === 0}
               className="flex-1"
             >
-              Apply {withChanges.length} Update{withChanges.length !== 1 ? "s" : ""}
+              {willInsert > 0 && withChanges.length > 0
+                ? `Add ${willInsert} + Update ${withChanges.length}`
+                : willInsert > 0
+                ? `Add ${willInsert} Product${willInsert !== 1 ? "s" : ""}`
+                : `Apply ${withChanges.length} Update${withChanges.length !== 1 ? "s" : ""}`}
             </Button>
           </div>
         </div>
@@ -317,7 +393,13 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
             <Check className="w-8 h-8 text-green-600" />
           </div>
-          <p className="text-xl font-bold text-gray-900">{results.updated} products updated</p>
+          <p className="text-xl font-bold text-gray-900">
+            {results.inserted > 0 && results.updated > 0
+              ? `${results.inserted} added, ${results.updated} updated`
+              : results.inserted > 0
+              ? `${results.inserted} product${results.inserted !== 1 ? "s" : ""} added`
+              : `${results.updated} product${results.updated !== 1 ? "s" : ""} updated`}
+          </p>
           {results.skipped > 0 && (
             <p className="text-sm text-gray-500 mt-1">{results.skipped} skipped (no match or no changes)</p>
           )}
