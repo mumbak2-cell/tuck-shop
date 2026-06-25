@@ -85,6 +85,29 @@ export const SHOP_PRESETS: ShopPreset[] = [
     ],
   },
   {
+    // Mix of own-baked goods and retail baking accessories.
+    // Examples: Chichi's Bakes & Accessories (Lusaka), Cake Couture Zambia.
+    type: "Bakery & Accessories",
+    inventoryPrefix: "BK",
+    preparesFood: true,
+    categories: [
+      "Bread",
+      "Rolls & Buns",
+      "Cakes",
+      "Cupcakes & Muffins",
+      "Pastries & Pies",
+      "Cookies & Biscuits",
+      "Drinks",
+      "Cake Boards & Boxes",
+      "Decorating Tools",
+      "Sprinkles & Toppers",
+      "Icing & Fondant",
+      "Baking Ingredients",
+      "Cake Tins & Pans",
+      "Food Colouring",
+    ],
+  },
+  {
     type: "General Retail",
     inventoryPrefix: "ITEM",
     preparesFood: false,
