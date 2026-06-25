@@ -7,14 +7,22 @@ import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, CheckCircle } from "lucide-react";
+import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, CheckCircle, Banknote, Smartphone, CreditCard, Users } from "lucide-react";
 import Link from "next/link";
+import { paymentBucket } from "@/lib/payment-buckets";
 
 interface LastCount {
   date: string;
   countedBy: string;
   countedAt: string;
   productCount: number;
+}
+
+interface MethodTotal {
+  method: string;
+  total: number;
+  bucket: "cash" | "card" | "credit";
+  confirmed: boolean;
 }
 
 export default function ShiftPage() {
@@ -28,6 +36,8 @@ export default function ShiftPage() {
   const [closing, setClosing] = useState(false);
   const [lastCount, setLastCount] = useState<LastCount | null>(null);
   const [loadingCount, setLoadingCount] = useState(true);
+  const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
+  const [loadingTotals, setLoadingTotals] = useState(false);
 
   // Reset the local form inputs whenever the operator switches location so
   // values typed for one shop do not pre-fill at another shop.
@@ -42,6 +52,41 @@ export default function ShiftPage() {
     month: "long",
     day: "numeric",
   });
+
+  // Load today's sales grouped by raw payment_method for the reconciliation
+  // panel. Refreshes whenever the operator opens or returns to the screen
+  // with an open shift, and when location switches.
+  useEffect(() => {
+    async function loadMethodTotals() {
+      if (!shift || !currentLocationId) return;
+      setLoadingTotals(true);
+      const today = new Date().toISOString().split("T")[0];
+      const { data } = await db
+        .from("sales")
+        .select("total_amount, payment_method, location_id")
+        .eq("sale_date", today)
+        .eq("voided", false)
+        .eq("location_id", currentLocationId);
+      const sums = new Map<string, number>();
+      ((data as { total_amount: number; payment_method: string }[]) || []).forEach((s) => {
+        const m = (s.payment_method || "Unknown").trim() || "Unknown";
+        sums.set(m, (sums.get(m) || 0) + (Number(s.total_amount) || 0));
+      });
+      const rows: MethodTotal[] = Array.from(sums.entries())
+        .map(([method, total]) => ({
+          method,
+          total,
+          bucket: paymentBucket(method),
+          confirmed: false,
+        }))
+        .sort((a, b) => b.total - a.total);
+      setMethodTotals(rows);
+      setLoadingTotals(false);
+    }
+    if (shift && shift.status === "open") {
+      loadMethodTotals();
+    }
+  }, [shift, currentLocationId]);
 
   // Check for the most recent stock count
   useEffect(() => {
@@ -288,7 +333,7 @@ export default function ShiftPage() {
         <div className="border-t border-gray-200 pt-6">
           <h2 className="font-semibold text-gray-900 mb-4 flex items-center gap-2">
             <Square className="w-5 h-5 text-red-500" />
-            Close Shift
+            End-of-Day Reconciliation
           </h2>
 
           {requiresStockCountToClose && !shift.stock_count_done && (
@@ -313,9 +358,18 @@ export default function ShiftPage() {
             </div>
           )}
 
+          {/* End-of-day reconciliation panel: every payment method on one screen */}
+          <ReconciliationPanel
+            loading={loadingTotals}
+            methodTotals={methodTotals}
+            setMethodTotals={setMethodTotals}
+            openingFloat={parseFloat(shift.opening_float?.toString() || "0") || 0}
+            closingCash={closingCash}
+          />
+
           <div className="space-y-4">
             <Input
-              label="Closing Cash in Till (R)"
+              label="Closing Cash Counted in Till"
               type="number"
               step="0.01"
               value={closingCash}
@@ -336,6 +390,123 @@ export default function ShiftPage() {
             </Button>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ReconciliationPanel({
+  loading, methodTotals, setMethodTotals, openingFloat, closingCash,
+}: {
+  loading: boolean;
+  methodTotals: MethodTotal[];
+  setMethodTotals: React.Dispatch<React.SetStateAction<MethodTotal[]>>;
+  openingFloat: number;
+  closingCash: string;
+}) {
+  if (loading) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4 text-sm text-gray-400">
+        Loading today&apos;s sales...
+      </div>
+    );
+  }
+
+  if (methodTotals.length === 0) {
+    return (
+      <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 mb-4 text-sm text-gray-500">
+        No sales recorded yet today at this shop.
+      </div>
+    );
+  }
+
+  function iconForBucket(bucket: MethodTotal["bucket"]) {
+    if (bucket === "cash") return <Banknote className="w-4 h-4 text-green-600" />;
+    if (bucket === "credit") return <Users className="w-4 h-4 text-amber-600" />;
+    // card bucket covers mobile money, card, EFT, online payment links, etc.
+    return <Smartphone className="w-4 h-4 text-blue-600" />;
+  }
+
+  const cashSales = methodTotals.filter((m) => m.bucket === "cash").reduce((s, m) => s + m.total, 0);
+  const electronicSales = methodTotals.filter((m) => m.bucket === "card").reduce((s, m) => s + m.total, 0);
+  const creditSales = methodTotals.filter((m) => m.bucket === "credit").reduce((s, m) => s + m.total, 0);
+  const totalSales = cashSales + electronicSales + creditSales;
+
+  const expectedCash = openingFloat + cashSales;
+  const actualCash = parseFloat(closingCash) || 0;
+  const cashVariance = closingCash ? actualCash - expectedCash : null;
+
+  function toggleConfirmed(method: string) {
+    setMethodTotals((prev) => prev.map((m) => m.method === method ? { ...m, confirmed: !m.confirmed } : m));
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
+      <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
+        Today&apos;s sales by payment method
+      </p>
+      <div className="space-y-2">
+        {methodTotals.map((m) => (
+          <div key={m.method} className="flex items-center justify-between py-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              {iconForBucket(m.bucket)}
+              <span className="text-sm font-medium text-gray-900 truncate">{m.method}</span>
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <span className="text-sm font-semibold text-gray-900">{formatZAR(m.total)}</span>
+              {m.bucket === "card" && (
+                <label className="inline-flex items-center gap-1.5 text-xs cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={m.confirmed}
+                    onChange={() => toggleConfirmed(m.method)}
+                    className="w-3.5 h-3.5 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  />
+                  <span className={m.confirmed ? "text-green-700 font-medium" : "text-gray-500"}>
+                    {m.confirmed ? "Confirmed" : "Confirm?"}
+                  </span>
+                </label>
+              )}
+              {m.bucket === "credit" && (
+                <span className="text-xs text-gray-400">customer balance</span>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Total sales today</span>
+          <span className="font-semibold text-gray-900">{formatZAR(totalSales)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">Opening float</span>
+          <span className="text-gray-700">{formatZAR(openingFloat)}</span>
+        </div>
+        <div className="flex justify-between text-sm">
+          <span className="text-gray-600">+ Cash sales</span>
+          <span className="text-gray-700">{formatZAR(cashSales)}</span>
+        </div>
+        <div className="flex justify-between text-sm font-semibold pt-1 border-t border-gray-100">
+          <span className="text-gray-900">Expected cash in till</span>
+          <span className="text-gray-900">{formatZAR(expectedCash)}</span>
+        </div>
+        {cashVariance !== null && (
+          <div className={`rounded-lg px-3 py-2 mt-2 text-sm font-medium flex justify-between ${
+            cashVariance === 0 ? "bg-green-50 text-green-700"
+              : cashVariance > 0 ? "bg-blue-50 text-blue-700"
+              : "bg-red-50 text-red-700"
+          }`}>
+            <span>Cash variance</span>
+            <span>
+              {formatZAR(cashVariance)}
+              {cashVariance === 0 && " — perfect"}
+              {cashVariance > 0 && " — over"}
+              {cashVariance < 0 && " — short"}
+            </span>
+          </div>
+        )}
       </div>
     </div>
   );
