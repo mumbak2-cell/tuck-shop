@@ -7,15 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
-import { Receipt, Plus, Trash2, Filter } from "lucide-react";
+import { Receipt, Plus, Trash2, Filter, CloudOff } from "lucide-react";
 import { EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
+import { insertOrQueue } from "@/lib/offline-ops";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName, orgId } = useOrg();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [queuedNote, setQueuedNote] = useState<string | null>(null);
 
   // Filters
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -62,26 +64,41 @@ export default function ExpensesPage() {
 
   async function handleSave() {
     if (!formAmount || parseFloat(formAmount) <= 0) return;
+    if (!orgId) {
+      alert("Shop not loaded yet. Try again in a moment.");
+      return;
+    }
     setSaving(true);
 
-    const { error } = await db.from("expenses").insert({
-      expense_date: formDate,
-      category: formCategory,
-      description: formDescription || null,
-      amount: parseFloat(formAmount),
-      director_name: formCategory === "Director Withdrawal" ? formDirectorName || null : null,
-      recorded_by: name,
-      location_id: currentLocationId,
+    const result = await insertOrQueue({
+      org_id: orgId,
+      table: "expenses",
+      queueKind: "insert_expense",
+      row: {
+        expense_date: formDate,
+        category: formCategory,
+        description: formDescription || null,
+        amount: parseFloat(formAmount),
+        director_name: formCategory === "Director Withdrawal" ? formDirectorName || null : null,
+        recorded_by: name,
+        location_id: currentLocationId,
+      },
     });
 
-    if (error) {
-      alert("Error saving expense: " + error.message);
-    } else {
-      setShowAdd(false);
-      resetForm();
-      loadExpenses();
-    }
     setSaving(false);
+
+    if (!result.ok) {
+      alert("Error saving expense: " + (result.error || "unknown"));
+      return;
+    }
+
+    setShowAdd(false);
+    resetForm();
+    if (result.queued) {
+      setQueuedNote(`Expense saved offline — will sync when you're back online.`);
+      setTimeout(() => setQueuedNote(null), 4000);
+    }
+    loadExpenses();
   }
 
   async function handleDelete(id: string) {
@@ -118,6 +135,11 @@ export default function ExpensesPage() {
 
   return (
     <div>
+      {queuedNote && (
+        <div className="mb-4 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-sm text-amber-900">
+          <CloudOff className="w-4 h-4 text-amber-700" /> {queuedNote}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">

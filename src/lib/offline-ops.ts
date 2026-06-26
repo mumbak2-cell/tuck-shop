@@ -116,7 +116,9 @@ export async function submitSaleBatch(input: SaleBatchInput): Promise<SaleBatchR
 export interface SimpleInsertInput<T extends { id?: string }> {
   org_id: string;
   table: string;
-  cacheKind: "customers" | "products" | "locations" | "app_settings" | "payment_methods" | "product_stock";
+  /** Provide to optimistically update the local read cache. Omit for tables
+   *  we don't cache (expenses, customer_payments, shifts, etc.). */
+  cacheKind?: "customers" | "products" | "locations" | "app_settings" | "payment_methods" | "product_stock";
   row: T;
   /** Map QueuedOp.kind to the right replay handler. */
   queueKind: QueuedOp["kind"];
@@ -124,7 +126,8 @@ export interface SimpleInsertInput<T extends { id?: string }> {
 
 /**
  * For tables where we can insert one row directly. Adds the row to the local
- * cache optimistically so the next page render includes it, even when queued.
+ * cache optimistically (if cacheKind is set) so the next page render
+ * includes it, even when queued.
  */
 export async function insertOrQueue<T extends { id?: string }>(
   input: SimpleInsertInput<T>
@@ -134,7 +137,7 @@ export async function insertOrQueue<T extends { id?: string }>(
   if (navigator.onLine) {
     const { error } = await db.from(input.table).insert(row);
     if (!error) {
-      upsertIntoCache(input.org_id, input.cacheKind, row);
+      if (input.cacheKind) upsertIntoCache(input.org_id, input.cacheKind, row);
       return { ok: true, queued: false, row };
     }
     if (!isNetworkError(error)) {
@@ -148,7 +151,7 @@ export async function insertOrQueue<T extends { id?: string }>(
     kind: input.queueKind,
     payload: { table: input.table, row },
   });
-  upsertIntoCache(input.org_id, input.cacheKind, row);
+  if (input.cacheKind) upsertIntoCache(input.org_id, input.cacheKind, row);
   return { ok: true, queued: true, row };
 }
 
@@ -166,11 +169,31 @@ export async function replayOp(op: QueuedOp): Promise<{ ok: boolean; error?: str
       }
       case "insert_expense":
       case "insert_customer":
-      case "insert_customer_payment":
       case "upsert_stock_count": {
         const p = op.payload as { table: string; row: Record<string, unknown> };
         const { error } = await db.from(p.table).upsert(p.row, { onConflict: "id", ignoreDuplicates: false });
         if (error) return { ok: false, error: error.message };
+        return { ok: true };
+      }
+      case "insert_customer_payment": {
+        // Two-step replay: insert the payment if it's not already there
+        // (idempotent by client-generated id), then decrement the customer's
+        // balance by the same amount. Skip the balance step if the payment
+        // was already in the DB so we don't double-decrement.
+        const p = op.payload as {
+          table: string;
+          row: { id: string; customer_id: string; amount: number | string } & Record<string, unknown>;
+        };
+        const existing = await db.from("customer_payments").select("id").eq("id", p.row.id).maybeSingle();
+        if (existing.data) return { ok: true };
+        const insertRes = await db.from(p.table).insert(p.row);
+        if (insertRes.error) return { ok: false, error: insertRes.error.message };
+        const cust = await db.from("customers").select("balance").eq("id", p.row.customer_id).maybeSingle();
+        if (cust.data) {
+          const balance = Number((cust.data as { balance: number }).balance) || 0;
+          const newBalance = Math.max(balance - (Number(p.row.amount) || 0), 0);
+          await db.from("customers").update({ balance: newBalance }).eq("id", p.row.customer_id);
+        }
         return { ok: true };
       }
       case "open_shift":

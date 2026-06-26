@@ -18,7 +18,9 @@ import {
   Search,
   Edit2,
   MessageCircle,
+  CloudOff,
 } from "lucide-react";
+import { insertOrQueue } from "@/lib/offline-ops";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -285,13 +287,14 @@ function CustomerFormModal({
   customer: Customer | null;
   onSaved: () => void;
 }) {
-  const { currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName, orgId } = useOrg();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [creditLimit, setCreditLimit] = useState("500");
   const [balance, setBalance] = useState("0");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [queuedNote, setQueuedNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -318,6 +321,7 @@ function CustomerFormModal({
     };
 
     let dbError: { message: string } | null = null;
+    let queued = false;
     if (customer) {
       // Include balance when editing (allows setting carried-forward amount)
       payload.balance = parseFloat(balance) || 0;
@@ -330,19 +334,40 @@ function CustomerFormModal({
       payload.balance = parseFloat(balance) || 0;
       // Customers are per-location: each shop has its own credit book.
       payload.location_id = currentLocationId;
-      const res = await db
-        .from("customers")
-        .insert(payload);
-      dbError = res.error;
+      if (!orgId) {
+        setError("Shop not loaded yet.");
+        setSaving(false);
+        return;
+      }
+      const result = await insertOrQueue({
+        org_id: orgId,
+        table: "customers",
+        cacheKind: "customers",
+        queueKind: "insert_customer",
+        row: payload as { id?: string } & Record<string, unknown>,
+      });
+      if (!result.ok) dbError = { message: result.error || "unknown" };
+      else queued = result.queued;
     }
+
+    setSaving(false);
 
     if (dbError) {
       setError(dbError.message);
+      return;
+    }
+
+    if (queued) {
+      setQueuedNote(`Customer added offline — will sync when you're back online.`);
+      setTimeout(() => {
+        setQueuedNote(null);
+        onSaved();
+        onClose();
+      }, 1500);
     } else {
       onSaved();
       onClose();
     }
-    setSaving(false);
   }
 
   return (
@@ -384,6 +409,11 @@ function CustomerFormModal({
         {error && (
           <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
         )}
+        {queuedNote && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2">
+            <CloudOff className="w-4 h-4" /> {queuedNote}
+          </div>
+        )}
         <Button onClick={handleSave} loading={saving} className="w-full">
           {customer ? "Update Customer" : "Add Customer"}
         </Button>
@@ -404,14 +434,17 @@ function PaymentModal({
   customer: Customer;
   onSaved: () => void;
 }) {
+  const { orgId } = useOrg();
   const [amount, setAmount] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
+  const [queuedNote, setQueuedNote] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
       setAmount("");
       setError("");
+      setQueuedNote(null);
     }
   }, [open]);
 
@@ -425,38 +458,62 @@ function PaymentModal({
       setError(`Payment exceeds balance of ${formatZAR(customer.balance)}`);
       return;
     }
+    if (!orgId) {
+      setError("Shop not loaded yet.");
+      return;
+    }
 
     setSaving(true);
     setError("");
 
-    // Insert payment record. The customer row is already tagged to a location;
-    // we copy that down so the payment lives at the same shop for reporting.
-    const { error: payErr } = await db.from("customer_payments").insert({
-      customer_id: customer.id,
-      payment_date: new Date().toISOString().split("T")[0],
-      amount: val,
-      location_id: (customer as { location_id?: string | null }).location_id ?? null,
+    // Queue or send the payment row. The replay handler for
+    // insert_customer_payment also decrements the customer's balance once
+    // online, atomically with the payment insert.
+    const result = await insertOrQueue({
+      org_id: orgId,
+      table: "customer_payments",
+      queueKind: "insert_customer_payment",
+      row: {
+        customer_id: customer.id,
+        payment_date: new Date().toISOString().split("T")[0],
+        amount: val,
+        location_id: (customer as { location_id?: string | null }).location_id ?? null,
+      },
     });
 
-    if (payErr) {
-      setError(payErr.message);
+    if (!result.ok) {
+      setError(result.error || "Unknown error");
       setSaving(false);
       return;
     }
 
-    // Update customer balance
-    const { error: balErr } = await db
-      .from("customers")
-      .update({ balance: customer.balance - val })
-      .eq("id", customer.id);
+    // If we're online the insert already landed; decrement balance now.
+    // If we're offline, the replay handler will decrement on sync.
+    if (!result.queued) {
+      const { error: balErr } = await db
+        .from("customers")
+        .update({ balance: Math.max(customer.balance - val, 0) })
+        .eq("id", customer.id);
+      if (balErr) {
+        setError(balErr.message);
+        setSaving(false);
+        return;
+      }
+    }
 
-    if (balErr) {
-      setError(balErr.message);
+    setSaving(false);
+
+    if (result.queued) {
+      setQueuedNote(`Payment recorded offline — balance will adjust when you're back online.`);
+      setTimeout(() => {
+        setQueuedNote(null);
+        onSaved();
+        onClose();
+      }, 1800);
     } else {
       onSaved();
       onClose();
     }
-    setSaving(false);
   }
 
   return (
@@ -489,6 +546,11 @@ function PaymentModal({
 
         {error && (
           <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
+        )}
+        {queuedNote && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-2 rounded-lg text-sm inline-flex items-center gap-2">
+            <CloudOff className="w-4 h-4" /> {queuedNote}
+          </div>
         )}
 
         <Button onClick={handleRecord} loading={saving} className="w-full">
