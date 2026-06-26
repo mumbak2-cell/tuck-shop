@@ -1,10 +1,11 @@
 "use client";
 import { useState, useRef } from "react";
 import { db } from "@/lib/supabase";
+import { useOrg } from "@/lib/org-context";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Upload, Download, Check } from "lucide-react";
+import { Upload, Download, Check, AlertCircle } from "lucide-react";
 import { formatMoney } from "@/lib/format";
 
 interface CsvRow {
@@ -32,6 +33,7 @@ interface Props {
 }
 
 export function CsvUploadModal({ open, onClose, onComplete }: Props) {
+  const { currentLocationId, currentLocationName } = useOrg();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [matches, setMatches] = useState<MatchResult[]>([]);
@@ -149,6 +151,10 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
   }
 
   async function applyUpdates() {
+    if (!currentLocationId) {
+      alert("Pick a shop location before importing — switch in the sidebar.");
+      return;
+    }
     setSaving(true);
     let inserted = 0;
     let updated = 0;
@@ -172,37 +178,91 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
     for (const m of matches) {
       // Case 1 — existing product, has changes → UPDATE
       if (m.productId && m.changes.length > 0) {
-        const update: Record<string, number> = {};
-        if (m.csvRow.opening_stock !== undefined && m.csvRow.opening_stock !== "") update.opening_stock = parseInt(m.csvRow.opening_stock) || 0;
-        if (m.csvRow.package_price) update.package_price = parseFloat(m.csvRow.package_price) || 0;
-        if (m.csvRow.qty_in_pack) update.qty_in_pack = parseInt(m.csvRow.qty_in_pack) || 0;
-        if (m.csvRow.selling_price) update.selling_price = parseFloat(m.csvRow.selling_price) || 0;
+        // Per-location stock model: route stock changes through product_stock
+        // at the current location rather than products.opening_stock. The
+        // trigger from migration 024 keeps the org-wide sum in sync.
+        const productUpdate: Record<string, number> = {};
+        if (m.csvRow.package_price) productUpdate.package_price = parseFloat(m.csvRow.package_price) || 0;
+        if (m.csvRow.qty_in_pack) productUpdate.qty_in_pack = parseInt(m.csvRow.qty_in_pack) || 0;
+        if (m.csvRow.selling_price) productUpdate.selling_price = parseFloat(m.csvRow.selling_price) || 0;
 
-        const { error } = await db.from("products").update(update).eq("id", m.productId);
-        if (error) skipped++;
-        else updated++;
+        let ok = true;
+        if (Object.keys(productUpdate).length > 0) {
+          const { error } = await db.from("products").update(productUpdate).eq("id", m.productId);
+          if (error) ok = false;
+        }
+
+        // Stock change → write to product_stock at current location
+        if (ok && m.csvRow.opening_stock !== undefined && m.csvRow.opening_stock !== "") {
+          const qty = parseInt(m.csvRow.opening_stock) || 0;
+          const { error: stockErr } = await db.from("product_stock").upsert(
+            {
+              product_id: m.productId,
+              location_id: currentLocationId,
+              quantity: qty,
+              last_updated: new Date().toISOString(),
+            },
+            { onConflict: "product_id,location_id" }
+          );
+          if (stockErr) ok = false;
+        }
+
+        if (ok) updated++;
+        else skipped++;
         continue;
       }
 
-      // Case 2 — no match, insert-new turned on → INSERT
+      // Case 2 — no match, insert-new turned on → INSERT product, then seed product_stock
       if (!m.productId && insertNew && m.csvRow.name) {
         const inventoryId = m.csvRow.inventory_id || `${prefix}${String(nextNum).padStart(4, "0")}`;
         if (!m.csvRow.inventory_id) nextNum += 1;
+
+        const openingStockQty = parseInt(m.csvRow.opening_stock ?? "0") || 0;
 
         const newRow: Record<string, unknown> = {
           inventory_id: inventoryId,
           name: m.csvRow.name,
           category: m.csvRow.category || "Uncategorized",
-          opening_stock: parseInt(m.csvRow.opening_stock ?? "0") || 0,
+          // products.opening_stock will be auto-synced by the trigger on
+          // product_stock; we set it here just so the row isn't NULL until
+          // the trigger fires.
+          opening_stock: openingStockQty,
           package_price: parseFloat(m.csvRow.package_price ?? "0") || 0,
           qty_in_pack: parseInt(m.csvRow.qty_in_pack ?? "1") || 1,
           selling_price: parseFloat(m.csvRow.selling_price ?? "0") || 0,
           reorder_level: 0,
           discontinued: false,
         };
-        const { error } = await db.from("products").insert(newRow);
-        if (error) skipped++;
-        else inserted++;
+        const { data: insertedProduct, error } = await db
+          .from("products")
+          .insert(newRow)
+          .select("id")
+          .single();
+
+        if (error || !insertedProduct) {
+          skipped++;
+          continue;
+        }
+
+        // Seed the per-location stock row so the POS / Products page show
+        // the right number at the current shop. Skip if opening_stock is 0
+        // to avoid useless rows.
+        if (openingStockQty > 0) {
+          const { error: stockErr } = await db.from("product_stock").upsert(
+            {
+              product_id: (insertedProduct as { id: string }).id,
+              location_id: currentLocationId,
+              quantity: openingStockQty,
+              last_updated: new Date().toISOString(),
+            },
+            { onConflict: "product_id,location_id" }
+          );
+          if (stockErr) {
+            // Product was created but stock seed failed — still count as inserted.
+            // Cashier can fix via Stock Count or Receive Stock.
+          }
+        }
+        inserted++;
         continue;
       }
 
@@ -259,6 +319,15 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
             Match is by <strong>inventory_id</strong> first (e.g. IN0001), then by product name as fallback.
             Supports both comma and semicolon delimiters.
           </p>
+          {currentLocationName && (
+            <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-2 text-xs text-green-900 flex items-start gap-2">
+              <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0 text-green-700" />
+              <span>
+                Stock from this CSV will land at <strong>{currentLocationName}</strong>.
+                Switch the location in the sidebar before importing if it should go to a different shop.
+              </span>
+            </div>
+          )}
 
           <div className="bg-gray-50 rounded-lg p-4">
             <p className="text-xs font-medium text-gray-700 mb-2">Supported columns:</p>
