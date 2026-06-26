@@ -85,43 +85,58 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setMethodsError(false);
       setQueuedToast(false);
 
-      // Try a live query first. If it fails or returns empty AND we have a
-      // cached copy from the most recent sync, render from cache so the POS
-      // works when the network is misbehaving.
+      // Pre-compute cached copies so we can fall back instantly when offline.
       const cachedMethods = orgId
         ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
             .filter((m) => (m as PaymentMethodRow & { active?: boolean }).active !== false)
             .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         : [];
-
-      db.from("payment_methods")
-        .select("id, name, kind, sort_order")
-        .eq("active", true)
-        .order("sort_order")
-        .then(({ data, error: err }: { data: PaymentMethodRow[] | null; error: { message: string } | null }) => {
-          if (err && cachedMethods.length > 0) {
-            // Live query failed but we have cache — use it, no error UI.
-            setMethods(cachedMethods);
-          } else if (err) {
-            setMethodsError(true);
-          } else {
-            setMethods(data && data.length > 0 ? data : cachedMethods);
-          }
-          setMethodsLoaded(true);
-        });
-
-      // Customers — same pattern. Fall back to cache, optionally filtered to
-      // the current location.
       const cachedCustomers = orgId
         ? (readCache<Customer & { location_id?: string | null }>(orgId, "customers") ?? [])
             .filter((c) => !currentLocationId || !c.location_id || c.location_id === currentLocationId)
             .sort((a, b) => a.name.localeCompare(b.name))
         : [];
-      let customerQuery = db.from("customers").select("*").order("name");
-      if (currentLocationId) {
-        customerQuery = customerQuery.eq("location_id", currentLocationId);
+
+      // Offline path — Supabase calls hang indefinitely when offline rather
+      // than rejecting, so don't even try the network. Use the cache directly.
+      if (!navigator.onLine) {
+        setMethods(cachedMethods);
+        setCustomers(cachedCustomers);
+        setMethodsLoaded(true);
+        return;
       }
-      customerQuery.then(({ data }: { data: Customer[] | null }) => {
+
+      // Race the live query against a short timeout so a stalled connection
+      // doesn't leave the cashier staring at "Loading..." for ever.
+      const methodsRequest = db
+        .from("payment_methods")
+        .select("id, name, kind, sort_order")
+        .eq("active", true)
+        .order("sort_order");
+      const timeout = new Promise<{ data: null; error: { message: string } }>((resolve) => {
+        setTimeout(() => resolve({ data: null, error: { message: "timeout" } }), 4000);
+      });
+
+      Promise.race([methodsRequest, timeout]).then((result) => {
+        const { data, error: err } = result as { data: PaymentMethodRow[] | null; error: { message: string } | null };
+        if (err && cachedMethods.length > 0) {
+          setMethods(cachedMethods);
+        } else if (err) {
+          setMethodsError(true);
+        } else {
+          setMethods(data && data.length > 0 ? data : cachedMethods);
+        }
+        setMethodsLoaded(true);
+      });
+
+      // Customers — same pattern.
+      let customerQuery = db.from("customers").select("*").order("name");
+      if (currentLocationId) customerQuery = customerQuery.eq("location_id", currentLocationId);
+      const customerTimeout = new Promise<{ data: null }>((resolve) => {
+        setTimeout(() => resolve({ data: null }), 4000);
+      });
+      Promise.race([customerQuery, customerTimeout]).then((result) => {
+        const { data } = result as { data: Customer[] | null };
         setCustomers(data && data.length > 0 ? data : cachedCustomers);
       });
     }

@@ -19,14 +19,7 @@ export default function POSPage() {
   const [showPayment, setShowPayment] = useState(false);
 
   const fetchProducts = useCallback(async () => {
-    const { data: allProducts, error: prodErr } = await db
-      .from("products")
-      .select("*")
-      .eq("discontinued", false)
-      .order("name");
-
-    // Cached fallback when the live query fails or returns nothing — keeps
-    // the POS usable through brief network blips.
+    // Cached fallback - shared between online-failure and offline paths.
     const fromCache = (): Product[] => {
       if (!orgId) return [];
       const cachedProducts = (readCache<Product>(orgId, "products") ?? []).filter((p) => !p.discontinued);
@@ -41,6 +34,20 @@ export default function POSPage() {
       }
       return cachedProducts.filter((p) => p.opening_stock > 0);
     };
+
+    // When offline, skip the network call entirely. Supabase requests hang
+    // indefinitely on no-connection rather than rejecting, which would leave
+    // the POS stuck on a loading state.
+    if (!navigator.onLine) {
+      setProducts(fromCache());
+      return;
+    }
+
+    const { data: allProducts, error: prodErr } = await db
+      .from("products")
+      .select("*")
+      .eq("discontinued", false)
+      .order("name");
 
     if (prodErr || !allProducts) {
       setProducts(fromCache());
