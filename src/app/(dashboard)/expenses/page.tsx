@@ -82,7 +82,7 @@ export default function ExpensesPage() {
         director_name: formCategory === "Director Withdrawal" ? formDirectorName || null : null,
         recorded_by: name,
         location_id: currentLocationId,
-      },
+      } as { id?: string } & Record<string, unknown>,
     });
 
     setSaving(false);

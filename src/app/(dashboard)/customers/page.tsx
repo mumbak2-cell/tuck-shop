@@ -478,7 +478,7 @@ function PaymentModal({
         payment_date: new Date().toISOString().split("T")[0],
         amount: val,
         location_id: (customer as { location_id?: string | null }).location_id ?? null,
-      },
+      } as { id?: string } & Record<string, unknown>,
     });
 
     if (!result.ok) {
