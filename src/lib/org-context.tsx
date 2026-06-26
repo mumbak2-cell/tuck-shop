@@ -163,6 +163,16 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    // Offline guard: if we're already signed in (have a session) but the
+    // network is down, keep whatever org state we already have. Don't try
+    // to fetch fresh data over a dead connection and don't blank the
+    // org. Without this guard, a spurious auth event while offline could
+    // strip orgId and bounce the user to the offline fallback screen.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
+      setState((s) => ({ ...s, loading: false, session }));
+      return;
+    }
+
     // Pull the user's org membership and the org row (RLS scoped automatically).
     const { data: membership } = await db
       .from("org_members")
@@ -255,8 +265,19 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       if (mounted) loadOrg(session);
     });
 
-    const { data: sub } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (mounted) loadOrg(session);
+    // Only respond to events that genuinely change auth state. Token refresh
+    // failures while offline can trigger spurious callbacks that would wipe
+    // org.orgId to null, and the dashboard layout would then show the offline
+    // fallback even though the user is still legitimately signed in.
+    const { data: sub } = supabase.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      if (event === "SIGNED_IN" || event === "INITIAL_SESSION") {
+        loadOrg(session);
+      } else if (event === "SIGNED_OUT") {
+        loadOrg(null);
+      }
+      // TOKEN_REFRESHED / USER_UPDATED / PASSWORD_RECOVERY: state already
+      // correct, don't re-fetch and don't blank the org.
     });
 
     return () => {
