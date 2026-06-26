@@ -86,6 +86,19 @@ function computeDaysLeft(status: string | null, trialEndsAt: string | null): num
 }
 
 const LOCATION_CACHE_KEY = "tilify_current_location";
+const LAST_ORG_ID_KEY = "tilify_last_org_id";
+
+/** Whether the user has ever had a working org session on this device.
+ * Used by the dashboard layout to suppress fallback screens that would
+ * otherwise fire when state momentarily empties (e.g. spurious auth events
+ * while offline). */
+export function hasEverHadOrg(): boolean {
+  try {
+    return typeof window !== "undefined" && !!window.localStorage.getItem(LAST_ORG_ID_KEY);
+  } catch {
+    return false;
+  }
+}
 
 const DEFAULT_STATE: OrgState = {
   loading: true,
@@ -230,6 +243,16 @@ export function OrgProvider({ children }: { children: ReactNode }) {
 
     const currentLocation = pickCurrentLocation(locations, assignedLocationId, role);
 
+    // Remember on this device that the user successfully loaded an org. The
+    // dashboard layout consults this when state momentarily empties so the
+    // user never sees the offline / no-shop fallbacks again on subsequent
+    // navigations.
+    try {
+      window.localStorage.setItem(LAST_ORG_ID_KEY, membership.org_id);
+    } catch {
+      // ignore — non-critical
+    }
+
     setState((s) => ({
       ...s,
       loading: false,
@@ -337,6 +360,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         sessionStorage.removeItem("tilify_auth");
         sessionStorage.removeItem("tuckshop_auth");
         window.localStorage.removeItem(LOCATION_CACHE_KEY);
+        window.localStorage.removeItem(LAST_ORG_ID_KEY);
       } catch {
         // ignore
       }

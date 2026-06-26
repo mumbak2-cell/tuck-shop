@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { PinPad } from "@/components/auth/pin-pad";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
-import { useOrg } from "@/lib/org-context";
+import { useOrg, hasEverHadOrg } from "@/lib/org-context";
 import { useOnline } from "@/lib/use-online";
 import { WifiOff } from "lucide-react";
 
@@ -47,12 +47,29 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     return null;
   }
 
-  // Signed in but no organization membership. Two distinct cases:
-  //   1. Truly no org (sign-up edge case) — show the genuine help message.
-  //   2. Offline and org couldn't be fetched from Supabase — show honest
-  //      "you're offline" UI with NO destructive Sign Out button so a
-  //      cashier under pressure doesn't kill their session.
+  // Signed in but no organization membership. Three distinct cases:
+  //   1. We have evidence this account has had a working org on this device
+  //      before — keep rendering the page (the user is just temporarily
+  //      offline / between refreshes, no point bouncing them to a fallback).
+  //   2. Genuinely no org and offline — first-time offline before initial load.
+  //   3. Genuinely no org and online — sign-up edge case.
   if (!org.orgId) {
+    if (hasEverHadOrg()) {
+      // Render the page as normal. Individual pages will show empty data when
+      // offline; that's fine — at least navigation isn't blocked.
+      if (!authenticated) return <PinPad />;
+      return (
+        <div className="flex h-screen">
+          <Sidebar />
+          <main className="flex-1 overflow-y-auto flex flex-col">
+            <TrialBanner />
+            <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
+              {children}
+            </div>
+          </main>
+        </div>
+      );
+    }
     if (!online) {
       return (
         <div className="min-h-screen flex items-center justify-center p-6 bg-amber-50">
