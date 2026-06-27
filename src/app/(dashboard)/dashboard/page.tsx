@@ -406,10 +406,10 @@ async function downloadStockReport() {
       .select("id, inventory_id, name, category, opening_stock, reorder_level, selling_price, package_price, qty_in_pack")
       .eq("discontinued", false)
       .order("inventory_id")
-      .limit(20000),
+      .limit(100000),
     db.from("product_stock")
       .select("product_id, location_id, quantity")
-      .limit(50000),
+      .limit(500000),
     db.from("locations").select("id, name").eq("active", true).order("sort_order"),
   ]);
 

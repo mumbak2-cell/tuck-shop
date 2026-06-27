@@ -48,7 +48,7 @@ export default function POSPage() {
       .select("*")
       .eq("discontinued", false)
       .order("name")
-      .limit(20000);
+      .limit(100000);
 
     if (prodErr || !allProducts) {
       setProducts(fromCache());
@@ -64,7 +64,7 @@ export default function POSPage() {
         .select("product_id, quantity")
         .eq("location_id", currentLocationId)
         .gt("quantity", 0)
-        .limit(20000);
+        .limit(100000);
 
       if (!stockErr) {
         const sellableIds = new Set<string>(

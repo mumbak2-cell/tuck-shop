@@ -65,13 +65,13 @@ export default function StockCountPage() {
       .eq("discontinued", false)
       .order("category")
       .order("name")
-      .limit(20000);
+      .limit(100000);
 
     const { data: stockRows } = await db
       .from("product_stock")
       .select("product_id, quantity")
       .eq("location_id", currentLocationId)
-      .limit(20000);
+      .limit(100000);
     const expectedMap = new Map<string, number>();
     ((stockRows || []) as { product_id: string; quantity: number }[]).forEach((r) => {
       expectedMap.set(r.product_id, Number(r.quantity) || 0);

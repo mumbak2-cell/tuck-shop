@@ -36,7 +36,7 @@ export default function ProductsPage() {
     (async () => {
       const [{ data: catRows }, { data: prodCats }] = await Promise.all([
         db.from("categories").select("name").eq("active", true).order("sort_order"),
-        db.from("products").select("category").eq("discontinued", false).limit(20000),
+        db.from("products").select("category").eq("discontinued", false).limit(100000),
       ]);
       const ordered = ((catRows as { name: string }[]) || []).map((c) => c.name);
       const fromProducts = new Set<string>();
@@ -61,7 +61,7 @@ export default function ProductsPage() {
       .order("inventory_id", { ascending: true })
       // Raise the default 1000-row PostgREST cap so operators with 1000+
       // SKUs (Devine Bakes runs ~1380) see every product.
-      .limit(20000);
+      .limit(100000);
 
     if (categoryFilter) query = query.eq("category", categoryFilter);
     if (search) query = query.ilike("name", `%${search}%`);
@@ -80,7 +80,7 @@ export default function ProductsPage() {
         .from("product_stock")
         .select("product_id, quantity")
         .eq("location_id", currentLocationId)
-        .limit(20000);
+        .limit(100000);
       if (stockErr) {
         setPerLocationLoaded(false);
         setStockByProduct({});
