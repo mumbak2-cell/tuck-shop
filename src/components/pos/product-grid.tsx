@@ -34,6 +34,10 @@ export function ProductGrid({ products, onAddToCart }: Props) {
 
   useEffect(() => {
     (async () => {
+      // Pull the org's explicit category list for sort_order if it exists.
+      // Operators who imported products via CSV may have no rows here — in
+      // that case we fall back to deriving categories from the products
+      // themselves so the sidebar still works.
       const { data } = await db
         .from("categories")
         .select("name, sort_order")
@@ -56,23 +60,37 @@ export function ProductGrid({ products, onAddToCart }: Props) {
   const totalCount = liveProducts.length;
   const countByCategory = useMemo(() => {
     const m = new Map<string, number>();
-    for (const p of liveProducts) m.set(p.category, (m.get(p.category) || 0) + 1);
+    for (const p of liveProducts) {
+      const cat = (p.category || "Uncategorised").trim() || "Uncategorised";
+      m.set(cat, (m.get(cat) || 0) + 1);
+    }
     return m;
   }, [liveProducts]);
 
-  // A category is visible in the sidebar only if it has at least one product
-  // in the org's catalogue, regardless of search.
-  const visibleCategories = useMemo(
-    () => categories.filter((c) => (countByCategory.get(c) || 0) > 0),
-    [categories, countByCategory]
-  );
+  // Show every category that has at least one product. If the categories
+  // table is populated, honour its sort order; otherwise fall back to an
+  // alphabetical list pulled straight from the products.
+  const visibleCategories = useMemo(() => {
+    const productCats = new Set<string>(countByCategory.keys());
+    const fromSorted = categories.filter((c) => productCats.has(c));
+    const known = new Set(fromSorted);
+    // Anything in products but not in the categories table — append at the
+    // end alphabetically so it still appears.
+    const leftovers = [...productCats]
+      .filter((c) => !known.has(c))
+      .sort((a, b) => a.localeCompare(b));
+    return [...fromSorted, ...leftovers];
+  }, [categories, countByCategory]);
 
   // Filter products by category, then by search term.
   const searchLower = search.trim().toLowerCase();
   const filtered = useMemo(() => {
     let list = activeCategory === ALL_TAB
       ? liveProducts
-      : liveProducts.filter((p) => p.category === activeCategory);
+      : liveProducts.filter((p) => {
+          const cat = (p.category || "Uncategorised").trim() || "Uncategorised";
+          return cat === activeCategory;
+        });
     if (searchLower) {
       list = list.filter(
         (p) =>
