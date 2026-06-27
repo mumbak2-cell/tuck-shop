@@ -1,8 +1,19 @@
 "use client";
-import { useEffect, useState } from "react";
+// POS product grid built for high-SKU operators (1,000+ products).
+//
+// Layout (desktop / tablet):
+//   [vertical category sidebar] | [search bar] [responsive product grid]
+//
+// On mobile, the category sidebar collapses to a horizontal scroll above the
+// products. The search bar filters by product name OR inventory_id (case
+// insensitive) and runs together with the category filter so the cashier can
+// drill from 1,300 → 200 → 5 products in two taps and one search.
+
+import { useEffect, useState, useMemo } from "react";
 import { Product } from "@/types/database";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
+import { Search, X, LayoutGrid } from "lucide-react";
 
 interface Props {
   products: Product[];
@@ -19,8 +30,8 @@ const ALL_TAB = "__all__";
 export function ProductGrid({ products, onAddToCart }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
+  const [search, setSearch] = useState("");
 
-  // Load this org's categories (RLS scopes automatically)
   useEffect(() => {
     (async () => {
       const { data } = await db
@@ -30,90 +41,173 @@ export function ProductGrid({ products, onAddToCart }: Props) {
         .order("sort_order");
       const names = ((data as CategoryRow[]) || [])
         .map((c) => c.name)
-        // Hide Ingredients from POS - they are raw materials, not sellable
+        // Hide Ingredients from POS — they are raw materials, not sellable
         .filter((n) => n !== "Ingredients");
       setCategories(names);
     })();
   }, []);
 
-  // When categories load, default the active tab to "All" so every product is shown.
-  // The operator can narrow down by tapping a category tab.
+  // Compute counts per category — derived from products, so search-bar typing
+  // doesn't change them (categories are absolute, not relative to search).
+  const liveProducts = useMemo(
+    () => products.filter((p) => !p.discontinued && p.category !== "Ingredients"),
+    [products]
+  );
+  const totalCount = liveProducts.length;
+  const countByCategory = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const p of liveProducts) m.set(p.category, (m.get(p.category) || 0) + 1);
+    return m;
+  }, [liveProducts]);
 
-  const filtered =
-    activeCategory === ALL_TAB
-      ? products.filter((p) => !p.discontinued && p.category !== "Ingredients")
-      : products.filter((p) => p.category === activeCategory && !p.discontinued);
-
-  // Only render a category tab if at least one product in that category exists
-  const visibleCategories = categories.filter(
-    (cat) => products.some((p) => p.category === cat && !p.discontinued)
+  // A category is visible in the sidebar only if it has at least one product
+  // in the org's catalogue, regardless of search.
+  const visibleCategories = useMemo(
+    () => categories.filter((c) => (countByCategory.get(c) || 0) > 0),
+    [categories, countByCategory]
   );
 
-  const totalCount = products.filter((p) => !p.discontinued && p.category !== "Ingredients").length;
+  // Filter products by category, then by search term.
+  const searchLower = search.trim().toLowerCase();
+  const filtered = useMemo(() => {
+    let list = activeCategory === ALL_TAB
+      ? liveProducts
+      : liveProducts.filter((p) => p.category === activeCategory);
+    if (searchLower) {
+      list = list.filter(
+        (p) =>
+          p.name.toLowerCase().includes(searchLower) ||
+          (p.inventory_id && p.inventory_id.toLowerCase().includes(searchLower))
+      );
+    }
+    return list;
+  }, [liveProducts, activeCategory, searchLower]);
+
+  // Cap the number of rendered products to avoid jank when search is empty and
+  // catalogue is huge. Anything past the cap is reachable via search/category.
+  const RENDER_CAP = 200;
+  const renderList = filtered.slice(0, RENDER_CAP);
+  const cappedHidden = Math.max(0, filtered.length - RENDER_CAP);
 
   return (
-    <div className="flex flex-col h-full">
-      {/* Category tabs */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-3 border-b border-gray-200 scrollbar-hide">
-        <button
-          onClick={() => setActiveCategory(ALL_TAB)}
-          className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-            activeCategory === ALL_TAB
-              ? "bg-green-600 text-white"
-              : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-          }`}
-        >
-          All
-          <span className="ml-1.5 text-xs opacity-70">({totalCount})</span>
-        </button>
-        {visibleCategories.map((cat) => {
-          const count = products.filter((p) => p.category === cat && !p.discontinued).length;
-          return (
-            <button
+    <div className="flex flex-col lg:flex-row gap-3 h-full min-h-0">
+      {/* ── Category sidebar (vertical on desktop, horizontal scroll on mobile) ── */}
+      <div className="lg:w-48 lg:flex-shrink-0 lg:overflow-y-auto">
+        <div className="flex lg:flex-col gap-2 overflow-x-auto lg:overflow-x-visible scrollbar-hide pb-1 lg:pb-0">
+          <CategoryButton
+            label="All"
+            count={totalCount}
+            active={activeCategory === ALL_TAB}
+            onClick={() => setActiveCategory(ALL_TAB)}
+            icon={<LayoutGrid className="w-4 h-4" />}
+          />
+          {visibleCategories.map((cat) => (
+            <CategoryButton
               key={cat}
+              label={cat}
+              count={countByCategory.get(cat) || 0}
+              active={activeCategory === cat}
               onClick={() => setActiveCategory(cat)}
-              className={`flex-shrink-0 px-4 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                activeCategory === cat
-                  ? "bg-green-600 text-white"
-                  : "bg-gray-100 text-gray-700 hover:bg-gray-200"
-              }`}
-            >
-              {cat}
-              <span className="ml-1.5 text-xs opacity-70">({count})</span>
-            </button>
-          );
-        })}
+            />
+          ))}
+        </div>
       </div>
 
-      {/* Product grid — large touch targets */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-2">
-          {filtered.map((product) => (
+      {/* ── Search bar + product grid ── */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="relative mb-3 flex-shrink-0">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder={`Search ${totalCount} products by name or ID...`}
+            className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+          {search && (
             <button
-              key={product.id}
-              onClick={() => onAddToCart(product)}
-              className="flex flex-col items-center justify-center p-4 bg-white border border-gray-200 rounded-xl hover:border-green-400 hover:shadow-md active:scale-95 transition-all min-h-[100px] touch-manipulation"
+              onClick={() => setSearch("")}
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
+              aria-label="Clear search"
             >
-              <span className="text-sm font-medium text-gray-900 text-center leading-tight">
-                {product.name}
-              </span>
-              <span className="text-lg font-bold text-green-700 mt-2">
-                {formatMoney(product.selling_price)}
-              </span>
-              {product.is_prepared && (
-                <span className="text-xs text-blue-600 mt-1">Prepared</span>
-              )}
+              <X className="w-4 h-4" />
             </button>
-          ))}
-          {filtered.length === 0 && (
-            <div className="col-span-full text-center text-gray-400 py-12">
+          )}
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+          {filtered.length === 0 ? (
+            <div className="text-center text-gray-400 py-16">
               {totalCount === 0
                 ? "No products available yet. Add products with stock above zero, then refresh."
+                : searchLower
+                ? `No products match "${search}" in ${activeCategory === ALL_TAB ? "the catalogue" : activeCategory}.`
                 : "No products in this category"}
             </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+                {renderList.map((product) => (
+                  <button
+                    key={product.id}
+                    onClick={() => onAddToCart(product)}
+                    className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-green-400 hover:shadow-md active:scale-95 transition-all min-h-[90px] touch-manipulation"
+                  >
+                    <span className="text-xs font-medium text-gray-900 text-center leading-tight line-clamp-2">
+                      {product.name}
+                    </span>
+                    <span className="text-base font-bold text-green-700 mt-1.5">
+                      {formatMoney(product.selling_price)}
+                    </span>
+                    {product.is_prepared && (
+                      <span className="text-[10px] text-blue-600 mt-0.5">Prepared</span>
+                    )}
+                  </button>
+                ))}
+              </div>
+              {cappedHidden > 0 && (
+                <p className="text-center text-xs text-gray-400 mt-3">
+                  Showing first {RENDER_CAP} of {filtered.length} matches. Use search or pick a
+                  category to narrow down.
+                </p>
+              )}
+            </>
           )}
         </div>
       </div>
     </div>
+  );
+}
+
+function CategoryButton({
+  label,
+  count,
+  active,
+  onClick,
+  icon,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex-shrink-0 lg:w-full text-left px-3 py-3 rounded-xl border-2 transition-colors touch-manipulation ${
+        active
+          ? "bg-green-600 text-white border-green-600 shadow-md"
+          : "bg-amber-50 border-amber-100 text-gray-800 hover:bg-amber-100"
+      }`}
+    >
+      <div className="flex items-center gap-2 min-w-0">
+        {icon && <span className="flex-shrink-0">{icon}</span>}
+        <span className="font-semibold text-sm truncate">{label}</span>
+      </div>
+      <p className={`text-xs mt-0.5 ${active ? "text-green-50" : "text-gray-500"}`}>
+        {count} {count === 1 ? "item" : "items"}
+      </p>
+    </button>
   );
 }
