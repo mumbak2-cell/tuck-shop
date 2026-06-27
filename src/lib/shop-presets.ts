@@ -85,9 +85,30 @@ export const SHOP_PRESETS: ShopPreset[] = [
     ],
   },
   {
-    // Mix of own-baked goods and retail baking accessories.
-    // Examples: Chichi's Bakes & Accessories (Lusaka), Cake Couture Zambia.
-    type: "Bakery & Accessories",
+    // Retail wholesale of baking ingredients, decorating supplies and
+    // equipment to bakeries and home bakers. Multi-branch model.
+    // Examples: Devine Bakes And Accessories (Lusaka), Cake Couture Zambia,
+    // Decor Dash Cake Accessories.
+    type: "Baking Supplies & Equipment",
+    inventoryPrefix: "BS",
+    preparesFood: false,
+    categories: [
+      "Cream & Dairy",
+      "Fondant & Icing",
+      "Cake Boards",
+      "Cake Boxes & Packaging",
+      "Decorating Tools & Sprinkles",
+      "Baking Ingredients",
+      "Cake Tins & Pans",
+      "Utensils & Equipment",
+      "Food Colouring",
+      "Cake Toppers & Decorations",
+    ],
+  },
+  {
+    // Own-baked goods. Kept for shops that genuinely bake (cafés,
+    // small home bakeries selling direct to consumers).
+    type: "Bakery (Own Bakes)",
     inventoryPrefix: "BK",
     preparesFood: true,
     categories: [
@@ -98,13 +119,6 @@ export const SHOP_PRESETS: ShopPreset[] = [
       "Pastries & Pies",
       "Cookies & Biscuits",
       "Drinks",
-      "Cake Boards & Boxes",
-      "Decorating Tools",
-      "Sprinkles & Toppers",
-      "Icing & Fondant",
-      "Baking Ingredients",
-      "Cake Tins & Pans",
-      "Food Colouring",
     ],
   },
   {
