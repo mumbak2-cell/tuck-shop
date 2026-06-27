@@ -56,19 +56,22 @@ export default function StockCountPage() {
     }
     setLoading(true);
 
-    // Get active products
+    // Get active products. PostgREST defaults to 1000 rows so we raise the
+    // cap explicitly — bakery-supply operators like Devine Bakes carry
+    // 1300+ SKUs and need every one of them on the count screen.
     const { data: products } = await db
       .from("products")
       .select("*")
       .eq("discontinued", false)
       .order("category")
-      .order("name");
+      .order("name")
+      .limit(20000);
 
-    // Get expected stock for THIS location
     const { data: stockRows } = await db
       .from("product_stock")
       .select("product_id, quantity")
-      .eq("location_id", currentLocationId);
+      .eq("location_id", currentLocationId)
+      .limit(20000);
     const expectedMap = new Map<string, number>();
     ((stockRows || []) as { product_id: string; quantity: number }[]).forEach((r) => {
       expectedMap.set(r.product_id, Number(r.quantity) || 0);

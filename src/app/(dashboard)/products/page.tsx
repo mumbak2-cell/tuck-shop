@@ -28,15 +28,27 @@ export default function ProductsPage() {
   const [showCsv, setShowCsv] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
 
-  // Load the org's categories (RLS scopes automatically)
+  // Load the org's categories. We merge the explicit categories table with
+  // any category values actually present on products — bulk CSV imports
+  // often introduce categories that were never seeded into the categories
+  // table, and we still want them to show up in the filter dropdown.
   useEffect(() => {
     (async () => {
-      const { data } = await db
-        .from("categories")
-        .select("name")
-        .eq("active", true)
-        .order("sort_order");
-      setCategories(((data as { name: string }[]) || []).map((c) => c.name));
+      const [{ data: catRows }, { data: prodCats }] = await Promise.all([
+        db.from("categories").select("name").eq("active", true).order("sort_order"),
+        db.from("products").select("category").eq("discontinued", false).limit(20000),
+      ]);
+      const ordered = ((catRows as { name: string }[]) || []).map((c) => c.name);
+      const fromProducts = new Set<string>();
+      ((prodCats as { category: string | null }[]) || []).forEach((r) => {
+        const c = (r.category || "").trim();
+        if (c) fromProducts.add(c);
+      });
+      const known = new Set(ordered);
+      const leftovers = [...fromProducts]
+        .filter((c) => !known.has(c))
+        .sort((a, b) => a.localeCompare(b));
+      setCategories([...ordered, ...leftovers]);
     })();
   }, []);
 
@@ -46,7 +58,10 @@ export default function ProductsPage() {
       .from("products")
       .select("*")
       .eq("discontinued", false)
-      .order("inventory_id", { ascending: true });
+      .order("inventory_id", { ascending: true })
+      // Raise the default 1000-row PostgREST cap so operators with 1000+
+      // SKUs (Devine Bakes runs ~1380) see every product.
+      .limit(20000);
 
     if (categoryFilter) query = query.eq("category", categoryFilter);
     if (search) query = query.ilike("name", `%${search}%`);
@@ -64,7 +79,8 @@ export default function ProductsPage() {
       const { data: stockRows, error: stockErr } = await db
         .from("product_stock")
         .select("product_id, quantity")
-        .eq("location_id", currentLocationId);
+        .eq("location_id", currentLocationId)
+        .limit(20000);
       if (stockErr) {
         setPerLocationLoaded(false);
         setStockByProduct({});

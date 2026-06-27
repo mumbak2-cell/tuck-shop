@@ -401,17 +401,51 @@ async function downloadDailySalesReport(date: string) {
 }
 
 async function downloadStockReport() {
-  const { data: products } = await db
-    .from("products")
-    .select("inventory_id, name, category, opening_stock, reorder_level, selling_price, package_price, qty_in_pack")
-    .eq("discontinued", false)
-    .order("inventory_id");
+  const [{ data: products }, { data: stock }, { data: locs }] = await Promise.all([
+    db.from("products")
+      .select("id, inventory_id, name, category, opening_stock, reorder_level, selling_price, package_price, qty_in_pack")
+      .eq("discontinued", false)
+      .order("inventory_id")
+      .limit(20000),
+    db.from("product_stock")
+      .select("product_id, location_id, quantity")
+      .limit(50000),
+    db.from("locations").select("id, name").eq("active", true).order("sort_order"),
+  ]);
 
-  const header = "Inventory ID,Category,Product,Stock,Reorder Level,Selling Price,Package Price,Qty In Pack";
-  const rows = ((products || []) as any[]).map((p: any) =>
-    `${p.inventory_id},\"${p.category}\",\"${p.name}\",${p.opening_stock},${p.reorder_level},${p.selling_price},${p.package_price || 0},${p.qty_in_pack || 0}`
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const productMap = new Map<string, any>();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ((products || []) as any[]).forEach((p: any) => productMap.set(p.id, p));
+  const locNameById = new Map<string, string>(
+    ((locs || []) as { id: string; name: string }[]).map((l) => [l.id, l.name])
   );
-  downloadCSV(`stock_levels_${new Date().toISOString().split("T")[0]}.csv`, header, rows);
+
+  const header = "Inventory ID,Product,Category,Location,Current Stock,Reorder Level,Selling Price,Package Price,Qty In Pack";
+
+  // One row per (product × location) where stock exists. Products with no
+  // product_stock rows at all fall back to a single org-wide row using
+  // products.opening_stock so the export never silently drops a SKU.
+  const stockRows = (stock || []) as { product_id: string; location_id: string; quantity: number }[];
+  const productsWithStock = new Set(stockRows.map((s) => s.product_id));
+  const lines: string[] = [];
+
+  stockRows.forEach((s) => {
+    const p = productMap.get(s.product_id);
+    if (!p) return;
+    lines.push(
+      `${p.inventory_id},\"${p.name}\",\"${p.category || ""}\",\"${locNameById.get(s.location_id) || "—"}\",${s.quantity},${p.reorder_level},${p.selling_price},${p.package_price || 0},${p.qty_in_pack || 0}`
+    );
+  });
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  ((products || []) as any[]).forEach((p: any) => {
+    if (productsWithStock.has(p.id)) return;
+    lines.push(
+      `${p.inventory_id},\"${p.name}\",\"${p.category || ""}\",\"(org-wide)\",${p.opening_stock},${p.reorder_level},${p.selling_price},${p.package_price || 0},${p.qty_in_pack || 0}`
+    );
+  });
+
+  downloadCSV(`stock_levels_${new Date().toISOString().split("T")[0]}.csv`, header, lines);
 }
 
 async function downloadCreditReport() {
