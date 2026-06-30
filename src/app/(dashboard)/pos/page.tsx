@@ -7,6 +7,7 @@ import { Cart, CartItem } from "@/components/pos/cart";
 import { PaymentModal } from "@/components/pos/payment-modal";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { readCache } from "@/lib/offline-store";
 import { Play } from "lucide-react";
 import Link from "next/link";
@@ -43,14 +44,14 @@ export default function POSPage() {
       return;
     }
 
-    const { data: allProducts, error: prodErr } = await db
-      .from("products")
-      .select("*")
-      .eq("discontinued", false)
-      .order("name")
-      .limit(100000);
-
-    if (prodErr || !allProducts) {
+    // Paginate via .range() so Supabase's max_rows ceiling doesn't truncate
+    // catalogues above 1000 SKUs.
+    let allProducts: Product[];
+    try {
+      allProducts = await fetchAllPaged<Product>(() =>
+        db.from("products").select("*").eq("discontinued", false).order("name")
+      );
+    } catch {
       setProducts(fromCache());
       return;
     }
@@ -59,33 +60,33 @@ export default function POSPage() {
     // model). Falls back to the legacy org-wide opening_stock > 0 filter if
     // product_stock cannot be read (migration 024 not yet run on this DB).
     if (currentLocationId) {
-      const { data: stockRows, error: stockErr } = await db
-        .from("product_stock")
-        .select("product_id, quantity")
-        .eq("location_id", currentLocationId)
-        .gt("quantity", 0)
-        .limit(100000);
-
-      if (!stockErr) {
-        const sellableIds = new Set<string>(
-          ((stockRows as { product_id: string; quantity: number }[]) || []).map((r) => r.product_id)
+      try {
+        const stockRows = await fetchAllPaged<{ product_id: string; quantity: number }>(() =>
+          db
+            .from("product_stock")
+            .select("product_id, quantity")
+            .eq("location_id", currentLocationId)
+            .gt("quantity", 0)
         );
+        const sellableIds = new Set<string>(stockRows.map((r) => r.product_id));
         // Replace each product's opening_stock with its per-location quantity
         // so cart and stock-check downstream code reads the right number.
         const stockMap: Record<string, number> = {};
-        ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
+        stockRows.forEach((r) => {
           stockMap[r.product_id] = r.quantity;
         });
-        const filtered = (allProducts as Product[])
+        const filtered = allProducts
           .filter((p) => sellableIds.has(p.id))
           .map((p) => ({ ...p, opening_stock: stockMap[p.id] ?? 0 }));
         setProducts(filtered.length > 0 ? filtered : fromCache());
         return;
+      } catch {
+        // fall through to legacy org-wide filter below
       }
     }
 
     // Fallback: legacy org-wide filter
-    const filtered = (allProducts as Product[]).filter((p) => p.opening_stock > 0);
+    const filtered = allProducts.filter((p) => p.opening_stock > 0);
     setProducts(filtered.length > 0 ? filtered : fromCache());
   }, [currentLocationId, orgId]);
 

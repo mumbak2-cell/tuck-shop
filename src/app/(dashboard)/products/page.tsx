@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { ProductForm } from "@/components/products/product-form";
 import { CsvUploadModal } from "@/components/products/csv-upload";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Plus, Search, Filter, Upload, Download, Tag } from "lucide-react";
 
 export default function ProductsPage() {
@@ -33,15 +34,19 @@ export default function ProductsPage() {
   // any category values actually present on products — bulk CSV imports
   // often introduce categories that were never seeded into the categories
   // table, and we still want them to show up in the filter dropdown.
+  // The products read is paginated because Supabase's server-side max_rows
+  // (default 1000) silently truncates large catalogues otherwise.
   useEffect(() => {
     (async () => {
-      const [{ data: catRows }, { data: prodCats }] = await Promise.all([
+      const [{ data: catRows }, prodCats] = await Promise.all([
         db.from("categories").select("name").eq("active", true).order("sort_order"),
-        db.from("products").select("category").eq("discontinued", false).limit(100000),
+        fetchAllPaged<{ category: string | null }>(() =>
+          db.from("products").select("category").eq("discontinued", false)
+        ),
       ]);
       const ordered = ((catRows as { name: string }[]) || []).map((c) => c.name);
       const fromProducts = new Set<string>();
-      ((prodCats as { category: string | null }[]) || []).forEach((r) => {
+      prodCats.forEach((r) => {
         const c = (r.category || "").trim();
         if (c) fromProducts.add(c);
       });
@@ -55,21 +60,27 @@ export default function ProductsPage() {
 
   const fetchProducts = useCallback(async () => {
     setLoading(true);
-    let query = db
-      .from("products")
-      .select("*")
-      .eq("discontinued", false)
-      .order("inventory_id", { ascending: true })
-      // Raise the default 1000-row PostgREST cap so operators with 1000+
-      // SKUs (Devine Bakes runs ~1380) see every product.
-      .limit(100000);
 
-    if (categoryFilter) query = query.eq("category", categoryFilter);
-    if (search) query = query.ilike("name", `%${search}%`);
-
-    const { data, error } = await query;
-    if (error) console.error("Error fetching products:", error);
-    else setProducts(data || []);
+    // Paginate via .range() so we get every product regardless of Supabase's
+    // server-side max_rows ceiling (default 1000). Operators like Devine
+    // Bakes carry ~1380 SKUs; a simple .limit() is silently truncated at the
+    // server when max_rows is set.
+    try {
+      const all = await fetchAllPaged<Product>(() => {
+        let q = db
+          .from("products")
+          .select("*")
+          .eq("discontinued", false)
+          .order("inventory_id", { ascending: true });
+        if (categoryFilter) q = q.eq("category", categoryFilter);
+        if (search) q = q.ilike("name", `%${search}%`);
+        return q;
+      });
+      setProducts(all);
+    } catch (e) {
+      console.error("Error fetching products:", e);
+      setProducts([]);
+    }
 
     // Fetch per-location stock for the current location so the table shows
     // accurate stock for this shop. If the query succeeds we treat missing
@@ -77,21 +88,22 @@ export default function ProductsPage() {
     // If the query errors (e.g. migration 024 not yet run, product_stock
     // table does not exist), we fall back to the legacy products.opening_stock.
     if (currentLocationId) {
-      const { data: stockRows, error: stockErr } = await db
-        .from("product_stock")
-        .select("product_id, quantity")
-        .eq("location_id", currentLocationId)
-        .limit(100000);
-      if (stockErr) {
-        setPerLocationLoaded(false);
-        setStockByProduct({});
-      } else {
+      try {
+        const stockRows = await fetchAllPaged<{ product_id: string; quantity: number }>(() =>
+          db
+            .from("product_stock")
+            .select("product_id, quantity")
+            .eq("location_id", currentLocationId)
+        );
         const map: Record<string, number> = {};
-        ((stockRows as { product_id: string; quantity: number }[]) || []).forEach((r) => {
+        stockRows.forEach((r) => {
           map[r.product_id] = r.quantity;
         });
         setStockByProduct(map);
         setPerLocationLoaded(true);
+      } catch {
+        setPerLocationLoaded(false);
+        setStockByProduct({});
       }
     } else {
       setPerLocationLoaded(false);
@@ -131,16 +143,39 @@ export default function ProductsPage() {
   }
 
   async function handleExport() {
-    // Export the currently filtered / searched product list as CSV with the
-    // per-location current stock attached. The format mirrors what the CSV
-    // Import accepts, so round-trip editing in Excel/Sheets is clean.
-    const [{ data: stock }, { data: locs }] = await Promise.all([
-      db.from("product_stock").select("product_id, location_id, quantity").limit(500000),
+    // Export the full product list (subject to current search / category filter)
+    // as CSV with per-location current stock attached. The format mirrors what
+    // CSV Import accepts, so round-trip editing in Excel/Sheets is clean.
+    //
+    // Every Supabase read here is paginated via .range() to bypass the
+    // server-side max_rows ceiling (default 1000). Without this, Devine
+    // Bakes' 1380 SKUs were truncated to 999 rows on export.
+    //
+    // We also re-fetch products inside the export — never trust the page's
+    // products state alone — so if the user clicked Export before the
+    // background fetchProducts had finished, the CSV is still complete.
+    const [exportProducts, stock, { data: locs }] = await Promise.all([
+      fetchAllPaged<Product>(() => {
+        let q = db
+          .from("products")
+          .select("*")
+          .eq("discontinued", false)
+          .order("inventory_id", { ascending: true });
+        if (categoryFilter) q = q.eq("category", categoryFilter);
+        if (search) q = q.ilike("name", `%${search}%`);
+        return q;
+      }),
+      fetchAllPaged<{ product_id: string; location_id: string; quantity: number }>(() =>
+        db.from("product_stock").select("product_id, location_id, quantity")
+      ),
       db.from("locations").select("id, name").eq("active", true).order("sort_order"),
     ]);
-    const locNameById = new Map<string, string>(((locs || []) as { id: string; name: string }[]).map((l) => [l.id, l.name]));
+
+    const locNameById = new Map<string, string>(
+      ((locs || []) as { id: string; name: string }[]).map((l) => [l.id, l.name])
+    );
     const stockByPid = new Map<string, { location_id: string; quantity: number }[]>();
-    ((stock || []) as { product_id: string; location_id: string; quantity: number }[]).forEach((s) => {
+    stock.forEach((s) => {
       const arr = stockByPid.get(s.product_id) ?? [];
       arr.push({ location_id: s.location_id, quantity: s.quantity });
       stockByPid.set(s.product_id, arr);
@@ -148,7 +183,7 @@ export default function ProductsPage() {
 
     const header = "Inventory ID,Name,Category,Location,Current Stock,Reorder Level,Cost / Pack,Qty In Pack,Selling Price";
     const lines: string[] = [];
-    products.forEach((p) => {
+    exportProducts.forEach((p) => {
       const rows = stockByPid.get(p.id) ?? [];
       if (rows.length === 0) {
         lines.push(`${p.inventory_id},"${escapeCsv(p.name)}","${escapeCsv(p.category || "")}","(org-wide)",${p.opening_stock},${p.reorder_level},${p.package_price || 0},${p.qty_in_pack || 0},${p.selling_price}`);
@@ -318,14 +353,17 @@ export default function ProductsPage() {
         onClose={() => setShowCategories(false)}
         onChanged={async () => {
           await fetchProducts();
-          // Reload the categories list too
-          const [{ data: catRows }, { data: prodCats }] = await Promise.all([
+          // Reload the categories list too — paginated so categories that
+          // appear only on products beyond row 1000 still show up.
+          const [{ data: catRows }, prodCats] = await Promise.all([
             db.from("categories").select("name").eq("active", true).order("sort_order"),
-            db.from("products").select("category").eq("discontinued", false).limit(100000),
+            fetchAllPaged<{ category: string | null }>(() =>
+              db.from("products").select("category").eq("discontinued", false)
+            ),
           ]);
           const ordered = ((catRows as { name: string }[]) || []).map((c) => c.name);
           const fromProducts = new Set<string>();
-          ((prodCats as { category: string | null }[]) || []).forEach((r) => {
+          prodCats.forEach((r) => {
             const c = (r.category || "").trim();
             if (c) fromProducts.add(c);
           });
@@ -366,13 +404,15 @@ function ManageCategoriesModal({
 
   const refresh = useCallback(async () => {
     setLoading(true);
-    const [{ data: catRows }, { data: prodCats }] = await Promise.all([
+    const [{ data: catRows }, prodCats] = await Promise.all([
       db.from("categories").select("name").eq("active", true).order("sort_order"),
-      db.from("products").select("category").eq("discontinued", false).limit(100000),
+      fetchAllPaged<{ category: string | null }>(() =>
+        db.from("products").select("category").eq("discontinued", false)
+      ),
     ]);
     const tableNames = new Set<string>(((catRows as { name: string }[]) || []).map((c) => c.name));
     const counts = new Map<string, number>();
-    ((prodCats as { category: string | null }[]) || []).forEach((r) => {
+    prodCats.forEach((r) => {
       const c = (r.category || "").trim();
       if (c) counts.set(c, (counts.get(c) || 0) + 1);
     });

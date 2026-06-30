@@ -9,6 +9,7 @@
 import { useEffect, useState, useCallback, useRef } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -110,13 +111,20 @@ export default function StockTransfersPage() {
       setStockMap(new Map());
       return;
     }
-    const [{ data: prods }, { data: stock }] = await Promise.all([
-      db.from("products").select("id, name, inventory_id, selling_price").eq("discontinued", false).order("name"),
-      db.from("product_stock").select("product_id, quantity").eq("location_id", fromLocId),
+    // Paginate via .range() — Supabase server-side max_rows (default 1000)
+    // would otherwise truncate large catalogues. Operators with 1300+ SKUs
+    // (Devine Bakes) need every product to appear in the transfer picker.
+    const [prods, stock] = await Promise.all([
+      fetchAllPaged<Product>(() =>
+        db.from("products").select("id, name, inventory_id, selling_price").eq("discontinued", false).order("name")
+      ),
+      fetchAllPaged<{ product_id: string; quantity: number }>(() =>
+        db.from("product_stock").select("product_id, quantity").eq("location_id", fromLocId)
+      ),
     ]);
-    setProducts((prods as Product[]) || []);
+    setProducts(prods);
     const sm = new Map<string, number>();
-    ((stock as { product_id: string; quantity: number }[]) || []).forEach((s) => sm.set(s.product_id, Number(s.quantity) || 0));
+    stock.forEach((s) => sm.set(s.product_id, Number(s.quantity) || 0));
     setStockMap(sm);
   }, [fromLocId]);
 

@@ -13,6 +13,7 @@ import {
   type QueuedOp,
 } from "@/lib/offline-store";
 import { replayOp } from "@/lib/offline-ops";
+import { fetchAllPaged } from "@/lib/fetch-all";
 
 const CACHE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 const MAX_RETRIES_BEFORE_PARK = 8;
@@ -28,21 +29,31 @@ let inFlight = false;
 export async function refreshCache(orgId: string): Promise<void> {
   if (!navigator.onLine) return;
 
-  const [products, paymentMethods, customers, locations, settings, productStock] = await Promise.all([
-    db.from("products").select("*").eq("discontinued", false).order("name"),
+  // Products, customers, and product_stock can all exceed Supabase's
+  // server-side max_rows ceiling (default 1000), so they're paginated via
+  // .range(). Without this, offline POS at large operators would silently
+  // miss every SKU past the first 1000.
+  const [products, productStock, customers, { data: paymentMethods }, { data: locations }, { data: settings }] = await Promise.all([
+    fetchAllPaged<Record<string, unknown>>(() =>
+      db.from("products").select("*").eq("discontinued", false).order("name")
+    ),
+    fetchAllPaged<Record<string, unknown>>(() =>
+      db.from("product_stock").select("*")
+    ),
+    fetchAllPaged<Record<string, unknown>>(() =>
+      db.from("customers").select("*")
+    ),
     db.from("payment_methods").select("*").eq("active", true).order("sort_order"),
-    db.from("customers").select("*"),
     db.from("locations").select("*").eq("active", true).order("sort_order"),
     db.from("app_settings").select("*"),
-    db.from("product_stock").select("*"),
   ]);
 
-  if (products.data) saveCache(orgId, "products", products.data);
-  if (paymentMethods.data) saveCache(orgId, "payment_methods", paymentMethods.data);
-  if (customers.data) saveCache(orgId, "customers", customers.data);
-  if (locations.data) saveCache(orgId, "locations", locations.data);
-  if (settings.data) saveCache(orgId, "app_settings", settings.data);
-  if (productStock.data) saveCache(orgId, "product_stock", productStock.data);
+  saveCache(orgId, "products", products);
+  saveCache(orgId, "product_stock", productStock);
+  saveCache(orgId, "customers", customers);
+  if (paymentMethods) saveCache(orgId, "payment_methods", paymentMethods);
+  if (locations) saveCache(orgId, "locations", locations);
+  if (settings) saveCache(orgId, "app_settings", settings);
 }
 
 /**

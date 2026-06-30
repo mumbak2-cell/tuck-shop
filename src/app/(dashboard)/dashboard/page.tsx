@@ -19,6 +19,7 @@ import {
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket } from "@/lib/payment-buckets";
+import { fetchAllPaged } from "@/lib/fetch-all";
 
 interface DashboardData {
   totalProducts: number;
@@ -400,23 +401,28 @@ async function downloadDailySalesReport(date: string) {
   downloadCSV(`daily_sales_${date}.csv`, header, rows);
 }
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type ProductRow = any;
+
 async function downloadStockReport() {
-  const [{ data: products }, { data: stock }, { data: locs }] = await Promise.all([
-    db.from("products")
-      .select("id, inventory_id, name, category, opening_stock, reorder_level, selling_price, package_price, qty_in_pack")
-      .eq("discontinued", false)
-      .order("inventory_id")
-      .limit(100000),
-    db.from("product_stock")
-      .select("product_id, location_id, quantity")
-      .limit(500000),
+  // Paginate via .range() — Supabase's server-side max_rows ceiling (default
+  // 1000) silently truncates large catalogues otherwise. Stock report MUST
+  // include every SKU regardless of total count.
+  const [products, stockRows, { data: locs }] = await Promise.all([
+    fetchAllPaged<ProductRow>(() =>
+      db.from("products")
+        .select("id, inventory_id, name, category, opening_stock, reorder_level, selling_price, package_price, qty_in_pack")
+        .eq("discontinued", false)
+        .order("inventory_id")
+    ),
+    fetchAllPaged<{ product_id: string; location_id: string; quantity: number }>(() =>
+      db.from("product_stock").select("product_id, location_id, quantity")
+    ),
     db.from("locations").select("id, name").eq("active", true).order("sort_order"),
   ]);
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const productMap = new Map<string, any>();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((products || []) as any[]).forEach((p: any) => productMap.set(p.id, p));
+  const productMap = new Map<string, ProductRow>();
+  products.forEach((p) => productMap.set(p.id, p));
   const locNameById = new Map<string, string>(
     ((locs || []) as { id: string; name: string }[]).map((l) => [l.id, l.name])
   );
@@ -426,7 +432,6 @@ async function downloadStockReport() {
   // One row per (product × location) where stock exists. Products with no
   // product_stock rows at all fall back to a single org-wide row using
   // products.opening_stock so the export never silently drops a SKU.
-  const stockRows = (stock || []) as { product_id: string; location_id: string; quantity: number }[];
   const productsWithStock = new Set(stockRows.map((s) => s.product_id));
   const lines: string[] = [];
 
@@ -437,8 +442,7 @@ async function downloadStockReport() {
       `${p.inventory_id},\"${p.name}\",\"${p.category || ""}\",\"${locNameById.get(s.location_id) || "—"}\",${s.quantity},${p.reorder_level},${p.selling_price},${p.package_price || 0},${p.qty_in_pack || 0}`
     );
   });
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  ((products || []) as any[]).forEach((p: any) => {
+  products.forEach((p) => {
     if (productsWithStock.has(p.id)) return;
     lines.push(
       `${p.inventory_id},\"${p.name}\",\"${p.category || ""}\",\"(org-wide)\",${p.opening_stock},${p.reorder_level},${p.selling_price},${p.package_price || 0},${p.qty_in_pack || 0}`

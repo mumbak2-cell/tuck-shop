@@ -6,6 +6,7 @@ import { formatZAR } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -56,24 +57,27 @@ export default function StockCountPage() {
     }
     setLoading(true);
 
-    // Get active products. PostgREST defaults to 1000 rows so we raise the
-    // cap explicitly — bakery-supply operators like Devine Bakes carry
+    // Get active products. PostgREST's server-side max_rows ceiling
+    // (default 1000) silently truncates large catalogues, so we paginate
+    // via .range() — bakery-supply operators like Devine Bakes carry
     // 1300+ SKUs and need every one of them on the count screen.
-    const { data: products } = await db
-      .from("products")
-      .select("*")
-      .eq("discontinued", false)
-      .order("category")
-      .order("name")
-      .limit(100000);
+    const products = await fetchAllPaged<Product>(() =>
+      db
+        .from("products")
+        .select("*")
+        .eq("discontinued", false)
+        .order("category")
+        .order("name")
+    );
 
-    const { data: stockRows } = await db
-      .from("product_stock")
-      .select("product_id, quantity")
-      .eq("location_id", currentLocationId)
-      .limit(100000);
+    const stockRows = await fetchAllPaged<{ product_id: string; quantity: number }>(() =>
+      db
+        .from("product_stock")
+        .select("product_id, quantity")
+        .eq("location_id", currentLocationId)
+    );
     const expectedMap = new Map<string, number>();
-    ((stockRows || []) as { product_id: string; quantity: number }[]).forEach((r) => {
+    stockRows.forEach((r) => {
       expectedMap.set(r.product_id, Number(r.quantity) || 0);
     });
 

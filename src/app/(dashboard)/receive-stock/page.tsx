@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { formatZAR, formatDate } from "@/lib/format";
 import { PackagePlus, Plus, Trash2, Search, Save, History } from "lucide-react";
@@ -49,12 +50,17 @@ export default function ReceiveStockPage() {
   }, []);
 
   async function loadData() {
-    const [{ data: prods }, { data: ings }, { data: hist }] = await Promise.all([
-      db.from("products").select("*").eq("discontinued", false).order("name"),
+    // Paginate products via .range() — Supabase max_rows (default 1000)
+    // would otherwise truncate large catalogues. Ingredients tables stay
+    // small so a plain query is fine there.
+    const [prods, { data: ings }, { data: hist }] = await Promise.all([
+      fetchAllPaged<Product>(() =>
+        db.from("products").select("*").eq("discontinued", false).order("name")
+      ),
       db.from("ingredients").select("*").order("name"),
       db.from("stock_receipts").select("*").order("created_at", { ascending: false }).limit(20),
     ]);
-    setProducts(prods || []);
+    setProducts(prods);
     setIngredients(ings || []);
     setHistory(hist || []);
   }
