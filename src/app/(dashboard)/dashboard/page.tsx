@@ -15,6 +15,7 @@ import {
   Download,
   FileSpreadsheet,
   Receipt,
+  TrendingUp,
 } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
@@ -34,6 +35,7 @@ interface DashboardData {
   totalCustomers: number;
   creditOutstanding: number;
   recentSales: { id: string; product_name: string; quantity: number; total_amount: number; payment_method: string; created_at: string }[];
+  topSellers: { name: string; qty: number; revenue: number }[];
   monthlyExpenses: number;
   monthlyOperating: number;
   monthlyDirectorW: number;
@@ -62,20 +64,23 @@ export default function DashboardPage() {
     let salesQ = db.from("sales").select("total_amount, payment_method").eq("sale_date", today).eq("voided", false);
     let customersQ = db.from("customers").select("balance");
     let recentQ = db.from("sales").select("id, quantity, total_amount, payment_method, created_at, products(name)").eq("sale_date", today).eq("voided", false).order("created_at", { ascending: false }).limit(10);
+    let topSellersQ = db.from("sales").select("quantity, total_amount, products(name)").eq("sale_date", today).eq("voided", false);
     let expensesQ = db.from("expenses").select("category, amount").gte("expense_date", monthStart).lte("expense_date", today);
 
     if (isFiltered) {
       salesQ = salesQ.eq("location_id", effectiveLoc);
       customersQ = customersQ.eq("location_id", effectiveLoc);
       recentQ = recentQ.eq("location_id", effectiveLoc);
+      topSellersQ = topSellersQ.eq("location_id", effectiveLoc);
       expensesQ = expensesQ.eq("location_id", effectiveLoc);
     }
 
-    const [productsRes, salesRes, customersRes, recentRes, expensesRes] = await Promise.all([
+    const [productsRes, salesRes, customersRes, recentRes, topSellersRes, expensesRes] = await Promise.all([
       db.from("products").select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued").eq("discontinued", false),
       salesQ,
       customersQ,
       recentQ,
+      topSellersQ,
       expensesQ,
     ]);
 
@@ -98,6 +103,19 @@ export default function DashboardPage() {
       else if (bucket === "credit") credit += amt;
       else card += amt;
     });
+
+    // Aggregate top sellers by product name
+    const topSellersRaw = (topSellersRes.data || []) as { quantity: number; total_amount: number; products: { name: string } | null }[];
+    const sellerMap = new Map<string, { qty: number; revenue: number }>();
+    topSellersRaw.forEach((s) => {
+      const name = s.products?.name || "Unknown";
+      const prev = sellerMap.get(name) || { qty: 0, revenue: 0 };
+      sellerMap.set(name, { qty: prev.qty + s.quantity, revenue: prev.revenue + Number(s.total_amount) });
+    });
+    const topSellers = Array.from(sellerMap.entries())
+      .map(([name, v]) => ({ name, qty: v.qty, revenue: v.revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+      .slice(0, 10);
 
     // Process expenses
     const expensesData: any[] = expensesRes.data || [];
@@ -132,6 +150,7 @@ export default function DashboardPage() {
         payment_method: r.payment_method,
         created_at: r.created_at,
       })),
+      topSellers,
       monthlyExpenses: monthlyOperating + monthlyDirectorW,
       monthlyOperating,
       monthlyDirectorW,
@@ -184,6 +203,34 @@ export default function DashboardPage() {
                 <span>Total</span>
                 <span>{formatZAR(data.todaySales)}</span>
               </div>
+            </div>
+          )}
+        </div>
+
+        {/* Top 10 selling items */}
+        <div className="bg-white rounded-xl border border-gray-200 p-5">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="font-semibold text-gray-900 flex items-center gap-2">
+              <TrendingUp className="w-4 h-4 text-green-600" />
+              Top Sellers Today
+            </h2>
+          </div>
+          {data.topSellers.length === 0 ? (
+            <p className="text-sm text-gray-400 py-4 text-center">No sales today yet.</p>
+          ) : (
+            <div className="space-y-2">
+              {data.topSellers.map((item, i) => (
+                <div key={item.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
+                  <div className="flex items-center gap-2 flex-1 min-w-0">
+                    <span className={`text-xs font-bold w-5 text-center ${i < 3 ? "text-green-600" : "text-gray-400"}`}>{i + 1}</span>
+                    <span className="text-sm text-gray-900 truncate">{item.name}</span>
+                  </div>
+                  <div className="flex items-center gap-3 text-sm shrink-0">
+                    <span className="text-gray-500">{item.qty} sold</span>
+                    <span className="font-semibold text-gray-900 w-20 text-right">{formatZAR(item.revenue)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
