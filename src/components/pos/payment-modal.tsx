@@ -76,6 +76,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
+  // --- WhatsApp receipt state ---
+  const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
+
   useEffect(() => {
     if (open) {
       setSelectedMethodId(null);
@@ -90,7 +94,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setShowWhatsAppInput(false);
       setWhatsAppPhone("");
 
-      // Pre-compute cached copies so we can fall back instantly when offline.
       const cachedMethods = orgId
         ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
             .filter((m) => (m as PaymentMethodRow & { active?: boolean }).active !== false)
@@ -102,8 +105,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
             .sort((a, b) => a.name.localeCompare(b.name))
         : [];
 
-      // Offline path — Supabase calls hang indefinitely when offline rather
-      // than rejecting, so don't even try the network. Use the cache directly.
       if (!navigator.onLine) {
         setMethods(cachedMethods);
         setCustomers(cachedCustomers);
@@ -111,8 +112,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         return;
       }
 
-      // Race the live query against a short timeout so a stalled connection
-      // doesn't leave the cashier staring at "Loading..." for ever.
       const methodsRequest = db
         .from("payment_methods")
         .select("id, name, kind, sort_order")
@@ -134,7 +133,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         setMethodsLoaded(true);
       });
 
-      // Customers — same pattern.
       let customerQuery = db.from("customers").select("*").order("name");
       if (currentLocationId) customerQuery = customerQuery.eq("location_id", currentLocationId);
       const customerTimeout = new Promise<{ data: null }>((resolve) => {
@@ -182,17 +180,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     if (!el) return;
     const printWindow = window.open("", "_blank", "width=350,height=600");
     if (!printWindow) return;
-    printWindow.document.write(`
-      <!DOCTYPE html>
-      <html><head><title>Receipt</title>
-      <style>
-        body { margin: 0; padding: 0; }
-        @page { size: 80mm auto; margin: 0; }
-      </style>
-      </head><body>${el.innerHTML}</body></html>
-    `);
+    printWindow.document.write(
+      "<!DOCTYPE html><html><head><title>Receipt</title>" +
+      "<style>body{margin:0;padding:0}@page{size:80mm auto;margin:0}</style>" +
+      "</head><body>" + el.innerHTML + "</body></html>"
+    );
     printWindow.document.close();
-    // Small delay lets styles render before the print dialog opens.
     setTimeout(() => {
       printWindow.print();
       printWindow.close();
@@ -205,10 +198,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setError("Please select a customer for credit sale.");
       return;
     }
-    if (selectedKind === "mobile_money" && !paymentReference.trim()) {
-      setError("Please enter the mobile money transaction reference.");
-      return;
-    }
     if (!orgId || !currentLocationId) {
       setError("Shop not loaded yet. Try again in a moment.");
       return;
@@ -217,10 +206,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     setProcessing(true);
     setError("");
 
-    // Use the idempotent batch RPC. Client-generated UUIDs make the call
-    // safely retriable, so if we are offline (or the network blips mid-call)
-    // the operation lands in the queue and the cashier sees the same
-    // "sale complete" outcome — Tilify replays it on reconnect.
     const result = await submitSaleBatch({
       org_id: orgId,
       location_id: currentLocationId,
@@ -251,75 +236,159 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     setSuccess(true);
   }
 
-  // --- Auto-close timer: closes after 3s unless cashier interacts ---
-  const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [countdown, setCountdown] = useState(3);
-
-  useEffect(() => {
-    if (!success) return;
-    setCountdown(3);
-    const tick = setInterval(() => setCountdown((c) => c - 1), 1000);
-    autoCloseRef.current = setTimeout(() => onComplete(), 3000);
-    return () => {
-      clearInterval(tick);
-      if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
-    };
-  }, [success, onComplete]);
-
-  function cancelAutoClose() {
-    if (autoCloseRef.current) {
-      clearTimeout(autoCloseRef.current);
-      autoCloseRef.current = null;
-    }
-    setCountdown(-1); // signals timer is cancelled
-  }
-
-  // --- WhatsApp receipt (available for all sales, not just credit) ---
-  const [whatsAppPhone, setWhatsAppPhone] = useState("");
-  const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
-
+  /** Generate a receipt-sized PNG, download it, then open WhatsApp so the
+   *  user can attach the file. Works with WhatsApp for Windows / mobile. */
   function sendWhatsAppReceipt(phone?: string) {
     const customer = selectedKind === "credit"
       ? customers.find((c) => c.id === selectedCustomer)
       : null;
 
-    // Determine phone: credit customer's phone, or manually entered
     const rawPhone = phone || customer?.phone;
     if (!rawPhone) {
-      // Show phone input if no number available
-      cancelAutoClose();
       setShowWhatsAppInput(true);
       return;
     }
 
-    const today = new Date().toLocaleDateString("en-ZA");
-    let msg = selectedKind === "credit"
-      ? `*Credit Invoice*\nDate: ${today}\nCustomer: ${customer?.name ?? ""}\n\n`
-      : `*Receipt*\nDate: ${today}\n\n`;
+    generateReceiptImage().then((blob) => {
+      if (!blob) return;
 
-    items.forEach((item) => {
-      msg += `• ${item.name} ×${item.quantity} @ ${formatMoney(item.unitPrice)} = ${formatMoney(item.unitPrice * item.quantity)}\n`;
+      // Download the receipt image
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "receipt-" + Date.now() + ".png";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      // Open WhatsApp chat so user can attach the downloaded receipt
+      const cleanPhone = rawPhone.replace(/[^0-9]/g, "");
+      const intlPhone = cleanPhone.startsWith("0") ? "27" + cleanPhone.slice(1) : cleanPhone;
+      const shortMsg = "Please find your receipt attached.";
+      setTimeout(() => {
+        window.open("https://wa.me/" + intlPhone + "?text=" + encodeURIComponent(shortMsg), "_blank");
+      }, 500);
     });
-    msg += `\n*Total: ${formatMoney(total)}*\n`;
+  }
 
-    if (selectedKind === "credit" && customer) {
-      msg += `*Balance Owed: ${formatMoney((customer.balance || 0) + total)}*\n`;
-    }
-    if (selectedMethod) {
-      msg += `Paid by: ${selectedMethod.name}\n`;
-    }
+  /** Generate a receipt image matching thermal-print dimensions using Canvas. */
+  function generateReceiptImage(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      const loc = (currentLocationId && orgState.locations)
+        ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
+        : null;
+      const shopName = orgState.orgName ?? "Shop";
+      const locName = loc?.name ?? "";
+      const locAddr = loc?.address ?? "";
+      const locTel = loc?.phone ?? "";
+      const now = new Date();
+      const dateStr = now.toLocaleDateString("en-ZA", { year: "numeric", month: "short", day: "numeric" });
+      const timeStr = now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+      const customer = selectedKind === "credit"
+        ? customers.find((c) => c.id === selectedCustomer)
+        : null;
 
-    // Optional online payment link
-    db.from("app_settings").select("value").eq("key", "ikhokha_link").single()
-      .then(({ data }: { data: { value: string } | null }) => {
-        if (data?.value) {
-          msg += `\nPay online: ${data.value}\n`;
-        }
-        msg += `\nThank you for your purchase!`;
-        const cleanPhone = rawPhone.replace(/[^0-9]/g, "");
-        const intlPhone = cleanPhone.startsWith("0") ? "27" + cleanPhone.slice(1) : cleanPhone;
-        window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+      const CW = 302;
+      const FSM = "11px 'Courier New', monospace";
+      const FLG = "14px 'Courier New', monospace";
+      const FTL = "bold 16px 'Courier New', monospace";
+      const PD = 16;
+      const LH = 16;
+
+      let lc = 0;
+      lc += 4;
+      lc += 2;
+      lc += 2;
+      lc += items.length * 2;
+      lc += 3;
+      lc += 2;
+      if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) lc += 2;
+      if (customer) lc += 1;
+      lc += 4;
+
+      const CH = PD * 2 + lc * LH + 20;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = CW;
+      canvas.height = CH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(null); return; }
+
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, CW, CH);
+
+      let y = PD;
+      const mw = CW - PD * 2;
+
+      function center(text: string, font: string) {
+        ctx!.font = font;
+        ctx!.fillStyle = "#000";
+        ctx!.textAlign = "center";
+        ctx!.fillText(text, CW / 2, y, mw);
+        y += LH;
+      }
+      function row(left: string, right: string, font: string) {
+        ctx!.font = font;
+        ctx!.fillStyle = "#000";
+        ctx!.textAlign = "left";
+        ctx!.fillText(left, PD, y, mw - 80);
+        ctx!.textAlign = "right";
+        ctx!.fillText(right, CW - PD, y, 80);
+        y += LH;
+      }
+      function dash() {
+        ctx!.font = FSM;
+        ctx!.fillStyle = "#000";
+        ctx!.textAlign = "center";
+        ctx!.fillText("- ".repeat(20), CW / 2, y, mw);
+        y += LH;
+      }
+
+      center(shopName, FTL);
+      center(locName, FSM);
+      if (locAddr) center(locAddr, FSM);
+      if (locTel) center("Tel: " + locTel, FSM);
+
+      dash();
+      row(dateStr, timeStr, FSM);
+      dash();
+
+      row("Item", "Amount", FSM);
+      y += 4;
+      items.forEach((item) => {
+        ctx!.font = FSM;
+        ctx!.fillStyle = "#000";
+        ctx!.textAlign = "left";
+        ctx!.fillText(item.name, PD, y, mw);
+        y += LH;
+        row("  " + item.quantity + " x " + formatMoney(item.unitPrice), formatMoney(item.unitPrice * item.quantity), FSM);
       });
+
+      dash();
+
+      row("TOTAL", formatMoney(total), FLG);
+      ctx!.font = "bold " + FLG;
+
+      y += 4;
+      if (selectedMethod) {
+        row("Payment:", selectedMethod.name, FSM);
+      }
+      if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) {
+        row("Tendered:", formatMoney(parseFloat(cashTendered)), FSM);
+        row("Change:", formatMoney(parseFloat(cashTendered) - total), FSM);
+      }
+      if (customer) {
+        row("Customer:", customer.name, FSM);
+      }
+
+      dash();
+
+      center("Thank you for your purchase!", FSM);
+      y += 4;
+      ctx!.fillStyle = "#888";
+      center("Powered by Tilify", FSM);
+
+      canvas.toBlob((blob) => resolve(blob), "image/png");
+    });
   }
 
   // Resolve customer for display in success screen
@@ -344,7 +413,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
             <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
               <CloudOff className="w-4 h-4 text-amber-700" />
               <span className="text-xs text-amber-900">
-                Queued — will sync when you&apos;re back online
+                Queued &mdash; will sync when you&apos;re back online
               </span>
             </div>
           )}
@@ -360,16 +429,15 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
           {/* Action buttons */}
           <div className="flex flex-col gap-2 mt-6 w-full max-w-xs">
-            <Button onClick={() => { cancelAutoClose(); handlePrintReceipt(); }} variant="secondary" className="w-full">
+            <Button onClick={handlePrintReceipt} variant="secondary" className="w-full">
               <Printer className="w-4 h-4 mr-2" />
               Print Receipt
             </Button>
-            <Button onClick={() => { cancelAutoClose(); sendWhatsAppReceipt(creditCustomer?.phone ?? undefined); }} variant="secondary" className="w-full">
+            <Button onClick={() => sendWhatsAppReceipt(creditCustomer?.phone ?? undefined)} variant="secondary" className="w-full">
               <MessageCircle className="w-4 h-4 mr-2" />
               WhatsApp Receipt
             </Button>
 
-            {/* WhatsApp phone input (shown when no customer phone on file) */}
             {showWhatsAppInput && (
               <div className="flex gap-2">
                 <input
@@ -392,12 +460,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
             )}
 
             <Button onClick={onComplete} className="w-full">
-              {countdown > 0 ? `Done (${countdown})` : "Done"}
+              Done
             </Button>
           </div>
         </div>
 
-        {/* Hidden receipt for printing */}
         {receiptData && (
           <div style={{ position: "absolute", left: "-9999px", top: 0 }}>
             <div ref={receiptRef} className="receipt-print-container">
@@ -412,14 +479,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   return (
     <Modal open={open} onClose={onClose} title="Payment" wide>
       <div className="space-y-6">
-        {/* Total */}
         <div className="text-center py-4 bg-gray-50 rounded-xl">
           <p className="text-sm text-gray-500">Amount Due</p>
           <p className="text-3xl font-bold text-gray-900">{formatMoney(total)}</p>
           <p className="text-xs text-gray-400 mt-1">{items.length} item(s)</p>
         </div>
 
-        {/* Offline ribbon: still let the cashier complete the sale (it queues) */}
         {!online && methods.length > 0 && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs flex items-center gap-2">
             <CloudOff className="w-4 h-4 text-amber-600 flex-shrink-0" />
@@ -429,7 +494,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         )}
 
-        {/* Payment method selection */}
         <div>
           <p className="text-sm font-medium text-gray-700 mb-3">Select payment method</p>
           {!methodsLoaded ? (
@@ -464,7 +528,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           )}
         </div>
 
-        {/* Cash tendered + change */}
         {selectedKind === "cash" && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Cash tendered</p>
@@ -475,7 +538,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
               min="0"
               value={cashTendered}
               onChange={(e) => setCashTendered(e.target.value)}
-              placeholder={`Min ${formatMoney(total)}`}
+              placeholder={"Min " + formatMoney(total)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-lg font-semibold text-center focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
             {cashTendered && parseFloat(cashTendered) >= total && (
@@ -492,27 +555,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         )}
 
-
-        {/* Mobile money transaction reference */}
-        {selectedKind === "mobile_money" && (
-          <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">
-              Transaction reference from {selectedMethod?.name}
-            </p>
-            <input
-              type="text"
-              value={paymentReference}
-              onChange={(e) => setPaymentReference(e.target.value)}
-              placeholder="e.g. confirmation code or SMS reference"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Captured for reconciliation. Will appear on Sales reports.
-            </p>
-          </div>
-        )}
-
-        {/* Card or EFT reference (optional) */}
         {(selectedKind === "card" || selectedKind === "eft") && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">
@@ -528,7 +570,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         )}
 
-        {/* Credit customer selector */}
         {selectedKind === "credit" && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">Select customer</p>
@@ -564,7 +605,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           size="lg"
           className="w-full text-base py-4"
         >
-          Complete Sale — {formatMoney(total)}
+          {"Complete Sale — " + formatMoney(total)}
         </Button>
       </div>
     </Modal>

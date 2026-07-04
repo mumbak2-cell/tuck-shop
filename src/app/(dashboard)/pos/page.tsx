@@ -12,12 +12,16 @@ import { readCache } from "@/lib/offline-store";
 import { Play } from "lucide-react";
 import Link from "next/link";
 
+/** product_id → discount percent for currently active promotions */
+type DiscountMap = Map<string, number>;
+
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
   const { requiresShift, currentLocationId, orgId } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
+  const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -90,11 +94,53 @@ export default function POSPage() {
     setProducts(filtered.length > 0 ? filtered : fromCache());
   }, [currentLocationId, orgId]);
 
+  // Fetch active promotions → build product discount map
+  const fetchPromotions = useCallback(async () => {
+    if (!orgId) return;
+    try {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: promos } = await db
+        .from("promotions")
+        .select("id, discount_percent")
+        .eq("org_id", orgId)
+        .eq("active", true)
+        .lte("start_date", today)
+        .gte("end_date", today);
+      if (!promos || promos.length === 0) { setDiscountMap(new Map()); return; }
+      const promoIds = promos.map((p: { id: string }) => p.id);
+      const { data: items } = await db
+        .from("promotion_items")
+        .select("product_id, promotion_id")
+        .in("promotion_id", promoIds);
+      const discountByPromo = new Map<string, number>();
+      for (const p of promos as { id: string; discount_percent: number }[]) {
+        discountByPromo.set(p.id, p.discount_percent);
+      }
+      const map: DiscountMap = new Map();
+      for (const it of (items ?? []) as { product_id: string; promotion_id: string }[]) {
+        const pct = discountByPromo.get(it.promotion_id) ?? 0;
+        // If a product is in multiple promotions, apply the highest discount
+        const existing = map.get(it.product_id) ?? 0;
+        if (pct > existing) map.set(it.product_id, pct);
+      }
+      setDiscountMap(map);
+    } catch {
+      // promotions table may not exist yet — silently ignore
+      setDiscountMap(new Map());
+    }
+  }, [orgId]);
+
   useEffect(() => {
     fetchProducts();
-  }, [fetchProducts]);
+    fetchPromotions();
+  }, [fetchProducts, fetchPromotions]);
 
   function addToCart(product: Product) {
+    const discountPct = discountMap.get(product.id) ?? 0;
+    const effectivePrice = discountPct > 0
+      ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
+      : product.selling_price;
+
     setCart((prev) => {
       const existing = prev.find((i) => i.productId === product.id);
       if (existing) {
@@ -107,7 +153,7 @@ export default function POSPage() {
         {
           productId: product.id,
           name: product.name,
-          unitPrice: product.selling_price,
+          unitPrice: effectivePrice,
           quantity: 1,
         },
       ];
@@ -135,7 +181,8 @@ export default function POSPage() {
   function handleSaleComplete() {
     setShowPayment(false);
     setCart([]);
-    fetchProducts(); // Refresh stock levels
+    fetchProducts();
+    fetchPromotions();
   }
 
   const total = cart.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
@@ -169,7 +216,7 @@ export default function POSPage() {
       {/* Left: Product grid */}
       <div className="flex-1 min-w-0">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
-        <ProductGrid products={products} onAddToCart={addToCart} />
+        <ProductGrid products={products} onAddToCart={addToCart} discountMap={discountMap} />
       </div>
 
       {/* Right: Cart */}

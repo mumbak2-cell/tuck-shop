@@ -18,6 +18,7 @@ import { Search, X, LayoutGrid } from "lucide-react";
 interface Props {
   products: Product[];
   onAddToCart: (product: Product) => void;
+  discountMap?: Map<string, number>;
 }
 
 interface CategoryRow {
@@ -27,7 +28,7 @@ interface CategoryRow {
 
 const ALL_TAB = "__all__";
 
-export function ProductGrid({ products, onAddToCart }: Props) {
+export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
@@ -165,23 +166,46 @@ export function ProductGrid({ products, onAddToCart }: Props) {
           ) : (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
-                {renderList.map((product) => (
-                  <button
-                    key={product.id}
-                    onClick={() => onAddToCart(product)}
-                    className="flex flex-col items-center justify-center p-3 bg-white border border-gray-200 rounded-xl hover:border-green-400 hover:shadow-md active:scale-95 transition-all min-h-[90px] touch-manipulation"
-                  >
-                    <span className="text-xs font-medium text-gray-900 text-center leading-tight line-clamp-2">
-                      {product.name}
-                    </span>
-                    <span className="text-base font-bold text-green-700 mt-1.5">
-                      {formatMoney(product.selling_price)}
-                    </span>
-                    {product.is_prepared && (
-                      <span className="text-[10px] text-blue-600 mt-0.5">Prepared</span>
-                    )}
-                  </button>
-                ))}
+                {renderList.map((product) => {
+                  const discountPct = discountMap?.get(product.id) ?? 0;
+                  const hasDiscount = discountPct > 0;
+                  const salePrice = hasDiscount
+                    ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
+                    : product.selling_price;
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => onAddToCart(product)}
+                      className={`flex flex-col items-center justify-center p-3 border rounded-xl hover:shadow-md active:scale-95 transition-all min-h-[90px] touch-manipulation ${
+                        hasDiscount
+                          ? "bg-red-50 border-red-200 hover:border-red-400"
+                          : "bg-white border-gray-200 hover:border-green-400"
+                      }`}
+                    >
+                      <span className="text-xs font-medium text-gray-900 text-center leading-tight line-clamp-2">
+                        {product.name}
+                      </span>
+                      {hasDiscount ? (
+                        <div className="flex flex-col items-center mt-1">
+                          <span className="text-[10px] line-through text-gray-400">
+                            {formatMoney(product.selling_price)}
+                          </span>
+                          <span className="text-base font-bold text-red-600">
+                            {formatMoney(salePrice)}
+                          </span>
+                          <span className="text-[10px] font-semibold text-red-500">-{discountPct}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-base font-bold text-green-700 mt-1.5">
+                          {formatMoney(product.selling_price)}
+                        </span>
+                      )}
+                      {product.is_prepared && (
+                        <span className="text-[10px] text-blue-600 mt-0.5">Prepared</span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
               {cappedHidden > 0 && (
                 <p className="text-center text-xs text-gray-400 mt-3">

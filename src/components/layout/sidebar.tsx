@@ -27,6 +27,7 @@ import {
   ClipboardCheck,
   FileText,
   ArrowRightLeft,
+  Percent,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -60,6 +61,7 @@ const navItems: NavItem[] = [
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin"] },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"] },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"] },
+  { href: "/promotions", label: "Promotions", icon: Percent, roles: ["admin"], retailOnly: true },
   { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"], retailOnly: true },
   { href: "/stockpilot-import", label: "StockPilot Import", icon: TruckIcon, roles: ["admin"], retailOnly: true },
   { href: "/locations", label: "Locations", icon: Store, roles: ["admin"] },
