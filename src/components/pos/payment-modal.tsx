@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { formatMoney } from "@/lib/format";
@@ -20,7 +20,9 @@ import {
   Building2,
   CircleDollarSign,
   CloudOff,
+  Printer,
 } from "lucide-react";
+import { Receipt, ReceiptData } from "./receipt";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
@@ -58,7 +60,8 @@ const KIND_COLOR: Record<PaymentKind, string> = {
 };
 
 export function PaymentModal({ open, onClose, items, total, onComplete }: Props) {
-  const { currentLocationId, orgId } = useOrg();
+  const orgState = useOrg();
+  const { currentLocationId, orgId } = orgState;
   const online = useOnline();
   const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
   const [methodsLoaded, setMethodsLoaded] = useState(false);
@@ -84,6 +87,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setMethodsLoaded(false);
       setMethodsError(false);
       setQueuedToast(false);
+      setShowWhatsAppInput(false);
+      setWhatsAppPhone("");
 
       // Pre-compute cached copies so we can fall back instantly when offline.
       const cachedMethods = orgId
@@ -142,8 +147,57 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     }
   }, [open, currentLocationId, orgId]);
 
+  const receiptRef = useRef<HTMLDivElement>(null);
+
   const selectedMethod = methods.find((m) => m.id === selectedMethodId) || null;
   const selectedKind = selectedMethod?.kind ?? null;
+
+  const buildReceiptData = useCallback((): ReceiptData | null => {
+    const loc = (currentLocationId && orgState.locations)
+      ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
+      : null;
+    if (!selectedMethod) return null;
+    const tendered = cashTendered ? parseFloat(cashTendered) : null;
+    const customer = selectedKind === "credit"
+      ? customers.find((c) => c.id === selectedCustomer)
+      : null;
+    return {
+      orgName: orgState.orgName ?? "Shop",
+      locationName: loc?.name ?? "",
+      locationAddress: loc?.address,
+      locationPhone: loc?.phone,
+      items,
+      total,
+      paymentMethod: selectedMethod.name,
+      cashTendered: tendered,
+      change: tendered != null && tendered > total ? tendered - total : null,
+      paymentReference: paymentReference || null,
+      customerName: customer?.name ?? null,
+      saleDate: new Date(),
+    };
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference]);
+
+  function handlePrintReceipt() {
+    const el = receiptRef.current;
+    if (!el) return;
+    const printWindow = window.open("", "_blank", "width=350,height=600");
+    if (!printWindow) return;
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html><head><title>Receipt</title>
+      <style>
+        body { margin: 0; padding: 0; }
+        @page { size: 80mm auto; margin: 0; }
+      </style>
+      </head><body>${el.innerHTML}</body></html>
+    `);
+    printWindow.document.close();
+    // Small delay lets styles render before the print dialog opens.
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
+  }
 
   async function handlePay() {
     if (!selectedMethod) return;
@@ -195,22 +249,65 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     }
 
     setSuccess(true);
-    setTimeout(() => {
-      onComplete();
-    }, result.queued ? 2000 : 1500);
   }
 
-  function sendWhatsAppInvoice() {
-    const customer = customers.find((c) => c.id === selectedCustomer);
-    if (!customer || !customer.phone) return;
+  // --- Auto-close timer: closes after 3s unless cashier interacts ---
+  const autoCloseRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [countdown, setCountdown] = useState(3);
+
+  useEffect(() => {
+    if (!success) return;
+    setCountdown(3);
+    const tick = setInterval(() => setCountdown((c) => c - 1), 1000);
+    autoCloseRef.current = setTimeout(() => onComplete(), 3000);
+    return () => {
+      clearInterval(tick);
+      if (autoCloseRef.current) clearTimeout(autoCloseRef.current);
+    };
+  }, [success, onComplete]);
+
+  function cancelAutoClose() {
+    if (autoCloseRef.current) {
+      clearTimeout(autoCloseRef.current);
+      autoCloseRef.current = null;
+    }
+    setCountdown(-1); // signals timer is cancelled
+  }
+
+  // --- WhatsApp receipt (available for all sales, not just credit) ---
+  const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
+
+  function sendWhatsAppReceipt(phone?: string) {
+    const customer = selectedKind === "credit"
+      ? customers.find((c) => c.id === selectedCustomer)
+      : null;
+
+    // Determine phone: credit customer's phone, or manually entered
+    const rawPhone = phone || customer?.phone;
+    if (!rawPhone) {
+      // Show phone input if no number available
+      cancelAutoClose();
+      setShowWhatsAppInput(true);
+      return;
+    }
 
     const today = new Date().toLocaleDateString("en-ZA");
-    let msg = `*Credit Invoice*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
+    let msg = selectedKind === "credit"
+      ? `*Credit Invoice*\nDate: ${today}\nCustomer: ${customer?.name ?? ""}\n\n`
+      : `*Receipt*\nDate: ${today}\n\n`;
+
     items.forEach((item) => {
       msg += `• ${item.name} ×${item.quantity} @ ${formatMoney(item.unitPrice)} = ${formatMoney(item.unitPrice * item.quantity)}\n`;
     });
     msg += `\n*Total: ${formatMoney(total)}*\n`;
-    msg += `*Balance Owed: ${formatMoney((customer.balance || 0) + total)}*\n`;
+
+    if (selectedKind === "credit" && customer) {
+      msg += `*Balance Owed: ${formatMoney((customer.balance || 0) + total)}*\n`;
+    }
+    if (selectedMethod) {
+      msg += `Paid by: ${selectedMethod.name}\n`;
+    }
 
     // Optional online payment link
     db.from("app_settings").select("value").eq("key", "ikhokha_link").single()
@@ -218,16 +315,23 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         if (data?.value) {
           msg += `\nPay online: ${data.value}\n`;
         }
-        msg += `\nThank you for your business!`;
-        const phone = customer.phone!.replace(/[^0-9]/g, "");
-        const intlPhone = phone.startsWith("0") ? "27" + phone.slice(1) : phone;
+        msg += `\nThank you for your purchase!`;
+        const cleanPhone = rawPhone.replace(/[^0-9]/g, "");
+        const intlPhone = cleanPhone.startsWith("0") ? "27" + cleanPhone.slice(1) : cleanPhone;
         window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
       });
   }
 
+  // Resolve customer for display in success screen
+  const creditCustomer = useMemo(
+    () => selectedKind === "credit" ? customers.find((c) => c.id === selectedCustomer) : null,
+    [selectedKind, customers, selectedCustomer]
+  );
+
   if (success) {
+    const receiptData = buildReceiptData();
     return (
-      <Modal open={open} onClose={onClose} title="Sale Complete">
+      <Modal open={open} onClose={onComplete} title="Sale Complete">
         <div className="flex flex-col items-center py-8">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
             <Check className="w-8 h-8 text-green-600" />
@@ -253,13 +357,54 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           {paymentReference && (
             <p className="text-xs text-gray-500 mt-3">Ref: {paymentReference}</p>
           )}
-          {selectedKind === "credit" && selectedCustomer && (
-            <Button onClick={sendWhatsAppInvoice} variant="secondary" className="mt-4">
-              <MessageCircle className="w-4 h-4 mr-2" />
-              WhatsApp Invoice
+
+          {/* Action buttons */}
+          <div className="flex flex-col gap-2 mt-6 w-full max-w-xs">
+            <Button onClick={() => { cancelAutoClose(); handlePrintReceipt(); }} variant="secondary" className="w-full">
+              <Printer className="w-4 h-4 mr-2" />
+              Print Receipt
             </Button>
-          )}
+            <Button onClick={() => { cancelAutoClose(); sendWhatsAppReceipt(creditCustomer?.phone ?? undefined); }} variant="secondary" className="w-full">
+              <MessageCircle className="w-4 h-4 mr-2" />
+              WhatsApp Receipt
+            </Button>
+
+            {/* WhatsApp phone input (shown when no customer phone on file) */}
+            {showWhatsAppInput && (
+              <div className="flex gap-2">
+                <input
+                  type="tel"
+                  inputMode="tel"
+                  value={whatsAppPhone}
+                  onChange={(e) => setWhatsAppPhone(e.target.value)}
+                  placeholder="Phone number"
+                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  autoFocus
+                />
+                <Button
+                  onClick={() => whatsAppPhone.trim() && sendWhatsAppReceipt(whatsAppPhone.trim())}
+                  disabled={!whatsAppPhone.trim()}
+                  size="sm"
+                >
+                  Send
+                </Button>
+              </div>
+            )}
+
+            <Button onClick={onComplete} className="w-full">
+              {countdown > 0 ? `Done (${countdown})` : "Done"}
+            </Button>
+          </div>
         </div>
+
+        {/* Hidden receipt for printing */}
+        {receiptData && (
+          <div style={{ position: "absolute", left: "-9999px", top: 0 }}>
+            <div ref={receiptRef} className="receipt-print-container">
+              <Receipt data={receiptData} />
+            </div>
+          </div>
+        )}
       </Modal>
     );
   }
@@ -346,6 +491,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
             )}
           </div>
         )}
+
 
         {/* Mobile money transaction reference */}
         {selectedKind === "mobile_money" && (
