@@ -16,6 +16,8 @@ export interface ReceiptData {
   paymentReference?: string | null;
   customerName?: string | null;
   saleDate: Date;
+  tpin?: string | null;
+  vatPercent?: number | null;
 }
 
 /** Print-optimised receipt. Rendered off-screen, printed via window.print(). */
@@ -34,6 +36,8 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
       paymentReference,
       customerName,
       saleDate,
+      tpin,
+      vatPercent,
     } = data;
 
     const dateStr = saleDate.toLocaleDateString("en-ZA", {
@@ -97,6 +101,7 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
           <p>{locationName}</p>
           {locationAddress && <p>{locationAddress}</p>}
           {locationPhone && <p>Tel: {locationPhone}</p>}
+          {tpin && <p>TPIN: {tpin}</p>}
         </div>
 
         <hr className="receipt-divider" />
@@ -135,11 +140,23 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
 
         <hr className="receipt-divider" />
 
-        {/* Total */}
+        {/* Total + VAT breakdown */}
         <div className="receipt-total-row">
           <span>TOTAL</span>
           <span>{formatMoney(total)}</span>
         </div>
+        {vatPercent != null && vatPercent > 0 && (
+          <div className="receipt-payment" style={{ marginTop: 0 }}>
+            <div>
+              <span>Excl. VAT:</span>
+              <span>{formatMoney(total / (1 + vatPercent / 100))}</span>
+            </div>
+            <div>
+              <span>VAT ({vatPercent}%):</span>
+              <span>{formatMoney(total - total / (1 + vatPercent / 100))}</span>
+            </div>
+          </div>
+        )}
 
         {/* Payment details */}
         <div className="receipt-payment">

@@ -45,6 +45,9 @@ export interface OrgState {
   // Default per_location. Behavior is identical under the hood; this
   // setting is a UX hint for stock screens.
   stockMode: "per_location" | "central";
+  // Tax fields (displayed on receipts)
+  tpin: string | null;
+  vatPercent: number | null;
   // WMS module (parallel warehouse-system integration)
   wmsEnabled: boolean;
   wmsOnly: boolean;
@@ -117,6 +120,8 @@ const DEFAULT_STATE: OrgState = {
   requiresShift: false,
   requiresStockCountToClose: false,
   stockMode: "per_location",
+  tpin: null,
+  vatPercent: null,
   wmsEnabled: false,
   wmsOnly: false,
   locations: [],
@@ -189,7 +194,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // Pull the user's org membership and the org row (RLS scoped automatically).
     const { data: membership } = await db
       .from("org_members")
-      .select("org_id, role, assigned_location_id, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end)")
+      .select("org_id, role, assigned_location_id, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end, tpin, vat_percent)")
       .eq("user_id", session.user.id)
       .limit(1)
       .maybeSingle();
@@ -271,6 +276,8 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       requiresShift: settingsMap.requires_shift === "true",
       requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
       stockMode: settingsMap.stock_mode === "central" ? "central" : "per_location",
+      tpin: org?.tpin ?? null,
+      vatPercent: org?.vat_percent != null ? Number(org.vat_percent) : null,
       wmsEnabled: settingsMap.wms_enabled === "true",
       wmsOnly: settingsMap.wms_only === "true",
       locations,

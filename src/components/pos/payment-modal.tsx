@@ -172,6 +172,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       paymentReference: paymentReference || null,
       customerName: customer?.name ?? null,
       saleDate: new Date(),
+      tpin: orgState.tpin,
+      vatPercent: orgState.vatPercent,
     };
   }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference]);
 
@@ -280,6 +282,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const locName = loc?.name ?? "";
       const locAddr = loc?.address ?? "";
       const locTel = loc?.phone ?? "";
+      const tpin = orgState.tpin ?? "";
+      const vatPct = orgState.vatPercent;
       const now = new Date();
       const dateStr = now.toLocaleDateString("en-ZA", { year: "numeric", month: "short", day: "numeric" });
       const timeStr = now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
@@ -296,10 +300,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
       let lc = 0;
       lc += 4;
+      if (tpin) lc += 1;
       lc += 2;
       lc += 2;
       lc += items.length * 2;
       lc += 3;
+      if (vatPct != null && vatPct > 0) lc += 2;
       lc += 2;
       if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) lc += 2;
       if (customer) lc += 1;
@@ -347,6 +353,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       center(locName, FSM);
       if (locAddr) center(locAddr, FSM);
       if (locTel) center("Tel: " + locTel, FSM);
+      if (tpin) center("TPIN: " + tpin, FSM);
 
       dash();
       row(dateStr, timeStr, FSM);
@@ -366,7 +373,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       dash();
 
       row("TOTAL", formatMoney(total), FLG);
-      ctx!.font = "bold " + FLG;
+      if (vatPct != null && vatPct > 0) {
+        const exclVat = total / (1 + vatPct / 100);
+        row("Excl. VAT:", formatMoney(exclVat), FSM);
+        row("VAT (" + vatPct + "%):", formatMoney(total - exclVat), FSM);
+      }
 
       y += 4;
       if (selectedMethod) {
