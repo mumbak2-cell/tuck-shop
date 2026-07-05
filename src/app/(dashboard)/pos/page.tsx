@@ -216,15 +216,15 @@ export default function POSPage() {
   }
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-6rem)]">
+    <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-6rem)]">
       {/* Product grid */}
       <div className="flex-1 min-w-0 overflow-y-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
         <ProductGrid products={products} onAddToCart={addToCart} discountMap={discountMap} />
       </div>
 
-      {/* Desktop cart (hidden on mobile) */}
-      <div className="hidden lg:block w-80 flex-shrink-0 lg:w-96">
+      {/* Desktop/tablet cart (hidden on mobile) */}
+      <div className="hidden md:block w-80 flex-shrink-0 md:w-96">
         <Cart
           items={cart}
           onUpdateQty={updateQty}
@@ -238,7 +238,7 @@ export default function POSPage() {
       {cart.length > 0 && !mobileCartOpen && (
         <button
           onClick={() => setMobileCartOpen(true)}
-          className="lg:hidden fixed bottom-4 left-4 right-4 z-30 bg-green-600 text-white rounded-xl py-3 px-4 font-semibold shadow-lg flex items-center justify-between"
+          className="md:hidden fixed bottom-4 left-4 right-4 z-30 bg-green-600 text-white rounded-xl py-3 px-4 font-semibold shadow-lg flex items-center justify-between"
         >
           <span>View Cart ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
           <span>{formatZAR(total)}</span>
@@ -247,7 +247,7 @@ export default function POSPage() {
 
       {/* Mobile slide-up cart panel (H6 fix) */}
       {mobileCartOpen && (
-        <div className="lg:hidden fixed inset-0 z-40 flex flex-col">
+        <div className="md:hidden fixed inset-0 z-40 flex flex-col">
           <div
             className="flex-shrink-0 bg-black/30"
             style={{ height: "15vh" }}
