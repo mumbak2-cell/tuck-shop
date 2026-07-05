@@ -21,7 +21,7 @@ interface FlutterwaveEvent {
     meta?: {
       org_id?: string;
       plan_code?: string;
-      cycle?: "monthly" | "annual";
+      cycle?: "monthly" | "quarterly" | "annual";
     };
   };
 }
@@ -70,6 +70,8 @@ export async function POST(req: Request) {
     const periodEnd = new Date();
     if (cycle === "annual") {
       periodEnd.setFullYear(periodEnd.getFullYear() + 1);
+    } else if (cycle === "quarterly") {
+      periodEnd.setMonth(periodEnd.getMonth() + 3);
     } else {
       periodEnd.setMonth(periodEnd.getMonth() + 1);
     }

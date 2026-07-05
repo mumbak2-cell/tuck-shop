@@ -15,10 +15,14 @@ export interface PlanLimits {
 export interface PlanPrice {
   /** Monthly fee in the given currency, in minor units (cents for ZAR). */
   monthlyMinor: number;
+  /** Quarterly fee (3× monthly, no discount), in minor units. */
+  quarterlyMinor: number;
   /** Annual fee with 2 months free (monthlyMinor * 10), in minor units. */
   annualMinor: number;
   /** Friendly display string of the monthly price. */
   monthlyDisplay: string;
+  /** Friendly display string of the quarterly price. */
+  quarterlyDisplay: string;
   /** Friendly display string of the annual price. */
   annualDisplay: string;
 }
@@ -56,14 +60,18 @@ export const PLANS: Plan[] = [
     prices: {
       ZAR: {
         monthlyMinor: 24900,
+        quarterlyMinor: 74700,
         annualMinor: 249000,
         monthlyDisplay: "R249",
+        quarterlyDisplay: "R747",
         annualDisplay: "R2,490",
       },
       MWK: {
         monthlyMinor: 2400000,
+        quarterlyMinor: 7200000,
         annualMinor: 24000000,
         monthlyDisplay: "MK24,000",
+        quarterlyDisplay: "MK72,000",
         annualDisplay: "MK240,000",
       },
     },
@@ -84,14 +92,18 @@ export const PLANS: Plan[] = [
     prices: {
       ZAR: {
         monthlyMinor: 49900,
+        quarterlyMinor: 149700,
         annualMinor: 499000,
         monthlyDisplay: "R499",
+        quarterlyDisplay: "R1,497",
         annualDisplay: "R4,990",
       },
       MWK: {
         monthlyMinor: 4800000,
+        quarterlyMinor: 14400000,
         annualMinor: 48000000,
         monthlyDisplay: "MK48,000",
+        quarterlyDisplay: "MK144,000",
         annualDisplay: "MK480,000",
       },
     },
@@ -111,14 +123,18 @@ export const PLANS: Plan[] = [
     prices: {
       ZAR: {
         monthlyMinor: 89900,
+        quarterlyMinor: 269700,
         annualMinor: 899000,
         monthlyDisplay: "R899",
+        quarterlyDisplay: "R2,697",
         annualDisplay: "R8,990",
       },
       MWK: {
         monthlyMinor: 8600000,
+        quarterlyMinor: 25800000,
         annualMinor: 86000000,
         monthlyDisplay: "MK86,000",
+        quarterlyDisplay: "MK258,000",
         annualDisplay: "MK860,000",
       },
     },

@@ -12,7 +12,7 @@ interface Props {
   onClose: () => void;
 }
 
-type BillingCycle = "monthly" | "annual";
+type BillingCycle = "monthly" | "quarterly" | "annual";
 
 export function PricingModal({ open, onClose }: Props) {
   const org = useOrg();
@@ -85,6 +85,14 @@ export function PricingModal({ open, onClose }: Props) {
               Monthly
             </button>
             <button
+              onClick={() => setCycle("quarterly")}
+              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                cycle === "quarterly" ? "bg-white shadow text-gray-900" : "text-gray-600"
+              }`}
+            >
+              Quarterly
+            </button>
+            <button
               onClick={() => setCycle("annual")}
               className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
                 cycle === "annual" ? "bg-white shadow text-gray-900" : "text-gray-600"
@@ -102,8 +110,12 @@ export function PricingModal({ open, onClose }: Props) {
             const display = price
               ? cycle === "monthly"
                 ? price.monthlyDisplay
+                : cycle === "quarterly"
+                ? price.quarterlyDisplay
                 : price.annualDisplay
               : null;
+            const periodLabel =
+              cycle === "monthly" ? "month" : cycle === "quarterly" ? "quarter" : "year";
             const isHighlight = plan.highlight === true;
             const isCurrent = org.subscriptionPlan === plan.code && org.subscriptionStatus === "active";
 
@@ -128,7 +140,7 @@ export function PricingModal({ open, onClose }: Props) {
                     <>
                       <span className="text-3xl font-bold text-gray-900">{display}</span>
                       <span className="text-sm text-gray-500 ml-1">
-                        / {cycle === "monthly" ? "month" : "year"}
+                        / {periodLabel}
                       </span>
                     </>
                   )}

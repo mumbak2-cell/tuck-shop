@@ -1,5 +1,5 @@
 // POST /api/billing/initiate
-// Body: { planCode: "starter" | "growth" | "pro", cycle: "monthly" | "annual" }
+// Body: { planCode: "starter" | "growth" | "pro", cycle: "monthly" | "quarterly" | "annual" }
 //
 // All Tilify subscriptions are billed in ZAR via Paystack regardless of the
 // operator's local POS currency. Their products, customers, and reports stay
@@ -15,7 +15,7 @@ export const runtime = "nodejs";
 
 interface InitiateBody {
   planCode: PlanCode;
-  cycle: "monthly" | "annual";
+  cycle: "monthly" | "quarterly" | "annual";
 }
 
 export async function POST(req: Request) {
@@ -27,7 +27,7 @@ export async function POST(req: Request) {
   }
   const { planCode, cycle } = body;
 
-  if (!planCode || (cycle !== "monthly" && cycle !== "annual")) {
+  if (!planCode || !["monthly", "quarterly", "annual"].includes(cycle)) {
     return NextResponse.json({ error: "planCode and cycle are required" }, { status: 400 });
   }
 
@@ -71,7 +71,12 @@ export async function POST(req: Request) {
   if (!price) {
     return NextResponse.json({ error: "Plan price unavailable" }, { status: 500 });
   }
-  const amountMinor = cycle === "monthly" ? price.monthlyMinor : price.annualMinor;
+  const amountMinor =
+    cycle === "monthly"
+      ? price.monthlyMinor
+      : cycle === "quarterly"
+      ? price.quarterlyMinor
+      : price.annualMinor;
 
   const reference = `tilify_${orgId}_${planCode}_${Date.now()}`;
   const callbackBase = (process.env.NEXT_PUBLIC_SITE_URL || new URL(req.url).origin).replace(/\/+$/, "");
