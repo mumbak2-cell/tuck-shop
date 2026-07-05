@@ -106,12 +106,18 @@ BEGIN
 END $$;
 
 -- 4. Fix ZRA tables — replace default_user_org_id() with standard pattern
+--    Skip if ZRA tables don't exist yet (migration 033 not deployed).
 DO $$
 DECLARE
   t TEXT;
   zra_tables TEXT[] := ARRAY['zra_invoices', 'zra_invoice_items'];
 BEGIN
   FOREACH t IN ARRAY zra_tables LOOP
+    -- Skip tables that haven't been created yet
+    IF NOT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_schema = 'public' AND table_name = t) THEN
+      CONTINUE;
+    END IF;
+
     -- Drop all existing policies on the table
     EXECUTE format('DROP POLICY IF EXISTS "%s_select" ON %I', t, t);
     EXECUTE format('DROP POLICY IF EXISTS "%s_all" ON %I', t, t);
