@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useOrg } from "@/lib/org-context";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -105,19 +106,25 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
       csvRows.push(row);
     }
 
-    // Fetch all products
-    const { data: products } = await db
-      .from("products")
-      .select("id, inventory_id, name, category, opening_stock, package_price, qty_in_pack, selling_price");
+    // Fetch all products — use fetchAllPaged to avoid the 1000-row cap
+    // (orgs like Devine Bakes have 1380+ SKUs).
+    const products = await fetchAllPaged<{
+      id: string; inventory_id: string; name: string; category: string;
+      opening_stock: number; package_price: number; qty_in_pack: number; selling_price: number;
+    }>(() =>
+      db.from("products")
+        .select("id, inventory_id, name, category, opening_stock, package_price, qty_in_pack, selling_price")
+        .order("inventory_id")
+    );
 
     const matchResults: MatchResult[] = csvRows.map((csvRow) => {
       // Match by inventory_id first, then fall back to name
       let match = csvRow.inventory_id
-        ? ((products || []) as any[]).find((p: any) => p.inventory_id === csvRow.inventory_id)
+        ? products.find((p) => p.inventory_id === csvRow.inventory_id)
         : null;
       if (!match) {
-        match = ((products || []) as any[]).find(
-          (p: any) => p.name.toLowerCase() === csvRow.name.toLowerCase()
+        match = products.find(
+          (p) => p.name.toLowerCase() === csvRow.name.toLowerCase()
         ) || null;
       }
 
@@ -284,14 +291,18 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
   }
 
   async function downloadTemplate() {
-    const { data: products } = await db
-      .from("products")
-      .select("inventory_id, category, name, opening_stock, package_price, qty_in_pack, selling_price")
-      .eq("discontinued", false)
-      .order("inventory_id");
+    const products = await fetchAllPaged<{
+      inventory_id: string; category: string; name: string;
+      opening_stock: number; package_price: number; qty_in_pack: number; selling_price: number;
+    }>(() =>
+      db.from("products")
+        .select("inventory_id, category, name, opening_stock, package_price, qty_in_pack, selling_price")
+        .eq("discontinued", false)
+        .order("inventory_id")
+    );
 
     const header = "inventory_id,category,name,package_price,qty_in_pack,selling_price,opening_stock";
-    const rows = ((products || []) as any[]).map(
+    const rows = (products as any[]).map(
       (p: any) => `${p.inventory_id},"${p.category}","${p.name}",${p.package_price || 0},${p.qty_in_pack || 0},${p.selling_price},${p.opening_stock}`
     );
     const csv = [header, ...rows].join("\n");
