@@ -167,7 +167,7 @@ export class VsdcError extends Error {
 async function vsdcPost<T>(
   baseUrl: string,
   path: string,
-  body: Record<string, unknown>,
+  body: Record<string, unknown> | object,
 ): Promise<VsdcResponse<T>> {
   const url = `${baseUrl.replace(/\/+$/, "")}${path}`;
 
