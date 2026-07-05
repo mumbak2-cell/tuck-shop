@@ -1,6 +1,6 @@
 "use client";
 import { formatZAR } from "@/lib/format";
-import { Minus, Plus, Trash2, ShoppingCart } from "lucide-react";
+import { Minus, Plus, Trash2, ShoppingCart, AlertTriangle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
 export interface CartItem {
@@ -10,6 +10,8 @@ export interface CartItem {
   quantity: number;
   /** Cost per unit snapshot at add-to-cart time. */
   costPrice: number;
+  /** Available stock at the current location (H8: stock warning, not a block). */
+  availableStock?: number;
 }
 
 interface Props {
@@ -63,6 +65,13 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
                   <p className="text-xs text-gray-500">
                     {formatZAR(item.unitPrice)} each
                   </p>
+                  {/* H8 fix: warn when cart quantity exceeds available stock */}
+                  {item.availableStock != null && item.quantity > item.availableStock && (
+                    <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">
+                      <AlertTriangle className="w-3 h-3" />
+                      Only {item.availableStock} in stock
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-1">
                   <button

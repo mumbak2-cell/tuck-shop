@@ -103,12 +103,16 @@ export async function submitSaleBatch(input: SaleBatchInput): Promise<SaleBatchR
     // fall through to enqueue (network blip while we thought we were online)
   }
 
-  // Offline path: enqueue
-  enqueueOp(input.org_id, {
-    id: sale_ids[0], // batch keyed off the first line's id
-    kind: "submit_sale_batch",
-    payload: args,
-  });
+  // Offline path: enqueue — throws if storage is full (H2 fix)
+  try {
+    enqueueOp(input.org_id, {
+      id: sale_ids[0], // batch keyed off the first line's id
+      kind: "submit_sale_batch",
+      payload: args,
+    });
+  } catch {
+    return { ok: false, queued: false, sale_ids, error: "Device storage is full. This sale was NOT saved. Free up space or go online to continue." };
+  }
   return { ok: true, queued: true, sale_ids };
 }
 
@@ -148,12 +152,16 @@ export async function insertOrQueue<T extends { id?: string }>(
     }
   }
 
-  // Offline path
-  enqueueOp(input.org_id, {
-    id: row.id,
-    kind: input.queueKind,
-    payload: { table: input.table, row },
-  });
+  // Offline path — enqueueOp throws if localStorage is full (H2 fix)
+  try {
+    enqueueOp(input.org_id, {
+      id: row.id,
+      kind: input.queueKind,
+      payload: { table: input.table, row },
+    });
+  } catch {
+    return { ok: false, queued: false, row, error: "Device storage is full. This operation was NOT saved. Free up space or go online to continue." };
+  }
   if (input.cacheKind) upsertIntoCache(input.org_id, input.cacheKind, row);
   return { ok: true, queued: true, row };
 }
@@ -191,11 +199,13 @@ export async function replayOp(op: QueuedOp): Promise<{ ok: boolean; error?: str
         if (existing.data) return { ok: true };
         const insertRes = await db.from(p.table).insert(p.row);
         if (insertRes.error) return { ok: false, error: insertRes.error.message };
-        const cust = await db.from("customers").select("balance").eq("id", p.row.customer_id).maybeSingle();
-        if (cust.data) {
-          const balance = Number((cust.data as { balance: number }).balance) || 0;
-          const newBalance = Math.max(balance - (Number(p.row.amount) || 0), 0);
-          await db.from("customers").update({ balance: newBalance }).eq("id", p.row.customer_id);
+        // Atomic balance decrement — no read-then-write race (H1 fix)
+        const amt = Number(p.row.amount) || 0;
+        if (amt > 0) {
+          await db.rpc("adjust_customer_balance", {
+            p_customer_id: p.row.customer_id,
+            p_delta: -amt,
+          });
         }
         return { ok: true };
       }

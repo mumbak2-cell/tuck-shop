@@ -62,9 +62,8 @@ export async function refreshCache(orgId: string): Promise<void> {
  * MAX_RETRIES_BEFORE_PARK attempts an op is left in place for manual review —
  * we don't loop forever on a permanently broken row.
  */
-export async function flushQueue(orgId: string): Promise<{ sent: number; failed: number }> {
-  if (!navigator.onLine) return { sent: 0, failed: 0 };
-
+/** Internal: drain the queue without managing the inFlight lock. */
+async function drainQueue(orgId: string): Promise<{ sent: number; failed: number }> {
   const queue = readQueue(orgId);
   let sent = 0;
   let failed = 0;
@@ -85,6 +84,25 @@ export async function flushQueue(orgId: string): Promise<{ sent: number; failed:
 }
 
 /**
+ * Drain the queue for the given org. Each op is replayed; success removes it
+ * from the queue, failure increments the attempt count. After
+ * MAX_RETRIES_BEFORE_PARK attempts an op is left in place for manual review —
+ * we don't loop forever on a permanently broken row.
+ *
+ * H3 fix: gated behind the inFlight lock so concurrent calls (e.g. queue-changed
+ * event firing while syncOnce is running) don't double-replay non-idempotent ops.
+ */
+export async function flushQueue(orgId: string): Promise<{ sent: number; failed: number }> {
+  if (!navigator.onLine || inFlight) return { sent: 0, failed: 0 };
+  inFlight = true;
+  try {
+    return await drainQueue(orgId);
+  } finally {
+    inFlight = false;
+  }
+}
+
+/**
  * Run one full sync cycle: refresh the cache, then drain the queue.
  */
 export async function syncOnce(orgId: string): Promise<void> {
@@ -92,7 +110,7 @@ export async function syncOnce(orgId: string): Promise<void> {
   inFlight = true;
   try {
     await refreshCache(orgId);
-    await flushQueue(orgId);
+    await drainQueue(orgId);
   } catch {
     // Don't blow up the loop - we'll try again next tick.
   } finally {

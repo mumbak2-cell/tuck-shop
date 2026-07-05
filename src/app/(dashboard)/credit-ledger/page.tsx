@@ -2,6 +2,8 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { formatZAR, formatDate } from "@/lib/format";
+import { toInternationalPhone } from "@/lib/currency";
+import { useOrg } from "@/lib/org-context";
 import { Badge } from "@/components/ui/badge";
 import { BookOpen, ArrowUpRight, ArrowDownLeft, MessageCircle, Download } from "lucide-react";
 import type { Customer } from "@/types/database";
@@ -29,6 +31,7 @@ interface GroupedLine {
 }
 
 export default function CreditLedgerPage() {
+  const { currency } = useOrg();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -260,8 +263,8 @@ export default function CreditLedgerPage() {
     }
     msg += `\nPlease settle your account at your earliest convenience. Thank you!`;
 
-    const phone = selectedCustomer.phone.replace(/[^0-9]/g, "");
-    const intlPhone = phone.startsWith("0") ? "27" + phone.slice(1) : phone;
+    // H7 fix: derive country code from org currency
+    const intlPhone = toInternationalPhone(selectedCustomer.phone, currency);
     window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
   }
 

@@ -9,6 +9,7 @@ import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { readCache } from "@/lib/offline-store";
+import { formatZAR } from "@/lib/format";
 import { Play } from "lucide-react";
 import Link from "next/link";
 
@@ -21,6 +22,7 @@ export default function POSPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
+  const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
 
   const fetchProducts = useCallback(async () => {
@@ -156,6 +158,7 @@ export default function POSPage() {
           unitPrice: effectivePrice,
           quantity: 1,
           costPrice: product.cost_per_unit ?? 0,
+          availableStock: product.opening_stock ?? undefined, // H8: stock warning
         },
       ];
     });
@@ -213,15 +216,15 @@ export default function POSPage() {
   }
 
   return (
-    <div className="flex gap-4 h-[calc(100vh-6rem)]">
-      {/* Left: Product grid */}
-      <div className="flex-1 min-w-0">
+    <div className="flex flex-col lg:flex-row gap-4 h-[calc(100vh-6rem)]">
+      {/* Product grid */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
         <ProductGrid products={products} onAddToCart={addToCart} discountMap={discountMap} />
       </div>
 
-      {/* Right: Cart */}
-      <div className="w-80 flex-shrink-0 lg:w-96">
+      {/* Desktop cart (hidden on mobile) */}
+      <div className="hidden lg:block w-80 flex-shrink-0 lg:w-96">
         <Cart
           items={cart}
           onUpdateQty={updateQty}
@@ -230,6 +233,48 @@ export default function POSPage() {
           onCheckout={() => setShowPayment(true)}
         />
       </div>
+
+      {/* Mobile cart toggle (H6 fix) */}
+      {cart.length > 0 && !mobileCartOpen && (
+        <button
+          onClick={() => setMobileCartOpen(true)}
+          className="lg:hidden fixed bottom-4 left-4 right-4 z-30 bg-green-600 text-white rounded-xl py-3 px-4 font-semibold shadow-lg flex items-center justify-between"
+        >
+          <span>View Cart ({cart.reduce((s, i) => s + i.quantity, 0)} items)</span>
+          <span>{formatZAR(total)}</span>
+        </button>
+      )}
+
+      {/* Mobile slide-up cart panel (H6 fix) */}
+      {mobileCartOpen && (
+        <div className="lg:hidden fixed inset-0 z-40 flex flex-col">
+          <div
+            className="flex-shrink-0 bg-black/30"
+            style={{ height: "15vh" }}
+            onClick={() => setMobileCartOpen(false)}
+          />
+          <div className="flex-1 bg-white rounded-t-2xl shadow-xl overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 px-4 py-3 flex items-center justify-between">
+              <h2 className="font-semibold text-gray-900">Cart</h2>
+              <button
+                onClick={() => setMobileCartOpen(false)}
+                className="text-sm text-green-600 font-medium"
+              >
+                Done
+              </button>
+            </div>
+            <div className="p-4">
+              <Cart
+                items={cart}
+                onUpdateQty={updateQty}
+                onRemove={removeItem}
+                onClear={clearCart}
+                onCheckout={() => { setMobileCartOpen(false); setShowPayment(true); }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Payment modal */}
       <PaymentModal

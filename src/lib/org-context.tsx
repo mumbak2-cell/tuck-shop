@@ -48,6 +48,8 @@ export interface OrgState {
   // Tax fields (displayed on receipts)
   tpin: string | null;
   vatPercent: number | null;
+  // Currency code (ISO 4217, e.g. "ZAR", "ZMW") — used for phone country code derivation
+  currency: string | null;
   // WMS module (parallel warehouse-system integration)
   wmsEnabled: boolean;
   wmsOnly: boolean;
@@ -122,6 +124,7 @@ const DEFAULT_STATE: OrgState = {
   stockMode: "per_location",
   tpin: null,
   vatPercent: null,
+  currency: null,
   wmsEnabled: false,
   wmsOnly: false,
   locations: [],
@@ -231,6 +234,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         "stock_mode",
         "wms_enabled",
         "wms_only",
+        "currency",
       ]);
 
     const settingsMap: Record<string, string> = {};
@@ -278,6 +282,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       stockMode: settingsMap.stock_mode === "central" ? "central" : "per_location",
       tpin: org?.tpin ?? null,
       vatPercent: org?.vat_percent != null ? Number(org.vat_percent) : null,
+      currency: settingsMap.currency ?? null,
       wmsEnabled: settingsMap.wms_enabled === "true",
       wmsOnly: settingsMap.wms_only === "true",
       locations,

@@ -182,20 +182,12 @@ export default function SalesPage() {
           .eq("id", voidTarget.product_id);
       }
 
-      // 3. If it was a credit sale, reduce customer balance
+      // 3. If it was a credit sale, reduce customer balance (atomic — H1 fix)
       if (voidTarget.payment_method === "credit" && voidTarget.customer_id) {
-        const { data: cust } = await db
-          .from("customers")
-          .select("balance")
-          .eq("id", voidTarget.customer_id)
-          .single();
-
-        if (cust) {
-          await db
-            .from("customers")
-            .update({ balance: Math.max((cust.balance || 0) - voidTarget.total_amount, 0) })
-            .eq("id", voidTarget.customer_id);
-        }
+        await db.rpc("adjust_customer_balance", {
+          p_customer_id: voidTarget.customer_id,
+          p_delta: -voidTarget.total_amount,
+        });
       }
 
       setVoidTarget(null);

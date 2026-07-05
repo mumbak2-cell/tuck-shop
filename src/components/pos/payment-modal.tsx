@@ -8,6 +8,7 @@ import { useOrg } from "@/lib/org-context";
 import { useOnline } from "@/lib/use-online";
 import { readCache } from "@/lib/offline-store";
 import { submitSaleBatch } from "@/lib/offline-ops";
+import { toInternationalPhone } from "@/lib/currency";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -324,9 +325,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       a.click();
       URL.revokeObjectURL(url);
 
-      // Open WhatsApp chat so user can attach the downloaded receipt
-      const cleanPhone = rawPhone.replace(/[^0-9]/g, "");
-      const intlPhone = cleanPhone.startsWith("0") ? "27" + cleanPhone.slice(1) : cleanPhone;
+      // Open WhatsApp chat so user can attach the downloaded receipt (H7 fix: derive country code)
+      const intlPhone = toInternationalPhone(rawPhone, orgState.currency);
       const shortMsg = "Please find your receipt attached.";
       setTimeout(() => {
         window.open("https://wa.me/" + intlPhone + "?text=" + encodeURIComponent(shortMsg), "_blank");

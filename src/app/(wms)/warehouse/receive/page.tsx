@@ -114,63 +114,21 @@ export default function WmsReceiveStockPage() {
     setSuccess(false);
 
     try {
-      const totalCost = lines.reduce(
-        (sum: number, l: ReceiptLine) => sum + l.packs * l.packSize * l.unitCost,
-        0
-      );
+      // H5 fix: single atomic RPC replaces the multi-step client-side flow.
+      // Header insert, line items, and inventory updates all happen in one
+      // database transaction — partial failure can no longer leave mismatched
+      // header vs actual stock.
+      const { error: rpcErr } = await db.rpc("receive_wms_stock", {
+        p_supplier: supplier.trim(),
+        p_notes: notes.trim(),
+        p_recorded_by: userName || null,
+        p_wms_item_ids: lines.map((l: ReceiptLine) => l.wmsItemId),
+        p_packs: lines.map((l: ReceiptLine) => l.packs),
+        p_pack_sizes: lines.map((l: ReceiptLine) => l.packSize),
+        p_unit_costs: lines.map((l: ReceiptLine) => l.unitCost),
+      });
 
-      // 1. Create receipt header
-      const { data: receipt, error: recErr } = await db
-        .from("wms_receipts")
-        .insert({
-          receipt_date: new Date().toISOString().split("T")[0],
-          supplier: supplier.trim() || null,
-          notes: notes.trim() || null,
-          total_cost: totalCost,
-          recorded_by: userName || null,
-        })
-        .select("id")
-        .single();
-
-      if (recErr) throw recErr;
-      const receiptId = (receipt as any).id;
-
-      // 2. Insert receipt line items
-      const lineInserts = lines.map((l: ReceiptLine) => ({
-        receipt_id: receiptId,
-        wms_item_id: l.wmsItemId,
-        packs: l.packs,
-        pack_size: l.packSize,
-        total_units: l.packs * l.packSize,
-        unit_cost: l.unitCost,
-        line_total: l.packs * l.packSize * l.unitCost,
-      }));
-
-      const { error: lineErr } = await db
-        .from("wms_receipt_items")
-        .insert(lineInserts);
-
-      if (lineErr) throw lineErr;
-
-      // 3. Update WMS inventory quantities
-      for (const l of lines) {
-        const totalUnits = l.packs * l.packSize;
-        const { data: inv } = await db
-          .from("wms_inventory")
-          .select("physical_qty")
-          .eq("wms_item_id", l.wmsItemId)
-          .single();
-
-        const currentQty = (inv as any)?.physical_qty ?? 0;
-
-        await db
-          .from("wms_inventory")
-          .update({
-            physical_qty: currentQty + totalUnits,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("wms_item_id", l.wmsItemId);
-      }
+      if (rpcErr) throw rpcErr;
 
       setSuccess(true);
       setLines([]);

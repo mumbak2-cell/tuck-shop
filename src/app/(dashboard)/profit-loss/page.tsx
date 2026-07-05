@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
 import { FileBarChart } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
@@ -59,18 +60,20 @@ export default function ProfitLossPage() {
     setLoading(true);
     const { from, to } = getDateRange();
 
-    // 1. Revenue by payment method
-    let salesQ = db
-      .from("sales")
-      .select("payment_method, total_amount, quantity, product_id, cost_price")
-      .gte("sale_date", from)
-      .lte("sale_date", to)
-      .eq("voided", false);
-    if (isFiltered) salesQ = salesQ.eq("location_id", effectiveLoc);
-    const { data: sales } = await salesQ;
+    // 1. Revenue by payment method (H10 fix: use fetchAllPaged to avoid 1000-row cap)
+    const sales = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("sales")
+        .select("payment_method, total_amount, quantity, product_id, cost_price")
+        .gte("sale_date", from)
+        .lte("sale_date", to)
+        .eq("voided", false);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    });
 
     let cash = 0, card = 0, credit = 0;
-    ((sales || []) as any[]).forEach((s: any) => {
+    (sales as any[]).forEach((s: any) => {
       const amt = Number(s.total_amount) || 0;
       const bucket = paymentBucket(s.payment_method);
       if (bucket === "cash") cash += amt;
@@ -83,24 +86,26 @@ export default function ProfitLossPage() {
 
     // 2. COGS: use snapshot cost_price recorded at time of sale
     let totalCogs = 0;
-    ((sales || []) as any[]).forEach((s: any) => {
+    (sales as any[]).forEach((s: any) => {
       const cost = Number(s.cost_price) || 0;
       totalCogs += cost * s.quantity;
     });
     setCogs(totalCogs);
 
-    // 3. Expenses
-    let expQ = db
-      .from("expenses")
-      .select("category, amount")
-      .gte("expense_date", from)
-      .lte("expense_date", to);
-    if (isFiltered) expQ = expQ.eq("location_id", effectiveLoc);
-    const { data: expenses } = await expQ;
+    // 3. Expenses (H10 fix: fetchAllPaged)
+    const expenses = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("expenses")
+        .select("category, amount")
+        .gte("expense_date", from)
+        .lte("expense_date", to);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    });
 
     let opex = 0, dirW = 0;
     const catTotals: Record<string, number> = {};
-    ((expenses || []) as any[]).forEach((e: any) => {
+    (expenses as any[]).forEach((e: any) => {
       if (e.category === "Director Withdrawal") {
         dirW += e.amount;
       } else {

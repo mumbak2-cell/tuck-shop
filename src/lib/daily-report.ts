@@ -3,6 +3,7 @@
 // produces a small structured summary and an HTML email body.
 
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { fetchAllPaged } from "@/lib/fetch-all";
 
 export interface LocationSummary {
   locationId: string;
@@ -79,13 +80,14 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
   const locations = (locRows as Array<{ id: string; name: string }>) || [];
   if (locations.length === 0) return null;
 
-  // Yesterday's sales for this org
-  const { data: salesRows } = await supabase
-    .from("sales")
-    .select("location_id, total_amount, payment_method, product_id, quantity")
-    .eq("org_id", orgId)
-    .eq("sale_date", date);
-  const sales = salesRows || [];
+  // Yesterday's sales for this org (H10 fix: fetchAllPaged to avoid 1000-row cap)
+  const sales = await fetchAllPaged<any>(() =>
+    supabase
+      .from("sales")
+      .select("location_id, total_amount, payment_method, product_id, quantity")
+      .eq("org_id", orgId)
+      .eq("sale_date", date)
+  );
 
   // Lookup product names for the top-products list
   const productIds = Array.from(new Set(sales.map((s: { product_id?: string }) => s.product_id).filter(Boolean))) as string[];
@@ -100,13 +102,14 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
     });
   }
 
-  // Yesterday's expenses
-  const { data: expRows } = await supabase
-    .from("expenses")
-    .select("location_id, amount")
-    .eq("org_id", orgId)
-    .eq("expense_date", date);
-  const expenses = expRows || [];
+  // Yesterday's expenses (H10 fix: fetchAllPaged)
+  const expenses = await fetchAllPaged<any>(() =>
+    supabase
+      .from("expenses")
+      .select("location_id, amount")
+      .eq("org_id", orgId)
+      .eq("expense_date", date)
+  );
 
   // Yesterday's stock adjustments (count only losses, i.e. direction='decrease')
   const { data: adjRows } = await supabase
@@ -324,12 +327,15 @@ export async function buildDailyItemsCsv(orgId: string, isoDate?: string): Promi
   const supabase = getSupabaseAdmin();
   const date = isoDate ?? yesterdayDate();
 
-  const { data: salesRows } = await supabase
-    .from("sales")
-    .select("id, created_at, location_id, product_id, quantity, unit_price, total_amount, payment_method, customer_id")
-    .eq("org_id", orgId)
-    .eq("sale_date", date)
-    .order("created_at", { ascending: true });
+  // H10 fix: fetchAllPaged to avoid 1000-row cap on busy days
+  const salesRows = await fetchAllPaged<any>(() =>
+    supabase
+      .from("sales")
+      .select("id, created_at, location_id, product_id, quantity, unit_price, total_amount, payment_method, customer_id")
+      .eq("org_id", orgId)
+      .eq("sale_date", date)
+      .order("created_at", { ascending: true })
+  );
 
   const sales = (salesRows as any[]) || [];
   if (sales.length === 0) return null;

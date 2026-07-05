@@ -121,16 +121,19 @@ export function readQueue(orgId: string): QueuedOp[] {
 }
 
 function writeQueue(orgId: string, ops: QueuedOp[]): void {
-  try {
-    localStorage.setItem(queueKey(orgId), JSON.stringify(ops));
-    // Notify any same-tab subscribers so the badge updates immediately.
-    window.dispatchEvent(new CustomEvent("tilify:queue-changed", { detail: { orgId, count: ops.length } }));
-  } catch {
-    // Storage quota exceeded — caller should handle (probably show a hard error,
-    // since we'd be losing data otherwise).
-  }
+  // H2 fix: throw on storage failure instead of swallowing it.
+  // Callers (enqueueOp) propagate this to the UI so the cashier
+  // knows the operation was NOT saved.
+  localStorage.setItem(queueKey(orgId), JSON.stringify(ops));
+  // Notify any same-tab subscribers so the badge updates immediately.
+  window.dispatchEvent(new CustomEvent("tilify:queue-changed", { detail: { orgId, count: ops.length } }));
 }
 
+/**
+ * Enqueue an operation for offline replay.
+ * Throws if localStorage is full — callers MUST catch and show an error toast
+ * so the cashier knows the operation was NOT saved (H2 fix).
+ */
 export function enqueueOp(orgId: string, op: Omit<QueuedOp, "enqueued_at" | "attempts">): QueuedOp {
   const queued: QueuedOp = {
     ...op,
@@ -139,20 +142,29 @@ export function enqueueOp(orgId: string, op: Omit<QueuedOp, "enqueued_at" | "att
   };
   const current = readQueue(orgId);
   current.push(queued);
-  writeQueue(orgId, current);
+  writeQueue(orgId, current); // throws on quota exceeded
   return queued;
 }
 
 export function markOpDone(orgId: string, opId: string): void {
-  writeQueue(orgId, readQueue(orgId).filter((o) => o.id !== opId));
+  try {
+    writeQueue(orgId, readQueue(orgId).filter((o) => o.id !== opId));
+  } catch {
+    // Non-critical: op already succeeded server-side. Worst case it replays
+    // idempotently on next sync.
+  }
 }
 
 export function recordOpFailure(orgId: string, opId: string, errorMsg: string): void {
-  const current = readQueue(orgId);
-  const next = current.map((o) =>
-    o.id === opId ? { ...o, attempts: o.attempts + 1, last_error: errorMsg } : o
-  );
-  writeQueue(orgId, next);
+  try {
+    const current = readQueue(orgId);
+    const next = current.map((o) =>
+      o.id === opId ? { ...o, attempts: o.attempts + 1, last_error: errorMsg } : o
+    );
+    writeQueue(orgId, next);
+  } catch {
+    // Non-critical: retry count won't increment but data isn't lost.
+  }
 }
 
 export function pendingCount(orgId: string): number {

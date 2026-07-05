@@ -36,3 +36,37 @@ export const DEFAULT_CURRENCY: Currency = SADC_CURRENCIES[0]; // ZAR
 export function getCurrency(code: string | null | undefined): Currency {
   return SADC_CURRENCIES.find((c) => c.code === code) || DEFAULT_CURRENCY;
 }
+
+// H7 fix: derive phone country code from currency so WhatsApp links
+// go to the right country instead of hardcoding +27 (South Africa).
+const CURRENCY_TO_PHONE_CODE: Record<string, string> = {
+  ZAR: "27",
+  BWP: "267",
+  NAD: "264",
+  ZMW: "260",
+  MZN: "258",
+  MWK: "265",
+  ZWG: "263",
+  LSL: "266",
+  SZL: "268",
+  AOA: "244",
+  CDF: "243",
+  MGA: "261",
+  MUR: "230",
+  SCR: "248",
+  TZS: "255",
+};
+
+/**
+ * Convert a local phone number to international format using the org's currency.
+ * If the number already starts with the country code or '+', it's returned as-is
+ * (digits only). Falls back to +27 (SA) if currency is unknown.
+ */
+export function toInternationalPhone(localPhone: string, currencyCode: string | null | undefined): string {
+  const digits = localPhone.replace(/[^0-9]/g, "");
+  const countryCode = CURRENCY_TO_PHONE_CODE[currencyCode ?? ""] ?? "27";
+  // If the number starts with 0, replace with the country code
+  if (digits.startsWith("0")) return countryCode + digits.slice(1);
+  // If it already looks international, return as-is
+  return digits;
+}

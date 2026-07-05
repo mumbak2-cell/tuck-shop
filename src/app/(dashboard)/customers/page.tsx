@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { Customer, CustomerPayment, Sale } from "@/types/database";
 import { formatZAR, formatDate } from "@/lib/format";
+import { toInternationalPhone } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
@@ -35,7 +36,7 @@ export default function CustomersPage() {
   const [showHistory, setShowHistory] = useState(false);
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
 
-  const { currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName, currency } = useOrg();
 
   const fetchCustomers = useCallback(async () => {
     setLoading(true);
@@ -93,8 +94,8 @@ export default function CustomersPage() {
     }
     msg += `\nPlease settle your account at your earliest convenience. Thank you!`;
 
-    const phone = customer.phone.replace(/[^0-9]/g, "");
-    const intlPhone = phone.startsWith("0") ? "27" + phone.slice(1) : phone;
+    // H7 fix: derive country code from org currency instead of hardcoding +27
+    const intlPhone = toInternationalPhone(customer.phone, currency);
     window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
   }
 
@@ -487,13 +488,13 @@ function PaymentModal({
       return;
     }
 
-    // If we're online the insert already landed; decrement balance now.
+    // If we're online the insert already landed; decrement balance atomically (H1 fix).
     // If we're offline, the replay handler will decrement on sync.
     if (!result.queued) {
-      const { error: balErr } = await db
-        .from("customers")
-        .update({ balance: Math.max(customer.balance - val, 0) })
-        .eq("id", customer.id);
+      const { error: balErr } = await db.rpc("adjust_customer_balance", {
+        p_customer_id: customer.id,
+        p_delta: -val,
+      });
       if (balErr) {
         setError(balErr.message);
         setSaving(false);

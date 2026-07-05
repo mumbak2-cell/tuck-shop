@@ -1,4 +1,3 @@
-"use client";
 // Helper that bypasses Supabase's server-side max_rows ceiling (default 1000)
 // by paginating with .range() until the table is exhausted. Use this when an
 // operator legitimately has more than 1000 rows in a table — products,
