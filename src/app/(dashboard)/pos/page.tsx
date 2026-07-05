@@ -155,6 +155,7 @@ export default function POSPage() {
           name: product.name,
           unitPrice: effectivePrice,
           quantity: 1,
+          costPrice: product.cost_per_unit ?? 0,
         },
       ];
     });

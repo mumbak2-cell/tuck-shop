@@ -22,7 +22,7 @@ import {
   CloudOff,
   Printer,
 } from "lucide-react";
-import { Receipt, ReceiptData } from "./receipt";
+import { Receipt, ReceiptData, generateReceiptNumber } from "./receipt";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
@@ -79,6 +79,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   // --- WhatsApp receipt state ---
   const [whatsAppPhone, setWhatsAppPhone] = useState("");
   const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
+  const [zraReceiptNo, setZraReceiptNo] = useState<string | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -93,6 +94,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setQueuedToast(false);
       setShowWhatsAppInput(false);
       setWhatsAppPhone("");
+      setZraReceiptNo(null);
 
       const cachedMethods = orgId
         ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
@@ -174,8 +176,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       saleDate: new Date(),
       tpin: orgState.tpin,
       vatPercent: orgState.vatPercent,
+      receiptNumber: generateReceiptNumber(),
+      zraReceiptNo,
     };
-  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference]);
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference, zraReceiptNo]);
 
   function handlePrintReceipt() {
     const el = receiptRef.current;
@@ -221,6 +225,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         quantity: item.quantity,
         unit_price: item.unitPrice,
         total_amount: item.unitPrice * item.quantity,
+        cost_price: item.costPrice,
       })),
     });
 
@@ -236,6 +241,63 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     }
 
     setSuccess(true);
+
+    // --- ZRA Smart Invoice submission (non-blocking) ---
+    // Fire after the sale succeeds. If VSDC is unreachable, the sale still
+    // stands — the ZRA invoice can be retried from the admin panel.
+    if (online && !result.queued && result.sale_ids?.[0]) {
+      const saleId = result.sale_ids[0];
+      const receiptNo = generateReceiptNumber();
+      submitToZra({
+        saleId,
+        items: items.map((item) => ({
+          productId: item.productId,
+          name: item.name,
+          quantity: item.quantity,
+          unitPrice: item.unitPrice,
+        })),
+        total,
+        paymentMethod: selectedMethod.name,
+        customerName: selectedKind === "credit"
+          ? customers.find((c) => c.id === selectedCustomer)?.name ?? null
+          : null,
+        saleDate: new Date().toISOString(),
+        receiptNo,
+      }).then((rcpt) => {
+        if (rcpt) setZraReceiptNo(rcpt);
+      }).catch(() => {
+        // Silently fail — sale is already recorded, ZRA can be retried
+      });
+    }
+  }
+
+  /** Submit sale to ZRA via the server-side proxy. Returns ZRA receipt number or null. */
+  async function submitToZra(payload: {
+    saleId: string;
+    items: { productId: string; name: string; quantity: number; unitPrice: number }[];
+    total: number;
+    paymentMethod: string;
+    customerName?: string | null;
+    saleDate: string;
+    receiptNo: string;
+  }): Promise<string | null> {
+    try {
+      const { data: { session } } = await db.auth.getSession();
+      if (!session?.access_token) return null;
+
+      const res = await fetch("/api/zra/submit-sale", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      return json.rcptNo ?? null;
+    } catch {
+      return null;
+    }
   }
 
   /** Generate a receipt-sized PNG, download it, then open WhatsApp so the
@@ -278,40 +340,51 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const loc = (currentLocationId && orgState.locations)
         ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
         : null;
-      const shopName = orgState.orgName ?? "Shop";
+      const shopName = (orgState.orgName ?? "Shop").toUpperCase();
       const locName = loc?.name ?? "";
       const locAddr = loc?.address ?? "";
       const locTel = loc?.phone ?? "";
       const tpin = orgState.tpin ?? "";
       const vatPct = orgState.vatPercent;
+      const receiptNo = generateReceiptNumber();
       const now = new Date();
       const dateStr = now.toLocaleDateString("en-ZA", { year: "numeric", month: "short", day: "numeric" });
       const timeStr = now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
       const customer = selectedKind === "credit"
         ? customers.find((c) => c.id === selectedCustomer)
         : null;
+      const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
       const CW = 302;
       const FSM = "11px 'Courier New', monospace";
-      const FLG = "14px 'Courier New', monospace";
+      const FLG = "bold 15px 'Courier New', monospace";
       const FTL = "bold 16px 'Courier New', monospace";
+      const FSS = "10px 'Courier New', monospace";
+      const FBL = "bold 11px 'Courier New', monospace";
       const PD = 16;
       const LH = 16;
 
+      // Calculate height
       let lc = 0;
-      lc += 4;
-      if (tpin) lc += 1;
-      lc += 2;
-      lc += 2;
-      lc += items.length * 2;
-      lc += 3;
+      lc += 3; // shop name, location, address
+      if (locTel) lc += 1;
+      if (tpin) lc += 2; // TPIN + "TAX INVOICE"
+      lc += 1; // dash
+      lc += 2; // date/time + receipt#
+      lc += 1; // dash
+      lc += items.length * 2; // name + qty line
+      lc += 1; // item count
+      lc += 1; // double line
+      lc += 1; // TOTAL
       if (vatPct != null && vatPct > 0) lc += 2;
-      lc += 2;
+      lc += 1; // dash
+      lc += 1; // payment
       if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) lc += 2;
       if (customer) lc += 1;
-      lc += 4;
+      lc += 1; // dash
+      lc += 3; // footer
 
-      const CH = PD * 2 + lc * LH + 20;
+      const CH = PD * 2 + lc * LH + 30;
 
       const canvas = document.createElement("canvas");
       canvas.width = CW;
@@ -348,44 +421,73 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         ctx!.fillText("- ".repeat(20), CW / 2, y, mw);
         y += LH;
       }
+      function doubleLine() {
+        ctx!.strokeStyle = "#000";
+        ctx!.lineWidth = 2;
+        ctx!.beginPath();
+        ctx!.moveTo(PD, y - 6);
+        ctx!.lineTo(CW - PD, y - 6);
+        ctx!.stroke();
+        y += 4;
+      }
 
+      // Header
       center(shopName, FTL);
       center(locName, FSM);
       if (locAddr) center(locAddr, FSM);
       if (locTel) center("Tel: " + locTel, FSM);
       if (tpin) center("TPIN: " + tpin, FSM);
+      if (tpin) center("TAX INVOICE", FBL);
 
       dash();
+
+      // Meta
       row(dateStr, timeStr, FSM);
+      row("Receipt #:", receiptNo, FSM);
+      if (zraReceiptNo) {
+        row("ZRA Invoice #:", zraReceiptNo, FSM);
+      }
+
       dash();
 
-      row("Item", "Amount", FSM);
-      y += 4;
+      // Line items — no "Item"/"Amount" header
       items.forEach((item) => {
-        ctx!.font = FSM;
+        ctx!.font = FBL;
         ctx!.fillStyle = "#000";
         ctx!.textAlign = "left";
         ctx!.fillText(item.name, PD, y, mw);
         y += LH;
-        row("  " + item.quantity + " x " + formatMoney(item.unitPrice), formatMoney(item.unitPrice * item.quantity), FSM);
+        row("   " + item.quantity + " × " + formatMoney(item.unitPrice), formatMoney(item.unitPrice * item.quantity), FSM);
       });
 
-      dash();
+      // Item count
+      ctx!.font = FSS;
+      ctx!.fillStyle = "#000";
+      ctx!.textAlign = "right";
+      ctx!.fillText(itemCount + " item" + (itemCount !== 1 ? "s" : ""), CW - PD, y, mw);
+      y += LH;
 
+      // Double line before total
+      doubleLine();
+
+      // Total
       row("TOTAL", formatMoney(total), FLG);
       if (vatPct != null && vatPct > 0) {
+        y += 2;
         const exclVat = total / (1 + vatPct / 100);
         row("Excl. VAT:", formatMoney(exclVat), FSM);
         row("VAT (" + vatPct + "%):", formatMoney(total - exclVat), FSM);
       }
 
-      y += 4;
+      dash();
+
+      // Payment
       if (selectedMethod) {
         row("Payment:", selectedMethod.name, FSM);
       }
       if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) {
         row("Tendered:", formatMoney(parseFloat(cashTendered)), FSM);
-        row("Change:", formatMoney(parseFloat(cashTendered) - total), FSM);
+        row("Change:", formatMoney(parseFloat(cashTendered) - total), FBL);
       }
       if (customer) {
         row("Customer:", customer.name, FSM);
@@ -393,10 +495,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
       dash();
 
+      // Footer
       center("Thank you for your purchase!", FSM);
       y += 4;
-      ctx!.fillStyle = "#888";
-      center("Powered by Tilify", FSM);
+      center("Powered by Tilify", FSS);
 
       canvas.toBlob((blob) => resolve(blob), "image/png");
     });

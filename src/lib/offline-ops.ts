@@ -43,6 +43,8 @@ export interface SaleLineItem {
   quantity: number;
   unit_price: number;
   total_amount: number;
+  /** Cost per unit at time of sale, for P&L accuracy. */
+  cost_price: number;
 }
 
 export interface SaleBatchInput {
@@ -86,6 +88,7 @@ export async function submitSaleBatch(input: SaleBatchInput): Promise<SaleBatchR
     p_customer_id: input.customer_id,
     p_sale_date: input.sale_date,
     p_created_at: input.created_at,
+    p_cost_prices: input.lines.map((l) => l.cost_price),
   };
 
   if (navigator.onLine) {

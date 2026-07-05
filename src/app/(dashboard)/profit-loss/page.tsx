@@ -62,7 +62,7 @@ export default function ProfitLossPage() {
     // 1. Revenue by payment method
     let salesQ = db
       .from("sales")
-      .select("payment_method, total_amount, quantity, product_id")
+      .select("payment_method, total_amount, quantity, product_id, cost_price")
       .gte("sale_date", from)
       .lte("sale_date", to)
       .eq("voided", false);
@@ -81,27 +81,12 @@ export default function ProfitLossPage() {
     setCardRevenue(card);
     setCreditRevenue(credit);
 
-    // 2. COGS: for each sale, calculate cost = (package_price / qty_in_pack) * quantity
-    const productIds = [...new Set(((sales || []) as any[]).map((s: any) => s.product_id))];
+    // 2. COGS: use snapshot cost_price recorded at time of sale
     let totalCogs = 0;
-    if (productIds.length > 0) {
-      const { data: products } = await db
-        .from("products")
-        .select("id, package_price, qty_in_pack")
-        .in("id", productIds);
-
-      const costMap: Record<string, number> = {};
-      ((products || []) as any[]).forEach((p: any) => {
-        const costPerUnit = p.qty_in_pack && p.qty_in_pack > 0 && p.package_price
-          ? p.package_price / p.qty_in_pack
-          : 0;
-        costMap[p.id] = costPerUnit;
-      });
-
-      ((sales || []) as any[]).forEach((s: any) => {
-        totalCogs += (costMap[s.product_id] || 0) * s.quantity;
-      });
-    }
+    ((sales || []) as any[]).forEach((s: any) => {
+      const cost = Number(s.cost_price) || 0;
+      totalCogs += cost * s.quantity;
+    });
     setCogs(totalCogs);
 
     // 3. Expenses

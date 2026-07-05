@@ -8,6 +8,8 @@ export interface CartItem {
   name: string;
   unitPrice: number;
   quantity: number;
+  /** Cost per unit snapshot at add-to-cart time. */
+  costPrice: number;
 }
 
 interface Props {
