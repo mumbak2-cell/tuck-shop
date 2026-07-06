@@ -314,6 +314,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       return;
     }
 
+    // Open WhatsApp window immediately (user-gesture context) so the browser doesn't block it
+    const intlPhone = toInternationalPhone(rawPhone, orgState.currency);
+    const waWindow = window.open("about:blank", "_blank");
+
     generateReceiptImage().then((blob) => {
       if (!blob) return;
 
@@ -325,12 +329,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       a.click();
       URL.revokeObjectURL(url);
 
-      // Open WhatsApp chat so user can attach the downloaded receipt (H7 fix: derive country code)
-      const intlPhone = toInternationalPhone(rawPhone, orgState.currency);
+      // Navigate the already-opened window to WhatsApp
       const shortMsg = "Please find your receipt attached.";
-      setTimeout(() => {
-        window.open("https://wa.me/" + intlPhone + "?text=" + encodeURIComponent(shortMsg), "_blank");
-      }, 500);
+      const waUrl = "https://wa.me/" + intlPhone + "?text=" + encodeURIComponent(shortMsg);
+      if (waWindow) {
+        waWindow.location.href = waUrl;
+      } else {
+        window.location.href = waUrl;
+      }
     });
   }
 

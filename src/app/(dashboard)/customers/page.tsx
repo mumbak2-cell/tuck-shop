@@ -83,6 +83,12 @@ export default function CustomersPage() {
 
   async function sendStatement(customer: Customer) {
     if (!customer.phone) return;
+
+    // Open the WhatsApp window immediately (synchronous with user click)
+    // so the browser doesn't block it as a popup.
+    const intlPhone = toInternationalPhone(customer.phone, currency);
+    const waWindow = window.open("about:blank", "_blank");
+
     const today = new Date().toLocaleDateString("en-ZA");
     let msg = `*Statement*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
     msg += `*Outstanding Balance: ${formatZAR(customer.balance)}*\n`;
@@ -94,9 +100,13 @@ export default function CustomersPage() {
     }
     msg += `\nPlease settle your account at your earliest convenience. Thank you!`;
 
-    // H7 fix: derive country code from org currency instead of hardcoding +27
-    const intlPhone = toInternationalPhone(customer.phone, currency);
-    window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+    const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`;
+    if (waWindow) {
+      waWindow.location.href = waUrl;
+    } else {
+      // Fallback if popup was still blocked
+      window.location.href = waUrl;
+    }
   }
 
   if (loading) {

@@ -240,6 +240,11 @@ export default function CreditLedgerPage() {
 
   async function sendWhatsAppStatement() {
     if (!selectedCustomer?.phone) return;
+
+    // Open immediately so browser treats it as user-initiated (not a blocked popup)
+    const intlPhone = toInternationalPhone(selectedCustomer.phone, currency);
+    const waWindow = window.open("about:blank", "_blank");
+
     const today = new Date().toLocaleDateString("en-ZA");
     let msg = `*Statement*\nDate: ${today}\nCustomer: ${selectedCustomer.name}\n\n`;
 
@@ -263,9 +268,12 @@ export default function CreditLedgerPage() {
     }
     msg += `\nPlease settle your account at your earliest convenience. Thank you!`;
 
-    // H7 fix: derive country code from org currency
-    const intlPhone = toInternationalPhone(selectedCustomer.phone, currency);
-    window.open(`https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`, "_blank");
+    const waUrl = `https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`;
+    if (waWindow) {
+      waWindow.location.href = waUrl;
+    } else {
+      window.location.href = waUrl;
+    }
   }
 
   function exportToExcel() {
