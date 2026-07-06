@@ -9,7 +9,7 @@
 // insensitive) and runs together with the category filter so the cashier can
 // drill from 1,300 → 200 → 5 products in two taps and one search.
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useRef } from "react";
 import { Product } from "@/types/database";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
@@ -19,6 +19,8 @@ interface Props {
   products: Product[];
   onAddToCart: (product: Product) => void;
   discountMap?: Map<string, number>;
+  /** Called after barcode auto-add clears the search. */
+  onBarcodeAutoAdd?: () => void;
 }
 
 interface CategoryRow {
@@ -28,7 +30,7 @@ interface CategoryRow {
 
 const ALL_TAB = "__all__";
 
-export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
+export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
@@ -102,6 +104,31 @@ export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
     return list;
   }, [liveProducts, activeCategory, searchLower]);
 
+  // L2: Barcode scan auto-add. When the search box contains an exact
+  // inventory_id match against a single product, auto-add it to the cart and
+  // clear the search. A small delay (400ms) prevents firing while the user
+  // is still typing or while a barcode scanner is streaming characters.
+  const autoAddTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (autoAddTimer.current) clearTimeout(autoAddTimer.current);
+    if (!searchLower) return;
+
+    autoAddTimer.current = setTimeout(() => {
+      const exactMatch = liveProducts.filter(
+        (p) => p.inventory_id && p.inventory_id.toLowerCase() === searchLower
+      );
+      if (exactMatch.length === 1) {
+        onAddToCart(exactMatch[0]);
+        setSearch("");
+        onBarcodeAutoAdd?.();
+      }
+    }, 400);
+
+    return () => {
+      if (autoAddTimer.current) clearTimeout(autoAddTimer.current);
+    };
+  }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd]);
+
   // Cap the number of rendered products to avoid jank when search is empty and
   // catalogue is huge. Anything past the cap is reachable via search/category.
   const RENDER_CAP = 200;
@@ -141,6 +168,8 @@ export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder={`Search ${totalCount} products by name or ID...`}
+            aria-label="Search products by name or barcode"
+            role="searchbox"
             className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
           />
           {search && (
@@ -165,7 +194,7 @@ export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
             </div>
           ) : (
             <>
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2" role="list" aria-label="Products">
                 {renderList.map((product) => {
                   const discountPct = discountMap?.get(product.id) ?? 0;
                   const hasDiscount = discountPct > 0;
@@ -176,6 +205,8 @@ export function ProductGrid({ products, onAddToCart, discountMap }: Props) {
                     <button
                       key={product.id}
                       onClick={() => onAddToCart(product)}
+                      aria-label={`Add ${product.name} to cart, ${formatMoney(hasDiscount ? salePrice : product.selling_price)}`}
+                      role="listitem"
                       className={`flex flex-col items-center justify-center p-3 border rounded-xl hover:shadow-md active:scale-95 transition-all min-h-[90px] touch-manipulation ${
                         hasDiscount
                           ? "bg-red-50 border-red-200 hover:border-red-400"
@@ -237,6 +268,8 @@ function CategoryButton({
   return (
     <button
       onClick={onClick}
+      aria-label={`${label} category, ${count} items`}
+      aria-pressed={active}
       className={`flex-shrink-0 lg:w-full text-left px-3 py-3 rounded-xl border-2 transition-colors touch-manipulation ${
         active
           ? "bg-green-600 text-white border-green-600 shadow-md"

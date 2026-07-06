@@ -95,6 +95,7 @@ export function Sidebar() {
       {/* Mobile menu button */}
       <button
         onClick={() => setOpen(true)}
+        aria-label="Open navigation menu"
         className="lg:hidden fixed top-4 left-4 z-40 p-2 bg-white rounded-lg shadow-md"
       >
         <Menu className="w-5 h-5" />
@@ -102,7 +103,7 @@ export function Sidebar() {
 
       {/* Overlay */}
       {open && (
-        <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={() => setOpen(false)} />
+        <div className="fixed inset-0 bg-black/30 z-40 lg:hidden" onClick={() => setOpen(false)} aria-hidden="true" />
       )}
 
       {/* Sidebar */}
@@ -113,7 +114,7 @@ export function Sidebar() {
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
           <h1 className="text-lg font-bold text-green-700">Tilify</h1>
-          <button onClick={() => setOpen(false)} className="lg:hidden p-1">
+          <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="lg:hidden p-1">
             <X className="w-5 h-5" />
           </button>
         </div>
@@ -123,7 +124,7 @@ export function Sidebar() {
         </div>
         <OfflineIndicator orgId={orgId} />
 
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+        <nav className="flex-1 overflow-y-auto p-4 space-y-1" aria-label="Main navigation">
           {visibleItems.map((item) => {
             const Icon = item.icon;
             const active = pathname === item.href;
@@ -154,6 +155,7 @@ export function Sidebar() {
             </div>
             <button
               onClick={logout}
+              aria-label="Lock screen"
               className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
               title="Lock screen"
             >

@@ -27,28 +27,29 @@ import {
   type VsdcSaveSalesRequest,
   type VsdcCredentials,
 } from "@/lib/zra-vsdc";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
-interface SaleItem {
-  productId: string;
-  name: string;
-  quantity: number;
-  unitPrice: number; // VAT-inclusive
-  itemClsCd?: string;
-}
+const SaleItemSchema = z.object({
+  productId: z.string().min(1),
+  name: z.string().min(1),
+  quantity: z.number().positive(),
+  unitPrice: z.number().nonnegative(),
+  itemClsCd: z.string().optional(),
+});
 
-interface SubmitSaleBody {
-  saleId: string;
-  items: SaleItem[];
-  total: number;
-  paymentMethod: string;
-  customerName?: string | null;
-  customerTpin?: string | null;
-  saleDate: string;
-  receiptNo: string;
-  cashierName?: string;
-}
+const SubmitSaleSchema = z.object({
+  saleId: z.string().uuid(),
+  items: z.array(SaleItemSchema).min(1),
+  total: z.number().positive(),
+  paymentMethod: z.string().min(1),
+  customerName: z.string().nullish(),
+  customerTpin: z.string().nullish(),
+  saleDate: z.string().min(1),
+  receiptNo: z.string().min(1),
+  cashierName: z.string().optional(),
+});
 
 export async function POST(req: Request) {
   // --- Auth ---
@@ -68,20 +69,22 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  // --- Parse body ---
-  let body: SubmitSaleBody;
+  // --- Parse & validate body ---
+  let raw: unknown;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
-  if (!body.saleId || !body.items?.length || !body.total || !body.receiptNo) {
+  const parsed = SubmitSaleSchema.safeParse(raw);
+  if (!parsed.success) {
     return NextResponse.json(
-      { error: "saleId, items, total, and receiptNo are required" },
+      { error: "Validation failed", issues: parsed.error.flatten().fieldErrors },
       { status: 400 },
     );
   }
+  const body = parsed.data;
 
   const admin = getSupabaseAdmin();
 

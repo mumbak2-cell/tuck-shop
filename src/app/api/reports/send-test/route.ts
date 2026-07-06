@@ -10,12 +10,13 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildDailySummary, renderDailyEmail, buildDailyItemsCsv } from "@/lib/daily-report";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
-interface Body {
-  subscription_id: string;
-}
+const SendTestSchema = z.object({
+  subscription_id: z.string().uuid(),
+});
 
 interface Attachment {
   filename: string;
@@ -54,12 +55,21 @@ async function sendViaResend(toEmail: string, subject: string, html: string, tex
 }
 
 export async function POST(req: Request) {
-  let body: Body;
+  let raw: unknown;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
+
+  const parsed = SendTestSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", issues: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
+  }
+  const body = parsed.data;
 
   try {
   const authHeader = req.headers.get("authorization") || "";

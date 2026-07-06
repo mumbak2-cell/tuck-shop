@@ -27,7 +27,7 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
   return (
-    <div className="flex flex-col h-full bg-white rounded-xl border border-gray-200">
+    <div className="flex flex-col h-full bg-white rounded-xl border border-gray-200" role="region" aria-label="Shopping cart">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
         <div className="flex items-center gap-2">
@@ -78,16 +78,18 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
                     </p>
                   )}
                 </div>
-                <div className="flex items-center gap-1">
+                <div className="flex items-center gap-1" role="group" aria-label={`Quantity for ${item.name}`}>
                   <button
                     onClick={() => onUpdateQty(item.productId, -1)}
+                    aria-label={`Decrease ${item.name} quantity`}
                     className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 active:bg-gray-300 touch-manipulation"
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="w-8 text-center text-sm font-semibold">{item.quantity}</span>
+                  <span className="w-8 text-center text-sm font-semibold" aria-live="polite">{item.quantity}</span>
                   <button
                     onClick={() => onUpdateQty(item.productId, 1)}
+                    aria-label={`Increase ${item.name} quantity`}
                     className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-100 hover:bg-gray-200 active:bg-gray-300 touch-manipulation"
                   >
                     <Plus className="w-4 h-4" />
@@ -98,6 +100,7 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
                 </div>
                 <button
                   onClick={() => onRemove(item.productId)}
+                  aria-label={`Remove ${item.name} from cart`}
                   className="p-1 text-gray-400 hover:text-red-500 touch-manipulation"
                 >
                   <Trash2 className="w-4 h-4" />

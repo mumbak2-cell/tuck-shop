@@ -10,27 +10,33 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { PLANS, BILLING_CURRENCY, type PlanCode } from "@/lib/plans";
+import { z } from "zod";
 
 export const runtime = "nodejs";
 
-interface InitiateBody {
-  planCode: PlanCode;
-  cycle: "monthly" | "quarterly" | "annual";
-}
+const InitiateSchema = z.object({
+  planCode: z.enum(["starter", "growth", "pro"]),
+  cycle: z.enum(["monthly", "quarterly", "annual"]),
+});
 
 export async function POST(req: Request) {
-  let body: InitiateBody;
+  let raw: unknown;
   try {
-    body = await req.json();
+    raw = await req.json();
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-  const { planCode, cycle } = body;
+
+  const parsed = InitiateSchema.safeParse(raw);
+  if (!parsed.success) {
+    return NextResponse.json(
+      { error: "Validation failed", issues: parsed.error.flatten().fieldErrors },
+      { status: 400 },
+    );
+  }
+  const { planCode, cycle } = parsed.data;
 
   try {
-  if (!planCode || !["monthly", "quarterly", "annual"].includes(cycle)) {
-    return NextResponse.json({ error: "planCode and cycle are required" }, { status: 400 });
-  }
 
   // Identify the calling user from their Supabase access token.
   const authHeader = req.headers.get("authorization") || "";

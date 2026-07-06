@@ -40,6 +40,9 @@ interface DashboardData {
   monthlyOperating: number;
   monthlyDirectorW: number;
   expenseBreakdown: { category: string; total: number }[];
+  /** L3: comparison period data */
+  compSales?: number;
+  compTransactions?: number;
 }
 
 export default function DashboardPage() {
@@ -47,8 +50,10 @@ export default function DashboardPage() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
+  const [showComparison, setShowComparison] = useState(false);
 
   const today = new Date().toISOString().split("T")[0];
+  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })();
 
   // Cashiers are pinned to their own location for reports.
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
@@ -130,6 +135,18 @@ export default function DashboardPage() {
       .map(([category, total]) => ({ category, total }))
       .sort((a, b) => b.total - a.total);
 
+    // L3: Fetch yesterday's sales for comparison
+    let compSales: number | undefined;
+    let compTransactions: number | undefined;
+    if (showComparison) {
+      let compQ = db.from("sales").select("total_amount").eq("sale_date", yesterday).eq("voided", false);
+      if (isFiltered) compQ = compQ.eq("location_id", effectiveLoc);
+      const { data: compData } = await compQ;
+      const compArr: any[] = compData || [];
+      compTransactions = compArr.length;
+      compSales = compArr.reduce((s: number, r: any) => s + (Number(r.total_amount) || 0), 0);
+    }
+
     setData({
       totalProducts: products.length,
       inStockProducts: products.filter((p: any) => p.opening_stock > 0).length,
@@ -155,10 +172,12 @@ export default function DashboardPage() {
       monthlyOperating,
       monthlyDirectorW,
       expenseBreakdown,
+      compSales,
+      compTransactions,
     });
 
     setLoading(false);
-  }, [today, effectiveLoc, isFiltered]);
+  }, [today, yesterday, effectiveLoc, isFiltered, showComparison]);
 
   useEffect(() => {
     fetchDashboard();
@@ -172,7 +191,19 @@ export default function DashboardPage() {
     <div className="max-w-5xl">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">Dashboard</h1>
-        <LocationFilter value={locFilter} onChange={setLocFilter} />
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => setShowComparison((v) => !v)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              showComparison
+                ? "bg-green-50 border-green-300 text-green-700"
+                : "bg-gray-50 border-gray-200 text-gray-500 hover:border-gray-300"
+            }`}
+          >
+            {showComparison ? "vs Yesterday ✓" : "Compare Yesterday"}
+          </button>
+          <LocationFilter value={locFilter} onChange={setLocFilter} />
+        </div>
       </div>
 
       {/* First-run onboarding checklist */}
@@ -191,7 +222,14 @@ export default function DashboardPage() {
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        <StatCard label="Today's Sales" value={formatZAR(data.todaySales)} sub={`${data.todayTransactions} transactions`} icon={ShoppingCart} color="bg-green-600" />
+        <StatCard
+          label="Today's Sales"
+          value={formatZAR(data.todaySales)}
+          sub={`${data.todayTransactions} transactions`}
+          icon={ShoppingCart}
+          color="bg-green-600"
+          delta={data.compSales != null ? deltaLabel(data.todaySales, data.compSales) : undefined}
+        />
         <StatCard label="Products" value={`${data.inStockProducts} in stock`} sub={`${data.totalProducts} total`} icon={Package} color="bg-blue-600" />
         <StatCard label="Low Stock" value={data.lowStockCount.toString()} sub="need restocking" icon={AlertTriangle} color={data.lowStockCount > 0 ? "bg-red-600" : "bg-gray-400"} />
         <StatCard label="Credit Owed" value={formatZAR(data.creditOutstanding)} sub={`${data.totalCustomers} customers`} icon={Wallet} color="bg-amber-500" />
@@ -373,12 +411,22 @@ export default function DashboardPage() {
   );
 }
 
-function StatCard({ label, value, sub, icon: Icon, color }: {
+/** L3: compute a "+12%" / "-5%" label from today vs comparison value */
+function deltaLabel(current: number, previous: number): { text: string; positive: boolean } | null {
+  if (previous === 0 && current === 0) return null;
+  if (previous === 0) return { text: "+100%", positive: true };
+  const pct = Math.round(((current - previous) / previous) * 100);
+  if (pct === 0) return { text: "0%", positive: true };
+  return { text: `${pct > 0 ? "+" : ""}${pct}%`, positive: pct > 0 };
+}
+
+function StatCard({ label, value, sub, icon: Icon, color, delta }: {
   label: string;
   value: string;
   sub: string;
   icon: React.ElementType;
   color: string;
+  delta?: { text: string; positive: boolean } | null;
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
@@ -386,9 +434,16 @@ function StatCard({ label, value, sub, icon: Icon, color }: {
         <div className={`p-2.5 rounded-lg ${color}`}>
           <Icon className="w-5 h-5 text-white" />
         </div>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-xs text-gray-500">{label}</p>
-          <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
+          <div className="flex items-center gap-2">
+            <p className="text-lg font-bold text-gray-900 truncate">{value}</p>
+            {delta && (
+              <span className={`text-xs font-semibold ${delta.positive ? "text-green-600" : "text-red-500"}`}>
+                {delta.text}
+              </span>
+            )}
+          </div>
           <p className="text-xs text-gray-400">{sub}</p>
         </div>
       </div>

@@ -81,6 +81,7 @@ export default function PromotionsPage() {
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [productSearch, setProductSearch] = useState("");
   const [saving, setSaving] = useState(false);
+  const [overlapWarning, setOverlapWarning] = useState<string | null>(null);
 
   /* ---- fetch ---- */
   const fetchData = useCallback(async () => {
@@ -146,12 +147,69 @@ export default function PromotionsPage() {
     setShowCreate(true);
   };
 
+  /* ---- check for overlapping promos on the same products (L6) ---- */
+  const checkOverlaps = async (): Promise<string | null> => {
+    if (!orgId || selectedProductIds.size === 0 || !formStart || !formEnd) return null;
+
+    // Find active/upcoming promos whose date range overlaps with formStart–formEnd
+    const { data: overlapping } = await db
+      .from("promotions")
+      .select("id, name, start_date, end_date")
+      .eq("org_id", orgId)
+      .eq("active", true)
+      .lte("start_date", formEnd)
+      .gte("end_date", formStart);
+
+    type OverlapRow = { id: string; name: string; start_date: string; end_date: string };
+    const rows = (overlapping ?? []) as OverlapRow[];
+    if (rows.length === 0) return null;
+
+    // Exclude the promo being edited
+    const others = editPromo
+      ? rows.filter((p: OverlapRow) => p.id !== editPromo.id)
+      : rows;
+    if (others.length === 0) return null;
+
+    // Check if any of those promos share products with the current selection
+    const otherIds = others.map((p: OverlapRow) => p.id);
+    const { data: sharedItems } = await db
+      .from("promotion_items")
+      .select("promotion_id, product_id")
+      .in("promotion_id", otherIds)
+      .in("product_id", Array.from(selectedProductIds));
+
+    type SharedRow = { promotion_id: string; product_id: string };
+    const shared = (sharedItems ?? []) as SharedRow[];
+    if (shared.length === 0) return null;
+
+    // Build a readable warning
+    const promoNames = new Set(
+      shared.map((si: SharedRow) => others.find((p: OverlapRow) => p.id === si.promotion_id)?.name).filter(Boolean)
+    );
+    const productNames = new Set(
+      shared.map((si: SharedRow) => productMap.get(si.product_id)?.name).filter(Boolean)
+    );
+    return `${productNames.size} product(s) already in active promo(s): ${[...promoNames].join(", ")}. Products may receive double discounts.`;
+  };
+
   /* ---- save (create or update) ---- */
   const handleSave = async () => {
     if (!orgId || !formName.trim() || !formEnd || selectedProductIds.size === 0) return;
     const discountNum = parseFloat(formDiscount);
     if (isNaN(discountNum) || discountNum <= 0 || discountNum > 100) return;
     setSaving(true);
+
+    // L6: warn about overlapping promos before saving
+    const warning = await checkOverlaps();
+    if (warning) {
+      setOverlapWarning(warning);
+      if (!window.confirm(`⚠ Overlap detected\n\n${warning}\n\nSave anyway?`)) {
+        setSaving(false);
+        return;
+      }
+    }
+    setOverlapWarning(null);
+
     try {
       if (editPromo) {
         // update promotion

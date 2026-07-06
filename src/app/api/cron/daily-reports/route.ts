@@ -6,7 +6,8 @@
 //
 // Vercel Cron sends an Authorization header containing CRON_SECRET so
 // the route refuses requests that did not come from the cron worker.
-// For local development, hit /api/cron/daily-reports?secret=<your-secret>.
+// For local testing, pass the header manually:
+//   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-reports
 
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
@@ -63,15 +64,13 @@ async function sendViaResend(toEmail: string, subject: string, html: string, tex
 
 export async function GET(req: Request) {
   // Auth check: Vercel Cron sets Authorization: Bearer <CRON_SECRET>.
-  // We also accept ?secret=... for manual testing from a browser.
+  // Query-string fallback removed (L5) — secrets in URLs leak in server logs.
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization") || "";
-  const url = new URL(req.url);
-  const querySecret = url.searchParams.get("secret");
 
   if (cronSecret) {
     const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (headerToken !== cronSecret && querySecret !== cronSecret) {
+    if (headerToken !== cronSecret) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
   }
