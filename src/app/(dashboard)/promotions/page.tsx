@@ -38,7 +38,7 @@ interface PromotionItem {
 
 function promoStatus(p: Promotion): "upcoming" | "active" | "ended" | "cancelled" {
   if (!p.active) return "cancelled";
-  const today = new Date().toISOString().slice(0, 10);
+  const today = new Date().toLocaleDateString("en-CA");
   if (p.start_date > today) return "upcoming";
   if (p.end_date < today) return "ended";
   return "active";
@@ -76,7 +76,7 @@ export default function PromotionsPage() {
   /* ---- form state ---- */
   const [formName, setFormName] = useState("");
   const [formDiscount, setFormDiscount] = useState("");
-  const [formStart, setFormStart] = useState(() => new Date().toISOString().slice(0, 10));
+  const [formStart, setFormStart] = useState(() => new Date().toLocaleDateString("en-CA"));
   const [formEnd, setFormEnd] = useState("");
   const [selectedProductIds, setSelectedProductIds] = useState<Set<string>>(new Set());
   const [productSearch, setProductSearch] = useState("");
@@ -126,7 +126,7 @@ export default function PromotionsPage() {
   const openCreate = () => {
     setFormName("");
     setFormDiscount("");
-    setFormStart(new Date().toISOString().slice(0, 10));
+    setFormStart(new Date().toLocaleDateString("en-CA"));
     setFormEnd("");
     setSelectedProductIds(new Set());
     setProductSearch("");

@@ -96,11 +96,14 @@ export default function POSPage() {
     setProducts(filtered.length > 0 ? filtered : fromCache());
   }, [currentLocationId, orgId]);
 
-  // Fetch active promotions → build product discount map
-  const fetchPromotions = useCallback(async () => {
-    if (!orgId) return;
+  // Fetch active promotions → build product discount map.
+  // Returns the new map so callers can use it immediately (React state
+  // updates are async and won't be visible in the same tick).
+  const fetchPromotions = useCallback(async (): Promise<DiscountMap> => {
+    const empty: DiscountMap = new Map();
+    if (!orgId) return empty;
     try {
-      const today = new Date().toISOString().slice(0, 10);
+      const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
       const { data: promos } = await db
         .from("promotions")
         .select("id, discount_percent")
@@ -108,7 +111,7 @@ export default function POSPage() {
         .eq("active", true)
         .lte("start_date", today)
         .gte("end_date", today);
-      if (!promos || promos.length === 0) { setDiscountMap(new Map()); return; }
+      if (!promos || promos.length === 0) { setDiscountMap(empty); return empty; }
       const promoIds = promos.map((p: { id: string }) => p.id);
       const { data: items } = await db
         .from("promotion_items")
@@ -126,9 +129,11 @@ export default function POSPage() {
         if (pct > existing) map.set(it.product_id, pct);
       }
       setDiscountMap(map);
+      return map;
     } catch {
       // promotions table may not exist yet — silently ignore
-      setDiscountMap(new Map());
+      setDiscountMap(empty);
+      return empty;
     }
   }, [orgId]);
 
@@ -182,6 +187,26 @@ export default function POSPage() {
     setCart([]);
   }
 
+  /** Re-derive promo prices at checkout so stale discounts don't persist (M18). */
+  /** Re-derive promo prices at checkout so stale discounts don't persist (M18). */
+  async function handleCheckout() {
+    // Refresh promotions and use the RETURNED map (React state update is async,
+    // so the closure `discountMap` would still hold the old value).
+    const latestDiscounts = await fetchPromotions();
+    setCart((prev) =>
+      prev.map((item) => {
+        const product = products.find((p) => p.id === item.productId);
+        if (!product) return item;
+        const discountPct = latestDiscounts.get(item.productId) ?? 0;
+        const effectivePrice = discountPct > 0
+          ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
+          : product.selling_price;
+        return effectivePrice !== item.unitPrice ? { ...item, unitPrice: effectivePrice } : item;
+      })
+    );
+    setShowPayment(true);
+  }
+
   function handleSaleComplete() {
     setShowPayment(false);
     setCart([]);
@@ -230,7 +255,7 @@ export default function POSPage() {
           onUpdateQty={updateQty}
           onRemove={removeItem}
           onClear={clearCart}
-          onCheckout={() => setShowPayment(true)}
+          onCheckout={handleCheckout}
         />
       </div>
 
@@ -269,7 +294,7 @@ export default function POSPage() {
                 onUpdateQty={updateQty}
                 onRemove={removeItem}
                 onClear={clearCart}
-                onCheckout={() => { setMobileCartOpen(false); setShowPayment(true); }}
+                onCheckout={() => { setMobileCartOpen(false); handleCheckout(); }}
               />
             </div>
           </div>

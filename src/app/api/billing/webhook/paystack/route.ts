@@ -61,21 +61,30 @@ export async function POST(req: Request) {
   const amount = event.data?.amount ?? null;
   const currency = event.data?.currency ?? null;
 
-  // Append-only audit log first - any failures below still leave a trace.
+  // Append-only audit log first — any failures below still leave a trace.
+  // onConflict prevents duplicate webhook deliveries from re-processing.
   const { data: logged } = await getSupabaseAdmin()
     .from("invoice_events")
-    .insert({
-      org_id: orgId,
-      provider: "paystack",
-      event_type: event.event,
-      provider_reference: reference,
-      amount_minor: amount,
-      currency,
-      payload: event,
-      processed: false,
-    })
+    .upsert(
+      {
+        org_id: orgId,
+        provider: "paystack",
+        event_type: event.event,
+        provider_reference: reference,
+        amount_minor: amount,
+        currency,
+        payload: event,
+        processed: false,
+      },
+      { onConflict: "provider,provider_reference", ignoreDuplicates: true }
+    )
     .select("id")
     .single();
+
+  // If upsert returned nothing, this is a duplicate delivery — ack and stop.
+  if (!logged && reference) {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
 
   // Only act on successful charges that we recognise as a Tilify subscription.
   if (event.event === "charge.success" && event.data.status === "success" && orgId && planCode) {
@@ -125,6 +134,14 @@ export async function POST(req: Request) {
     await getSupabaseAdmin()
       .from("organizations")
       .update({ subscription_status: "cancelled" })
+      .eq("id", orgId);
+  }
+
+  // Failed charge — mark as past_due so the UI can show a renewal warning
+  if (event.event === "charge.failed" && orgId) {
+    await getSupabaseAdmin()
+      .from("organizations")
+      .update({ subscription_status: "past_due" })
       .eq("id", orgId);
   }
 

@@ -90,14 +90,17 @@ export async function GET(req: Request) {
   }
 
   const subscriptions = (subs as SubscriptionRow[]) || [];
+
+  // Process each subscription. Use a concurrency limiter (5 at a time) to
+  // avoid hammering Supabase/Resend while still finishing faster than serial.
+  const CONCURRENCY = 5;
   const results: Array<{ org_id: string; email: string; status: string; error?: string }> = [];
 
-  for (const sub of subscriptions) {
+  async function processSub(sub: SubscriptionRow) {
     try {
       const summary = await buildDailySummary(sub.org_id);
       if (!summary) {
-        results.push({ org_id: sub.org_id, email: sub.email, status: "skipped_no_data" });
-        continue;
+        return { org_id: sub.org_id, email: sub.email, status: "skipped_no_data" };
       }
 
       const { subject, html, text } = renderDailyEmail(summary);
@@ -118,22 +121,34 @@ export async function GET(req: Request) {
           .from("report_subscriptions")
           .update({ last_error: sendResult.error })
           .eq("id", sub.id);
-        results.push({ org_id: sub.org_id, email: sub.email, status: "failed", error: sendResult.error });
-        continue;
+        return { org_id: sub.org_id, email: sub.email, status: "failed", error: sendResult.error };
       }
 
       await supabase
         .from("report_subscriptions")
         .update({ last_sent_at: new Date().toISOString(), last_error: null })
         .eq("id", sub.id);
-      results.push({ org_id: sub.org_id, email: sub.email, status: "sent" });
+      return { org_id: sub.org_id, email: sub.email, status: "sent" };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       await supabase
         .from("report_subscriptions")
         .update({ last_error: message })
         .eq("id", sub.id);
-      results.push({ org_id: sub.org_id, email: sub.email, status: "error", error: message });
+      return { org_id: sub.org_id, email: sub.email, status: "error", error: message };
+    }
+  }
+
+  // Process in batches of CONCURRENCY
+  for (let i = 0; i < subscriptions.length; i += CONCURRENCY) {
+    const batch = subscriptions.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.allSettled(batch.map(processSub));
+    for (const r of batchResults) {
+      results.push(
+        r.status === "fulfilled"
+          ? r.value
+          : { org_id: "unknown", email: "unknown", status: "error", error: String(r.reason) }
+      );
     }
   }
 

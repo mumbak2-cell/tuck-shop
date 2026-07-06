@@ -719,7 +719,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
         <Button
           onClick={handlePay}
-          disabled={!selectedMethod || processing}
+          disabled={
+            !selectedMethod ||
+            processing ||
+            (selectedKind === "cash" && (!cashTendered || parseFloat(cashTendered) < total))
+          }
           loading={processing}
           size="lg"
           className="w-full text-base py-4"

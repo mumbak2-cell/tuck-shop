@@ -175,6 +175,20 @@ export default function DashboardPage() {
         <LocationFilter value={locFilter} onChange={setLocFilter} />
       </div>
 
+      {/* First-run onboarding checklist */}
+      {data.totalProducts === 0 && (
+        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-1">Welcome to Tilify!</h2>
+          <p className="text-sm text-gray-600 mb-4">Get your shop set up in a few quick steps.</p>
+          <div className="space-y-3">
+            <OnboardingStep done={false} label="Add your first product" href="/products" cta="Add Product" />
+            <OnboardingStep done={false} label="Import products from CSV" href="/products" cta="CSV Import" />
+            <OnboardingStep done={data.totalCustomers > 0} label="Add a credit customer" href="/customers" cta="Add Customer" />
+            <OnboardingStep done={false} label="Make your first sale" href="/pos" cta="Open POS" />
+          </div>
+        </div>
+      )}
+
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatCard label="Today's Sales" value={formatZAR(data.todaySales)} sub={`${data.todayTransactions} transactions`} icon={ShoppingCart} color="bg-green-600" />
@@ -583,5 +597,23 @@ function QuickAction({ href, label, icon: Icon }: { href: string; label: string;
       <Icon className="w-5 h-5 text-green-600" />
       <span className="text-sm font-medium text-gray-900">{label}</span>
     </Link>
+  );
+}
+
+function OnboardingStep({ done, label, href, cta }: { done: boolean; label: string; href: string; cta: string }) {
+  return (
+    <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3">
+      <div className="flex items-center gap-3">
+        <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${done ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`}>
+          {done ? "✓" : "•"}
+        </div>
+        <span className={`text-sm ${done ? "text-gray-400 line-through" : "text-gray-800 font-medium"}`}>{label}</span>
+      </div>
+      {!done && (
+        <Link href={href} className="text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded px-3 py-1.5 transition-colors">
+          {cta}
+        </Link>
+      )}
+    </div>
   );
 }

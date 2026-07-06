@@ -6,12 +6,14 @@ import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
+import { useDebounce } from "@/lib/use-debounce";
 import { Plus, Search } from "lucide-react";
 
 export default function IngredientsPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Ingredient | null>(null);
   const [saving, setSaving] = useState(false);
@@ -25,11 +27,11 @@ export default function IngredientsPage() {
   const fetchIngredients = useCallback(async () => {
     setLoading(true);
     let query = db.from("ingredients").select("*").order("name");
-    if (search) query = query.ilike("name", `%${search}%`);
+    if (debouncedSearch) query = query.ilike("name", `%${debouncedSearch}%`);
     const { data } = await query;
     setIngredients(data || []);
     setLoading(false);
-  }, [search]);
+  }, [debouncedSearch]);
 
   useEffect(() => { fetchIngredients(); }, [fetchIngredients]);
 

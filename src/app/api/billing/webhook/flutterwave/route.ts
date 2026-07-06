@@ -6,6 +6,7 @@
 // we trust any payload field.
 
 import { NextResponse } from "next/server";
+import crypto from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 
 export const runtime = "nodejs";
@@ -33,7 +34,14 @@ export async function POST(req: Request) {
   if (!expectedHash) {
     return NextResponse.json({ error: "Flutterwave webhook hash not configured" }, { status: 503 });
   }
-  if (signature !== expectedHash) {
+  if (
+    !signature ||
+    signature.length !== expectedHash.length ||
+    !crypto.timingSafeEqual(
+      Buffer.from(signature, "utf8"),
+      Buffer.from(expectedHash, "utf8")
+    )
+  ) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
 
@@ -51,20 +59,29 @@ export async function POST(req: Request) {
   const amount = event.data?.amount != null ? Math.round(event.data.amount * 100) : null;
   const currency = event.data?.currency ?? null;
 
+  // onConflict prevents duplicate webhook deliveries from re-processing.
   const { data: logged } = await getSupabaseAdmin()
     .from("invoice_events")
-    .insert({
-      org_id: orgId,
-      provider: "flutterwave",
-      event_type: event.event,
-      provider_reference: reference,
-      amount_minor: amount,
-      currency,
-      payload: event,
-      processed: false,
-    })
+    .upsert(
+      {
+        org_id: orgId,
+        provider: "flutterwave",
+        event_type: event.event,
+        provider_reference: reference,
+        amount_minor: amount,
+        currency,
+        payload: event,
+        processed: false,
+      },
+      { onConflict: "provider,provider_reference", ignoreDuplicates: true }
+    )
     .select("id")
     .single();
+
+  // If upsert returned nothing, this is a duplicate delivery — ack and stop.
+  if (!logged && reference) {
+    return NextResponse.json({ received: true, duplicate: true });
+  }
 
   if (event.event === "charge.completed" && event.data.status === "successful" && orgId && planCode) {
     const periodEnd = new Date();
@@ -105,6 +122,25 @@ export async function POST(req: Request) {
         .update({ processed: true })
         .eq("id", logged.id);
     }
+  }
+
+  // Subscription cancellation
+  if (
+    (event.event === "subscription.cancelled" || event.event === "subscription.disable") &&
+    orgId
+  ) {
+    await getSupabaseAdmin()
+      .from("organizations")
+      .update({ subscription_status: "cancelled" })
+      .eq("id", orgId);
+  }
+
+  // Failed charge — mark as past_due so the UI can show a renewal warning
+  if (event.event === "charge.failed" && orgId) {
+    await getSupabaseAdmin()
+      .from("organizations")
+      .update({ subscription_status: "past_due" })
+      .eq("id", orgId);
   }
 
   return NextResponse.json({ received: true });

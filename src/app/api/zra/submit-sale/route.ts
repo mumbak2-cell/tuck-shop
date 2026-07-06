@@ -129,15 +129,10 @@ export async function POST(req: Request) {
   const taxCd = (config.default_tax_cd as "A" | "B" | "F") || "B";
   const taxRate = Number(config.default_tax_rate) || 16;
 
-  // Build item list
-  let totalTaxableAmt = 0;
-  let totalTaxAmt = 0;
-
+  // Build item list — sum already-rounded per-item values to avoid float drift
   const itemList: VsdcSaleItem[] = body.items.map((item, idx) => {
     const splyAmt = item.quantity * item.unitPrice;
     const { taxableAmt, taxAmt } = vatBreakdown(splyAmt, taxRate);
-    totalTaxableAmt += taxableAmt;
-    totalTaxAmt += taxAmt;
 
     return {
       itemSeq: idx + 1,
@@ -158,11 +153,15 @@ export async function POST(req: Request) {
     };
   });
 
+  // Sum from the already-rounded item values to prevent header vs item mismatch
+  const totalTaxableAmt = Math.round(itemList.reduce((s, i) => s + i.taxblAmt, 0) * 100) / 100;
+  const totalTaxAmt = Math.round(itemList.reduce((s, i) => s + i.taxAmt, 0) * 100) / 100;
+
   // Build the tax amount fields dynamically based on tax code
   const taxFields: Record<string, number> = {};
-  taxFields[`taxblAmt${taxCd}`] = Math.round(totalTaxableAmt * 100) / 100;
+  taxFields[`taxblAmt${taxCd}`] = totalTaxableAmt;
   taxFields[`taxRt${taxCd}`] = taxRate;
-  taxFields[`taxAmt${taxCd}`] = Math.round(totalTaxAmt * 100) / 100;
+  taxFields[`taxAmt${taxCd}`] = totalTaxAmt;
 
   const salesPayload: VsdcSaveSalesRequest = {
     tpin: config.tpin,
@@ -180,8 +179,8 @@ export async function POST(req: Request) {
     rcptNo: 0, // VSDC assigns this
     itemList,
     ...taxFields,
-    totTaxblAmt: Math.round(totalTaxableAmt * 100) / 100,
-    totTaxAmt: Math.round(totalTaxAmt * 100) / 100,
+    totTaxblAmt: totalTaxableAmt,
+    totTaxAmt: totalTaxAmt,
     totAmt: body.total,
     totItemCnt: body.items.length,
   };

@@ -61,6 +61,7 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
 
+  try {
   const authHeader = req.headers.get("authorization") || "";
   const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!accessToken) {
@@ -132,4 +133,8 @@ export async function POST(req: Request) {
     .eq("id", sub.id);
 
   return NextResponse.json({ ok: true });
+  } catch (err: unknown) {
+    console.error("[reports/send-test]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }

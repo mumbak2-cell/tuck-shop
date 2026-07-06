@@ -27,6 +27,7 @@ export async function POST(req: Request) {
   }
   const { planCode, cycle } = body;
 
+  try {
   if (!planCode || !["monthly", "quarterly", "annual"].includes(cycle)) {
     return NextResponse.json({ error: "planCode and cycle are required" }, { status: 400 });
   }
@@ -118,4 +119,8 @@ export async function POST(req: Request) {
     checkoutUrl: psJson.data.authorization_url,
     reference: psJson.data.reference,
   });
+  } catch (err: unknown) {
+    console.error("[billing/initiate]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }

@@ -39,6 +39,7 @@ function mrrForPlan(planCode: string | null | undefined): number {
 }
 
 export async function GET(req: Request) {
+  try {
   const authHeader = req.headers.get("authorization") || "";
   const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
   if (!accessToken) {
@@ -146,4 +147,8 @@ export async function GET(req: Request) {
     })),
     payouts: payoutRows,
   });
+  } catch (err: unknown) {
+    console.error("[partners/me]", err);
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+  }
 }

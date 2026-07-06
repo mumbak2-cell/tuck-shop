@@ -11,6 +11,7 @@ import { Modal } from "@/components/ui/modal";
 import { ProductForm } from "@/components/products/product-form";
 import { CsvUploadModal } from "@/components/products/csv-upload";
 import { fetchAllPaged } from "@/lib/fetch-all";
+import { useDebounce } from "@/lib/use-debounce";
 import { Plus, Search, Filter, Upload, Download, Tag } from "lucide-react";
 
 export default function ProductsPage() {
@@ -24,11 +25,16 @@ export default function ProductsPage() {
   const [categories, setCategories] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const debouncedSearch = useDebounce(search, 300);
   const [categoryFilter, setCategoryFilter] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
   const [showCategories, setShowCategories] = useState(false);
   const [editing, setEditing] = useState<Product | null>(null);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkAction, setBulkAction] = useState<"" | "price" | "discontinue">("");
+  const [bulkPricePercent, setBulkPricePercent] = useState("");
+  const [bulkProcessing, setBulkProcessing] = useState(false);
 
   // Load the org's categories. We merge the explicit categories table with
   // any category values actually present on products — bulk CSV imports
@@ -73,7 +79,7 @@ export default function ProductsPage() {
           .eq("discontinued", false)
           .order("inventory_id", { ascending: true });
         if (categoryFilter) q = q.eq("category", categoryFilter);
-        if (search) q = q.ilike("name", `%${search}%`);
+        if (debouncedSearch) q = q.ilike("name", `%${debouncedSearch}%`);
         return q;
       });
       setProducts(all);
@@ -111,7 +117,7 @@ export default function ProductsPage() {
     }
 
     setLoading(false);
-  }, [search, categoryFilter, currentLocationId]);
+  }, [debouncedSearch, categoryFilter, currentLocationId]);
 
   useEffect(() => {
     fetchProducts();
@@ -162,7 +168,7 @@ export default function ProductsPage() {
           .eq("discontinued", false)
           .order("inventory_id", { ascending: true });
         if (categoryFilter) q = q.eq("category", categoryFilter);
-        if (search) q = q.ilike("name", `%${search}%`);
+        if (debouncedSearch) q = q.ilike("name", `%${debouncedSearch}%`);
         return q;
       }),
       fetchAllPaged<{ product_id: string; location_id: string; quantity: number }>(() =>
@@ -207,6 +213,51 @@ export default function ProductsPage() {
 
   function escapeCsv(s: string): string {
     return s.replace(/"/g, '""');
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    if (selectedIds.size === products.length) {
+      setSelectedIds(new Set());
+    } else {
+      setSelectedIds(new Set(products.map((p) => p.id)));
+    }
+  }
+
+  async function handleBulkPriceUpdate() {
+    const pct = parseFloat(bulkPricePercent);
+    if (isNaN(pct) || pct === 0) return;
+    if (!window.confirm(`Adjust selling price by ${pct > 0 ? "+" : ""}${pct}% for ${selectedIds.size} products?`)) return;
+    setBulkProcessing(true);
+    const targets = products.filter((p) => selectedIds.has(p.id));
+    for (const p of targets) {
+      const newPrice = Math.round(p.selling_price * (1 + pct / 100) * 100) / 100;
+      await db.from("products").update({ selling_price: newPrice }).eq("id", p.id);
+    }
+    setBulkProcessing(false);
+    setSelectedIds(new Set());
+    setBulkAction("");
+    setBulkPricePercent("");
+    fetchProducts();
+  }
+
+  async function handleBulkDiscontinue() {
+    if (!window.confirm(`Discontinue ${selectedIds.size} selected products?`)) return;
+    setBulkProcessing(true);
+    for (const id of selectedIds) {
+      await db.from("products").update({ discontinued: true }).eq("id", id);
+    }
+    setBulkProcessing(false);
+    setSelectedIds(new Set());
+    setBulkAction("");
+    fetchProducts();
   }
 
   return (
@@ -263,12 +314,59 @@ export default function ProductsPage() {
         </div>
       </div>
 
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="flex items-center gap-3 mb-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3">
+          <span className="text-sm font-medium text-green-800">{selectedIds.size} selected</span>
+          <select
+            value={bulkAction}
+            onChange={(e) => setBulkAction(e.target.value as "" | "price" | "discontinue")}
+            className="border border-gray-300 rounded px-2 py-1 text-sm"
+          >
+            <option value="">Bulk actions...</option>
+            <option value="price">Adjust price %</option>
+            <option value="discontinue">Discontinue</option>
+          </select>
+          {bulkAction === "price" && (
+            <>
+              <input
+                type="number"
+                value={bulkPricePercent}
+                onChange={(e) => setBulkPricePercent(e.target.value)}
+                placeholder="e.g. 10 or -5"
+                className="border border-gray-300 rounded px-2 py-1 text-sm w-28"
+              />
+              <span className="text-xs text-gray-500">%</span>
+              <Button size="sm" onClick={handleBulkPriceUpdate} disabled={bulkProcessing || !bulkPricePercent}>
+                Apply
+              </Button>
+            </>
+          )}
+          {bulkAction === "discontinue" && (
+            <Button size="sm" variant="danger" onClick={handleBulkDiscontinue} disabled={bulkProcessing}>
+              Discontinue
+            </Button>
+          )}
+          <button onClick={() => { setSelectedIds(new Set()); setBulkAction(""); }} className="ml-auto text-xs text-gray-500 hover:underline">
+            Clear selection
+          </button>
+        </div>
+      )}
+
       {/* Product table */}
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-gray-50 border-b border-gray-200">
+                <th className="px-3 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={products.length > 0 && selectedIds.size === products.length}
+                    onChange={toggleSelectAll}
+                    className="rounded border-gray-300"
+                  />
+                </th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">ID</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Product</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Category</th>
@@ -281,9 +379,9 @@ export default function ProductsPage() {
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
               ) : products.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-12 text-center text-gray-400">No products found</td></tr>
+                <tr><td colSpan={9} className="px-4 py-12 text-center text-gray-400">No products found</td></tr>
               ) : (
                 products.map((p) => {
                   const margin = p.cost_per_unit && p.selling_price
@@ -299,7 +397,15 @@ export default function ProductsPage() {
                     : p.opening_stock;
                   const lowStock = displayStock <= p.reorder_level && p.reorder_level > 0;
                   return (
-                    <tr key={p.id} className="hover:bg-gray-50">
+                    <tr key={p.id} className={`hover:bg-gray-50 ${selectedIds.has(p.id) ? "bg-green-50" : ""}`}>
+                      <td className="px-3 py-3">
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.has(p.id)}
+                          onChange={() => toggleSelect(p.id)}
+                          className="rounded border-gray-300"
+                        />
+                      </td>
                       <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.inventory_id}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">
                         {p.name}

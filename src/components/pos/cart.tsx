@@ -40,7 +40,12 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
           )}
         </div>
         {items.length > 0 && (
-          <button onClick={onClear} className="text-xs text-red-500 hover:underline">
+          <button
+            onClick={() => {
+              if (window.confirm("Clear all items from the cart?")) onClear();
+            }}
+            className="text-xs text-red-500 hover:underline"
+          >
             Clear
           </button>
         )}

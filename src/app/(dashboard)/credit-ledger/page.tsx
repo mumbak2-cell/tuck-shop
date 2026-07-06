@@ -31,7 +31,7 @@ interface GroupedLine {
 }
 
 export default function CreditLedgerPage() {
-  const { currency } = useOrg();
+  const { currency, currentLocationId } = useOrg();
   const [entries, setEntries] = useState<LedgerEntry[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
@@ -50,7 +50,7 @@ export default function CreditLedgerPage() {
 
   useEffect(() => {
     loadLedger();
-  }, [filterCustomer, filterFrom, filterTo]);
+  }, [filterCustomer, filterFrom, filterTo, currentLocationId]);
 
   async function loadCustomers() {
     const { data } = await db.from("customers").select("*").order("name");
@@ -74,6 +74,9 @@ export default function CreditLedgerPage() {
 
     if (filterCustomer !== "all") {
       salesQuery = salesQuery.eq("customer_id", filterCustomer);
+    }
+    if (currentLocationId) {
+      salesQuery = salesQuery.eq("location_id", currentLocationId);
     }
 
     // Fetch customer payments

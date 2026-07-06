@@ -54,29 +54,32 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
   const date = isoDate ?? yesterdayDate();
 
   // Org metadata
-  const { data: org } = await supabase
+  const { data: org, error: orgErr } = await supabase
     .from("organizations")
     .select("id, name")
     .eq("id", orgId)
     .single();
+  if (orgErr) { console.error(`[daily-report] org lookup failed for ${orgId}:`, orgErr.message); return null; }
   if (!org) return null;
 
   // Currency from app_settings
-  const { data: currencyRow } = await supabase
+  const { data: currencyRow, error: currErr } = await supabase
     .from("app_settings")
     .select("value")
     .eq("org_id", orgId)
     .eq("key", "currency")
     .maybeSingle();
+  if (currErr) console.error(`[daily-report] currency lookup failed for ${orgId}:`, currErr.message);
   const currency = (currencyRow?.value || "ZAR").toUpperCase();
 
   // Locations
-  const { data: locRows } = await supabase
+  const { data: locRows, error: locErr } = await supabase
     .from("locations")
     .select("id, name")
     .eq("org_id", orgId)
     .eq("active", true)
     .order("sort_order");
+  if (locErr) { console.error(`[daily-report] locations query failed for ${orgId}:`, locErr.message); return null; }
   const locations = (locRows as Array<{ id: string; name: string }>) || [];
   if (locations.length === 0) return null;
 
@@ -93,10 +96,11 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
   const productIds = Array.from(new Set(sales.map((s: { product_id?: string }) => s.product_id).filter(Boolean))) as string[];
   const productNames: Record<string, string> = {};
   if (productIds.length > 0) {
-    const { data: prodRows } = await supabase
+    const { data: prodRows, error: prodErr } = await supabase
       .from("products")
       .select("id, name")
       .in("id", productIds);
+    if (prodErr) console.error(`[daily-report] product lookup failed for ${orgId}:`, prodErr.message);
     ((prodRows as Array<{ id: string; name: string }>) || []).forEach((p) => {
       productNames[p.id] = p.name;
     });
@@ -112,11 +116,12 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
   );
 
   // Yesterday's stock adjustments (count only losses, i.e. direction='decrease')
-  const { data: adjRows } = await supabase
+  const { data: adjRows, error: adjErr } = await supabase
     .from("stock_adjustments")
     .select("location_id, quantity, direction, products(selling_price)")
     .eq("org_id", orgId)
     .eq("adjustment_date", date);
+  if (adjErr) console.error(`[daily-report] adjustments query failed for ${orgId}:`, adjErr.message);
   const adjustments = (adjRows as any[]) || [];
 
   const locSummaries: LocationSummary[] = locations.map((loc) => {
