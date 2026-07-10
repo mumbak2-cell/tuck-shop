@@ -28,11 +28,23 @@ Edit `.env.local` and paste your Supabase URL and anon key.
 
 ### 4. Run Database Migrations
 
-In Supabase **SQL Editor**, run these files in order:
+In Supabase **SQL Editor**, run every file in `supabase/migrations/` in filename order, starting with:
 
 1. `supabase/migrations/001_create_tables.sql` — creates all tables
 2. `supabase/migrations/002_rls_policies.sql` — enables row-level security
 3. `supabase/migrations/003_seed_data.sql` — loads product catalog, ingredients, and recipes
+
+#### Migration numbering
+
+One migration per number, and **never reuse a number**. Filename order is apply
+order, so a collision makes the sequence ambiguous and breaks a rebuild from
+scratch. It also makes the files unusable by `supabase db push`, which treats
+the prefix as a unique version.
+
+Three numbers were reused historically (023, 028, 029) and have been
+disambiguated by widening the prefix rather than renumbering everything after
+them: `0230_locations.sql` and `0231_wms_tables.sql` both still sort between
+`022_` and `024_`. Prefer a plain sequential number for anything new.
 
 ### 5. Start Development Server
 

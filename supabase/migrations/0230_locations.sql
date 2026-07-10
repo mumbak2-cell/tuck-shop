@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 023: Multi-location support (Slice 5 Phase 1)
+-- Migration 0230: Multi-location support (Slice 5 Phase 1)
 --
 -- Adds a locations table per organisation and a location_id column to
 -- the tables that are inherently per-shop: sales, shifts, stock
