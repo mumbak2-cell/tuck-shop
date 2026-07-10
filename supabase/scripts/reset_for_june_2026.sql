@@ -1,4 +1,15 @@
 -- ============================================================
+-- ⚠ DESTRUCTIVE — NOT A MIGRATION. DO NOT RUN AGAINST PRODUCTION.
+--
+-- Formerly supabase/migrations/008_reset_for_june.sql. It lived in the
+-- migrations directory, where `supabase db push` and `db reset` would have
+-- replayed it in sequence and wiped live trading data. Moved out 2026-07-10.
+--
+-- It is also single-tenant: the TRUNCATEs below take no org_id, so running
+-- it against the multi-tenant database destroys EVERY organisation's sales,
+-- not just one. Keep it only as a historical record of the June 2026 reset.
+-- ============================================================
+--
 -- Reset transactional data for new month (June 2026)
 -- Run in Supabase SQL Editor
 --
