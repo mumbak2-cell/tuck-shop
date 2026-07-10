@@ -6,6 +6,7 @@ import { PinPad } from "@/components/auth/pin-pad";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { signOutSafely } from "@/lib/sign-out";
 
 export default function WmsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -39,7 +40,7 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
             Your account is signed in but not yet linked to a shop. Please contact support.
           </p>
           <button
-            onClick={() => org.signOut().then(() => router.replace("/login"))}
+            onClick={() => void signOutSafely(org, () => router.replace("/login"))}
             className="mt-4 text-sm text-green-700 font-medium hover:underline"
           >
             Sign out

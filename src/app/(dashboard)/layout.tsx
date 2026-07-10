@@ -6,6 +6,7 @@ import { PinPad } from "@/components/auth/pin-pad";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg, hasEverHadOrg } from "@/lib/org-context";
+import { signOutSafely } from "@/lib/sign-out";
 import { useOnline } from "@/lib/use-online";
 import { WifiOff } from "lucide-react";
 
@@ -94,7 +95,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             at mumbak2@gmail.com, or sign out and create a new shop.
           </p>
           <button
-            onClick={() => org.signOut().then(() => router.replace("/login"))}
+            onClick={() => void signOutSafely(org, () => router.replace("/login"))}
             className="mt-4 text-sm text-green-700 font-medium hover:underline"
           >
             Sign out

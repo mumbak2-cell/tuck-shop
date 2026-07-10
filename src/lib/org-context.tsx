@@ -8,8 +8,25 @@ import {
 } from "react";
 import { supabase, db } from "@/lib/supabase";
 import type { Session } from "@supabase/supabase-js";
-import { startSyncLoop, stopSyncLoop } from "@/lib/offline-sync";
-import { clearOfflineStore } from "@/lib/offline-store";
+import { startSyncLoop, stopSyncLoop, flushQueue } from "@/lib/offline-sync";
+import { clearOfflineStore, pendingCount } from "@/lib/offline-store";
+
+/**
+ * Thrown by signOut() when the device still holds unsynced writes. The queue
+ * is the only copy of those sales — signing out would delete them. Callers
+ * should surface `pending` to the user and, if they choose to lose the work,
+ * retry with `signOut({ discardPending: true })`.
+ */
+export class PendingSyncError extends Error {
+  readonly pending: number;
+  constructor(pending: number) {
+    super(
+      `${pending} ${pending === 1 ? "operation has" : "operations have"} not reached the server yet.`
+    );
+    this.name = "PendingSyncError";
+    this.pending = pending;
+  }
+}
 
 export interface LocationRow {
   id: string;
@@ -62,7 +79,11 @@ export interface OrgState {
   assignedLocationId: string | null;
   switchLocation: (locationId: string) => void;
   refresh: () => Promise<void>;
-  signOut: () => Promise<void>;
+  /**
+   * Signs the user out and clears their offline data. Throws PendingSyncError
+   * if unsynced writes remain; pass `discardPending` to delete them anyway.
+   */
+  signOut: (opts?: { discardPending?: boolean }) => Promise<void>;
 }
 
 function computeWritable(
@@ -360,12 +381,35 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       const { data: { session } } = await supabase.auth.getSession();
       await loadOrg(session);
     },
-    signOut: async () => {
-      // Wipe the offline cache + queue for this org BEFORE losing the orgId,
-      // so the next signed-in user doesn't accidentally see or replay our work.
-      if (state.orgId) {
-        try { clearOfflineStore(state.orgId); } catch { /* ignore */ }
+    signOut: async (opts = {}) => {
+      // Resolve the org from the last-known id as well as live state. The only
+      // Sign out button renders inside the `!org.orgId` branch of the dashboard
+      // and WMS layouts, so state.orgId is null exactly when this runs — the
+      // old `if (state.orgId)` guard meant the cleanup never fired at all.
+      let orgId = state.orgId;
+      if (!orgId) {
+        try { orgId = window.localStorage.getItem(LAST_ORG_ID_KEY); } catch { orgId = null; }
       }
+
+      if (orgId) {
+        // Last chance to get queued sales to the server. flushQueue is a no-op
+        // when offline, and returns without draining if a sync is already in
+        // flight, so re-read the count afterwards rather than trusting `sent`.
+        if (pendingCount(orgId) > 0 && navigator.onLine) {
+          try { await flushQueue(orgId); } catch { /* fall through to the check */ }
+        }
+
+        const stillPending = pendingCount(orgId);
+        if (stillPending > 0 && !opts.discardPending) {
+          // Abort before signing out. Nothing has been cleared at this point.
+          throw new PendingSyncError(stillPending);
+        }
+
+        try {
+          clearOfflineStore(orgId, { discardQueue: opts.discardPending });
+        } catch { /* ignore */ }
+      }
+
       stopSyncLoop();
       await supabase.auth.signOut();
       try {

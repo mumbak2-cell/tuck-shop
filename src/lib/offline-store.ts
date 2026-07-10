@@ -176,17 +176,45 @@ export function pendingCount(orgId: string): number {
 // -------------------------------------------------------------------------
 
 /**
- * Clear cache and queue for an org. Called on sign-out so the next signed-in
- * user does not see the previous user's queued operations.
+ * Clear the cached read data for an org. Never touches the write queue —
+ * the cache is a copy of what's on the server, the queue is the only copy
+ * of what isn't.
  */
-export function clearOfflineStore(orgId: string): void {
+export function clearOfflineCache(orgId: string): void {
   try {
     for (const k of KIND_KEYS) {
       localStorage.removeItem(cacheKey(orgId, k));
       localStorage.removeItem(meta(orgId, k));
     }
+  } catch {
+    // ignore
+  }
+}
+
+/**
+ * Clear cache and queue for an org. Called on sign-out so the next signed-in
+ * user does not see the previous user's queued operations.
+ *
+ * Refuses to drop a non-empty queue unless `discardQueue` is passed, and
+ * returns the number of ops it left behind. Queued ops are sales, expenses
+ * and payments that exist nowhere else — deleting them destroys a cashier's
+ * takings. Callers must decide, with the user, before discarding.
+ */
+export function clearOfflineStore(
+  orgId: string,
+  opts: { discardQueue?: boolean } = {}
+): { queueRetained: number } {
+  clearOfflineCache(orgId);
+
+  const pending = pendingCount(orgId);
+  if (pending > 0 && !opts.discardQueue) {
+    return { queueRetained: pending };
+  }
+
+  try {
     localStorage.removeItem(queueKey(orgId));
   } catch {
     // ignore
   }
+  return { queueRetained: 0 };
 }
