@@ -5,6 +5,22 @@ import Link from "next/link";
 import { supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 
+/**
+ * Where to land after signing in. Honours ?next=/some/path so a guard can
+ * bounce the user here and get them back. Read from window.location rather
+ * than useSearchParams, which would require a Suspense boundary.
+ *
+ * Only same-site absolute paths are accepted. Anything else — a full URL, a
+ * protocol-relative "//evil.com" — falls back to /dashboard, so this cannot
+ * be used as an open redirect.
+ */
+function postLoginPath(): string {
+  if (typeof window === "undefined") return "/dashboard";
+  const next = new URLSearchParams(window.location.search).get("next");
+  if (!next || !next.startsWith("/") || next.startsWith("//")) return "/dashboard";
+  return next;
+}
+
 export default function LoginPage() {
   const router = useRouter();
   const [email, setEmail] = useState("");
@@ -28,7 +44,7 @@ export default function LoginPage() {
       return;
     }
 
-    router.push("/dashboard");
+    router.push(postLoginPath());
   }
 
   return (
