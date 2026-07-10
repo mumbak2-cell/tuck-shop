@@ -1,9 +1,51 @@
+"use client";
 // Minimal layout for platform-admin pages at /admin/*.
 // Standalone (no shop sidebar) — admin tools are MK Global staff territory.
+//
+// Guards the session before rendering. Without this, a signed-out visitor
+// reached the page and the child's fetch failed with a bare "Not signed in",
+// with no way to sign in from there. Note the Supabase session lives in
+// localStorage, which is per-origin: a session on one hostname is invisible
+// on another.
+//
+// Platform-admin *authorisation* is enforced server-side by requireAdmin()
+// on every /api/admin/* route. This is only an authentication check, so a
+// signed-in non-admin still reaches the page and sees the API's 403.
 
 import Link from "next/link";
+import { useEffect, useState } from "react";
+import { useRouter, usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase";
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const [checked, setChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled) return;
+      if (!data.session) {
+        router.replace(`/login?next=${encodeURIComponent(pathname)}`);
+        return;
+      }
+      setChecked(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [router, pathname]);
+
+  if (!checked) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-sm text-gray-400">
+        Checking your session...
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-gray-50">
       <div className="max-w-6xl mx-auto px-4 py-3 border-b border-gray-200 bg-white flex items-center gap-4 text-sm">
