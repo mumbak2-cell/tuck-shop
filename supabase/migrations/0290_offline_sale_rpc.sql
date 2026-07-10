@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 029: Idempotent submit_sale_batch RPC (Slice 9 — Offline POS)
+-- Migration 0290: Idempotent submit_sale_batch RPC (Slice 9 — Offline POS)
 --
 -- The POS today does three operations per sale:
 --   1. INSERT into sales (one row per line item)

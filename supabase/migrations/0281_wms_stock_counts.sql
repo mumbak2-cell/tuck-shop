@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 028: WMS Stock Count Sessions
+-- Migration 0281: WMS Stock Count Sessions
 --
 -- Adds periodic physical count capability to the warehouse.
 -- Mirrors the retail stock_counts pattern with session-based

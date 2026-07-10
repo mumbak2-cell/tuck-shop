@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 028: Inter-branch stock transfers (Slice 5 follow-up)
+-- Migration 0280: Inter-branch stock transfers (Slice 5 follow-up)
 --
 -- Lets owners and admins move N units of a product from one shop to
 -- another, atomically. Decrements source product_stock, increments

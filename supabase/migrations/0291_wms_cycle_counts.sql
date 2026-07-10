@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 029: WMS Cycle Count Support
+-- Migration 0291: WMS Cycle Count Support
 --
 -- Adds cycle counting fields to wms_catalog so items can be
 -- counted on a rotating schedule by ABC class / frequency.

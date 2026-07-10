@@ -1,5 +1,5 @@
 -- ============================================================
--- Migration 023: Warehouse Management System (WMS) Module
+-- Migration 0231: Warehouse Management System (WMS) Module
 --
 -- Creates the independent WMS layer:
 --   - wms_catalog: master item catalog (independent of retail products)
