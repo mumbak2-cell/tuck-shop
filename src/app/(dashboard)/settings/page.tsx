@@ -8,6 +8,7 @@ import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/curr
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 import { DailyDigestSection } from "@/components/settings/daily-digest-section";
+import { TeamSection } from "@/components/settings/team-section";
 
 export default function SettingsPage() {
   const [adminPin, setAdminPin] = useState("");
@@ -298,6 +299,9 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* Team management - owner-only, renders null for cashiers */}
+        <TeamSection />
 
         {/* Daily Email Digest - self-contained section reading from report_subscriptions */}
         <DailyDigestSection />
