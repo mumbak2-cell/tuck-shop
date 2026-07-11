@@ -21,10 +21,14 @@ interface CategoryRow {
 }
 
 export function ProductForm({ product, onSaved, onCancel }: Props) {
-  const { preparesFood, currentLocationId, currentLocationName } = useOrg();
+  const { preparesFood, currentLocationId, currentLocationName, orgId, locations } = useOrg();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<CategoryRow[]>([]);
+
+  // Only multi-branch orgs get per-location price overrides; a single-shop
+  // operator just uses the base selling price.
+  const isMultiBranch = locations.length > 1;
 
   const [form, setForm] = useState({
     name: product?.name || "",
@@ -38,6 +42,10 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     reorder_level: product?.reorder_level?.toString() || "0",
   });
 
+  // Per-branch price override inputs, keyed by location_id. Empty string =
+  // "no override, use the base price". Loaded from existing rows when editing.
+  const [branchPrices, setBranchPrices] = useState<Record<string, string>>({});
+
   // Load categories from the org's categories table (RLS scopes automatically)
   useEffect(() => {
     (async () => {
@@ -49,6 +57,22 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       setCategories((data as CategoryRow[]) || []);
     })();
   }, []);
+
+  // When editing a multi-branch product, preload its existing price overrides.
+  useEffect(() => {
+    if (!product || !isMultiBranch) return;
+    (async () => {
+      const { data } = await db
+        .from("product_location_prices")
+        .select("location_id, selling_price")
+        .eq("product_id", product.id);
+      const next: Record<string, string> = {};
+      (data as { location_id: string; selling_price: number | string }[] | null)?.forEach((r) => {
+        next[r.location_id] = String(Number(r.selling_price));
+      });
+      setBranchPrices(next);
+    })();
+  }, [product, isMultiBranch]);
 
   function update(field: string, value: string | boolean) {
     setForm((prev) => {
@@ -84,6 +108,21 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       return;
     }
 
+    // Validate any branch-price overrides before writing the product, so a
+    // typo doesn't leave the product saved but the prices half-applied.
+    if (isMultiBranch) {
+      for (const loc of locations) {
+        const raw = (branchPrices[loc.id] ?? "").trim();
+        if (raw === "") continue;
+        const n = parseFloat(raw);
+        if (!Number.isFinite(n) || n < 0) {
+          setError(`Enter a valid price for ${loc.name}, or leave it blank to use the base price.`);
+          setLoading(false);
+          return;
+        }
+      }
+    }
+
     let result;
     let newProductId: string | null = null;
     if (product) {
@@ -116,6 +155,45 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         p_quantity: openingStock,
         p_location_id: currentLocationId,
       });
+    }
+
+    // Reconcile per-branch price overrides: a filled input upserts an override,
+    // a blank one removes it (falling back to the base price). Failures here
+    // don't undo the saved product; surface them but still close.
+    if (isMultiBranch && targetProductId && orgId) {
+      const base = parseFloat(form.selling_price);
+      await Promise.all(
+        locations.map((loc) => {
+          const raw = (branchPrices[loc.id] ?? "").trim();
+          if (raw === "") {
+            return db
+              .from("product_location_prices")
+              .delete()
+              .eq("product_id", targetProductId)
+              .eq("location_id", loc.id);
+          }
+          const price = parseFloat(raw);
+          // An override equal to the base price is redundant — drop it so the
+          // list only ever holds genuine exceptions.
+          if (price === base) {
+            return db
+              .from("product_location_prices")
+              .delete()
+              .eq("product_id", targetProductId)
+              .eq("location_id", loc.id);
+          }
+          return db.from("product_location_prices").upsert(
+            {
+              product_id: targetProductId,
+              location_id: loc.id,
+              selling_price: price,
+              org_id: orgId,
+              updated_at: new Date().toISOString(),
+            },
+            { onConflict: "product_id,location_id" }
+          );
+        })
+      );
     }
 
     setLoading(false);
@@ -225,6 +303,34 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           <span className={`font-medium ${margin < 10 ? "text-red-600" : margin < 30 ? "text-amber-600" : "text-green-600"}`}>
             {margin.toFixed(1)}%
           </span>
+        </div>
+      )}
+
+      {isMultiBranch && (
+        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-gray-900">Prices per branch (optional)</p>
+            <p className="text-xs text-gray-500">
+              Leave a branch blank to charge the base selling price
+              {form.selling_price ? ` (${currencySymbol}${form.selling_price})` : ""}. Enter a value only
+              where a branch sells this item for something different.
+            </p>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {locations.map((loc) => (
+              <Input
+                key={loc.id}
+                label={loc.name}
+                type="number"
+                step="0.01"
+                placeholder={form.selling_price || "base price"}
+                value={branchPrices[loc.id] ?? ""}
+                onChange={(e) =>
+                  setBranchPrices((prev) => ({ ...prev, [loc.id]: e.target.value }))
+                }
+              />
+            ))}
+          </div>
         </div>
       )}
 
