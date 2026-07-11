@@ -3,14 +3,17 @@
 //
 // Every organisation on the platform, newest first, with owner email, seat
 // and location usage against plan limits, plan, status, and trial countdown.
-// Read-only — to change a plan or extend a trial, use the Supabase SQL editor.
+// Platform admins can override subscription state per row via "Manage"
+// (PATCH /api/admin/orgs/[id]); every change is logged to admin_org_overrides.
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
-  Building2, AlertCircle, Users, Clock, CheckCircle2, Lock,
+  Building2, AlertCircle, Users, Clock, CheckCircle2, Lock, SlidersHorizontal,
 } from "lucide-react";
+import { ManageOrgModal } from "./manage-org-modal";
 
 interface OrgRow {
   id: string;
@@ -72,30 +75,32 @@ export default function AdminCustomersPage() {
   const [orgs, setOrgs] = useState<OrgRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [managing, setManaging] = useState<OrgRow | null>(null);
+
+  const load = useCallback(async () => {
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const token = sess.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch("/api/admin/orgs", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
+      setOrgs(json.orgs || []);
+      setError(null);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const { data: sess } = await supabase.auth.getSession();
-        const token = sess.session?.access_token;
-        if (!token) throw new Error("Not signed in");
-        const res = await fetch("/api/admin/orgs", {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
-        if (!cancelled) setOrgs(json.orgs || []);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
+    void (async () => {
+      await load();
     })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  }, [load]);
 
   const lockedOut = orgs.filter((o) => !o.writable);
   const onTrial = orgs.filter((o) => o.status === "trialing");
@@ -109,7 +114,7 @@ export default function AdminCustomersPage() {
           Customers
         </h1>
         <p className="text-sm text-gray-500 mt-1">
-          Every shop on Tilify. Read-only — plan and trial changes are made in Supabase.
+          Every shop on Tilify. Use Manage to extend a trial, change a plan, or set status — each change is logged.
         </p>
       </div>
 
@@ -156,6 +161,7 @@ export default function AdminCustomersPage() {
                   <th className="text-right px-5 py-3 font-medium text-gray-500">Locations</th>
                   <th className="text-left px-5 py-3 font-medium text-gray-500">Referral</th>
                   <th className="text-left px-5 py-3 font-medium text-gray-500">Joined</th>
+                  <th className="text-right px-5 py-3 font-medium text-gray-500">Manage</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -189,6 +195,17 @@ export default function AdminCustomersPage() {
                       {o.referralCode || "—"}
                     </td>
                     <td className="px-5 py-3 text-gray-500 whitespace-nowrap">{fmtDate(o.createdAt)}</td>
+                    <td className="px-5 py-3 text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setManaging(o)}
+                        aria-label={`Manage ${o.name}`}
+                      >
+                        <SlidersHorizontal className="w-4 h-4 mr-1.5" />
+                        Manage
+                      </Button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -204,6 +221,15 @@ export default function AdminCustomersPage() {
           <Stat icon={Clock} label="On trial" value={onTrial.length.toString()} sub={`${onTrial.filter((o) => (o.trialDaysLeft ?? 0) > 0).length} still within window`} color="bg-amber-500" />
           <Stat icon={Users} label="Users" value={orgs.reduce((s, o) => s + o.memberCount, 0).toString()} sub="Across all shops" color="bg-emerald-600" />
         </div>
+      )}
+
+      {managing && (
+        <ManageOrgModal
+          org={managing}
+          open={true}
+          onClose={() => setManaging(null)}
+          onSaved={load}
+        />
       )}
     </div>
   );
