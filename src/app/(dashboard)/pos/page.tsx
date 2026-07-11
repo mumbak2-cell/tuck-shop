@@ -16,6 +16,23 @@ import Link from "next/link";
 /** product_id → discount percent for currently active promotions */
 type DiscountMap = Map<string, number>;
 
+/**
+ * Build a product_id → override-price map from per-location price rows,
+ * keeping only rows for the current location. No location (or no rows) ⇒
+ * empty map, so every product falls back to its base selling_price.
+ */
+function buildPriceMap(
+  rows: { product_id: string; selling_price: number | string; location_id: string }[],
+  locationId: string | null
+): Map<string, number> {
+  const m = new Map<string, number>();
+  if (!locationId) return m;
+  for (const r of rows) {
+    if (r.location_id === locationId) m.set(r.product_id, Number(r.selling_price));
+  }
+  return m;
+}
+
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
   const { requiresShift, currentLocationId, orgId } = useOrg();
@@ -30,6 +47,15 @@ export default function POSPage() {
     const fromCache = (): Product[] => {
       if (!orgId) return [];
       const cachedProducts = (readCache<Product>(orgId, "products") ?? []).filter((p) => !p.discontinued);
+      // Per-branch price overrides for the current location; missing → base price.
+      const priceMap = buildPriceMap(
+        readCache<{ product_id: string; selling_price: number | string; location_id: string }>(orgId, "product_location_prices") ?? [],
+        currentLocationId
+      );
+      const withBranchPrice = (p: Product): Product => {
+        const o = priceMap.get(p.id);
+        return o == null ? p : { ...p, selling_price: o };
+      };
       const cachedStock = (readCache<{ product_id: string; quantity: number; location_id: string }>(orgId, "product_stock") ?? [])
         .filter((s) => !currentLocationId || s.location_id === currentLocationId);
       const stockMap = new Map<string, number>();
@@ -37,9 +63,9 @@ export default function POSPage() {
       if (stockMap.size > 0) {
         return cachedProducts
           .filter((p) => (stockMap.get(p.id) ?? 0) > 0)
-          .map((p) => ({ ...p, opening_stock: stockMap.get(p.id) ?? 0 }));
+          .map((p) => withBranchPrice({ ...p, opening_stock: stockMap.get(p.id) ?? 0 }));
       }
-      return cachedProducts.filter((p) => p.opening_stock > 0);
+      return cachedProducts.filter((p) => p.opening_stock > 0).map(withBranchPrice);
     };
 
     // When offline, skip the network call entirely. Supabase requests hang
@@ -74,16 +100,36 @@ export default function POSPage() {
             .eq("location_id", currentLocationId)
             .gt("quantity", 0)
         );
+        // Per-branch price overrides for this location. A read failure (e.g.
+        // migration 042 not yet applied) degrades to base prices, never breaks
+        // the POS load.
+        const priceRows = await fetchAllPaged<{ product_id: string; selling_price: number | string }>(() =>
+          db
+            .from("product_location_prices")
+            .select("product_id, selling_price")
+            .eq("location_id", currentLocationId)
+        ).catch(() => [] as { product_id: string; selling_price: number | string }[]);
+        const priceMap = new Map<string, number>();
+        priceRows.forEach((r) => priceMap.set(r.product_id, Number(r.selling_price)));
+
         const sellableIds = new Set<string>(stockRows.map((r) => r.product_id));
         // Replace each product's opening_stock with its per-location quantity
-        // so cart and stock-check downstream code reads the right number.
+        // so cart and stock-check downstream code reads the right number, and
+        // its selling_price with the branch override where one exists.
         const stockMap: Record<string, number> = {};
         stockRows.forEach((r) => {
           stockMap[r.product_id] = r.quantity;
         });
         const filtered = allProducts
           .filter((p) => sellableIds.has(p.id))
-          .map((p) => ({ ...p, opening_stock: stockMap[p.id] ?? 0 }));
+          .map((p) => {
+            const override = priceMap.get(p.id);
+            return {
+              ...p,
+              opening_stock: stockMap[p.id] ?? 0,
+              ...(override != null ? { selling_price: override } : {}),
+            };
+          });
         setProducts(filtered.length > 0 ? filtered : fromCache());
         return;
       } catch {
@@ -138,8 +184,10 @@ export default function POSPage() {
   }, [orgId]);
 
   useEffect(() => {
-    fetchProducts();
-    fetchPromotions();
+    void (async () => {
+      await fetchProducts();
+      await fetchPromotions();
+    })();
   }, [fetchProducts, fetchPromotions]);
 
   function addToCart(product: Product) {

@@ -16,7 +16,7 @@
 // no extra dependency. IndexedDB / `idb` is a Slice 9 follow-up once Mary's
 // catalogue grows past the size where localStorage stops fitting.
 
-const KIND_KEYS = ["products", "payment_methods", "customers", "locations", "app_settings", "product_stock"] as const;
+const KIND_KEYS = ["products", "payment_methods", "customers", "locations", "app_settings", "product_stock", "product_location_prices"] as const;
 export type CacheKind = (typeof KIND_KEYS)[number];
 
 const cacheKey = (orgId: string, kind: CacheKind) => `tilify_cache_${orgId}_${kind}`;

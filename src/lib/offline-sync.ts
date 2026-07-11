@@ -33,13 +33,19 @@ export async function refreshCache(orgId: string): Promise<void> {
   // server-side max_rows ceiling (default 1000), so they're paginated via
   // .range(). Without this, offline POS at large operators would silently
   // miss every SKU past the first 1000.
-  const [products, productStock, customers, { data: paymentMethods }, { data: locations }, { data: settings }] = await Promise.all([
+  const [products, productStock, locationPrices, customers, { data: paymentMethods }, { data: locations }, { data: settings }] = await Promise.all([
     fetchAllPaged<Record<string, unknown>>(() =>
       db.from("products").select("*").eq("discontinued", false).order("name")
     ),
     fetchAllPaged<Record<string, unknown>>(() =>
       db.from("product_stock").select("*")
     ),
+    // Per-branch price overrides — small (only the exceptions), but paginated
+    // for safety. A failed read (e.g. migration 042 not yet applied) yields []
+    // so branch pricing degrades to base prices rather than breaking sync.
+    fetchAllPaged<Record<string, unknown>>(() =>
+      db.from("product_location_prices").select("*")
+    ).catch(() => []),
     fetchAllPaged<Record<string, unknown>>(() =>
       db.from("customers").select("*")
     ),
@@ -50,6 +56,7 @@ export async function refreshCache(orgId: string): Promise<void> {
 
   saveCache(orgId, "products", products);
   saveCache(orgId, "product_stock", productStock);
+  saveCache(orgId, "product_location_prices", locationPrices);
   saveCache(orgId, "customers", customers);
   if (paymentMethods) saveCache(orgId, "payment_methods", paymentMethods);
   if (locations) saveCache(orgId, "locations", locations);
