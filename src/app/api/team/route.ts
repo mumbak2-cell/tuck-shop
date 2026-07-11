@@ -143,20 +143,43 @@ export async function POST(req: Request) {
   }
 
   if (existingId) {
-    // Already on this team?
-    const { data: already } = await admin
+    // The app assumes one org per user: create_organization_for_user rejects a
+    // second membership, and default_user_org_id() resolves a user's org via
+    // `LIMIT 1` with no ordering. Attaching someone who already belongs to any
+    // org would give them two memberships, so their POS rows (org_id defaults
+    // from that ambiguous lookup) could land in the wrong tenant. So only an
+    // account that belongs to no org yet can be linked here.
+    const { data: memberships, error: memErr } = await admin
       .from("org_members")
-      .select("id")
-      .eq("org_id", auth.orgId!)
-      .eq("user_id", existingId)
-      .maybeSingle();
-    if (already) {
-      return NextResponse.json({ error: `${email} is already on your team` }, { status: 409 });
+      .select("org_id")
+      .eq("user_id", existingId);
+    if (memErr) return NextResponse.json({ error: memErr.message }, { status: 500 });
+
+    if (memberships && memberships.length > 0) {
+      const onThisTeam = memberships.some((m) => m.org_id === auth.orgId);
+      return NextResponse.json(
+        {
+          error: onThisTeam
+            ? `${email} is already on your team`
+            : `${email} already has a Tilify account tied to another shop, so it can't be added as a cashier here. Ask them to use a different email.`,
+        },
+        { status: 409 }
+      );
     }
+
+    // Unattached existing login — safe to make this org their only membership.
     const { error: linkErr } = await admin
       .from("org_members")
       .insert({ org_id: auth.orgId!, user_id: existingId, role: "member" });
-    if (linkErr) return NextResponse.json({ error: linkErr.message }, { status: 500 });
+    if (linkErr) {
+      // 23505 = unique_violation on (org_id, user_id): a concurrent add of the
+      // same person raced us here. That's the "already on your team" outcome,
+      // not a server error.
+      if (linkErr.code === "23505") {
+        return NextResponse.json({ error: `${email} is already on your team` }, { status: 409 });
+      }
+      return NextResponse.json({ error: linkErr.message }, { status: 500 });
+    }
     return NextResponse.json({
       linked: true,
       email,
