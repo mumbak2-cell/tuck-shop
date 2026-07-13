@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { dispatchStatusColor } from "@/lib/wms-status";
@@ -22,6 +23,22 @@ import {
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+interface WmsCatalogRow {
+  id: number;
+  item_name: string;
+  sku: string;
+  abc_class: string;
+  count_frequency_days: number;
+  last_counted_at: string | null;
+}
+
+interface WmsInventoryRow {
+  wms_item_id: number;
+  physical_qty: number;
+  reorder_level: number;
+  reorder_qty: number;
+}
 
 interface SummaryCard {
   label: string;
@@ -122,18 +139,18 @@ export default function WmsDashboardPage() {
     setLoading(true);
 
     const [
-      { data: catalog },
-      { data: inventory },
+      catalog,
+      inventory,
       { data: dispatches },
       { data: dispatchItems },
       { data: receipts },
       { data: receiptItems },
       { data: adjData },
     ] = await Promise.all([
-      db.from("wms_catalog")
-        .select("id, item_name, sku, abc_class, count_frequency_days, last_counted_at"),
-      db.from("wms_inventory")
-        .select("wms_item_id, physical_qty, reorder_level, reorder_qty"),
+      fetchAllPaged<WmsCatalogRow>(() => db.from("wms_catalog")
+        .select("id, item_name, sku, abc_class, count_frequency_days, last_counted_at").order("id")),
+      fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory")
+        .select("wms_item_id, physical_qty, reorder_level, reorder_qty").order("id")),
       db.from("wms_dispatches")
         .select("id, destination_type, destination_id, status, created_at, created_by")
         .gte("created_at", thirtyDaysAgo)

@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,13 @@ import {
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
 /* ------------------------------------------------------------------ */
+
+interface WmsInventoryRow {
+  wms_item_id: number;
+  physical_qty: number;
+  reorder_level: number;
+  reorder_qty: number;
+}
 
 interface WmsCatalogItem {
   id: number;
@@ -113,10 +121,10 @@ export default function WmsPurchaseOrdersPage() {
   const [receiving, setReceiving] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [{ data: catalog }, { data: inventory }, { data: pos }] =
+    const [catalog, inventory, { data: pos }] =
       await Promise.all([
-        db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name"),
-        db.from("wms_inventory").select("wms_item_id, physical_qty, reorder_level, reorder_qty"),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name")),
+        fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty, reorder_level, reorder_qty")),
         db.from("wms_purchase_orders")
           .select("*")
           .order("created_at", { ascending: false })

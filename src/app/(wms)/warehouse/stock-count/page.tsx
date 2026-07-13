@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,11 @@ import {
   Filter,
   Clock,
 } from "lucide-react";
+
+interface WmsInventoryRow {
+  wms_item_id: number;
+  physical_qty: number;
+}
 
 interface WmsCatalogItem {
   id: number;
@@ -95,13 +101,15 @@ export default function WmsStockCountPage() {
     async (forSessionId?: string) => {
       setLoading(true);
 
-      const [{ data: catalog }, { data: inventory }, { data: todayCounts }] =
+      const [catalog, inventory, { data: todayCounts }] =
         await Promise.all([
-          db
-            .from("wms_catalog")
-            .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at")
-            .order("item_name"),
-          db.from("wms_inventory").select("wms_item_id, physical_qty"),
+          fetchAllPaged<WmsCatalogItem>(() =>
+            db
+              .from("wms_catalog")
+              .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at")
+              .order("item_name")
+          ),
+          fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
           db
             .from("wms_stock_counts")
             .select("session_id, session_label, counted_by, counted_at")

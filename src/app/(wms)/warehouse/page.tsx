@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -88,10 +89,10 @@ export default function WarehousePage() {
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [{ data: catalog }, { data: inventory }, { data: prods }] =
+    const [catalog, inventory, { data: prods }] =
       await Promise.all([
-        db.from("wms_catalog").select("*").order("item_name"),
-        db.from("wms_inventory").select("*"),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("*").order("item_name")),
+        fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("*")),
         db
           .from("products")
           .select("id, name, inventory_id")

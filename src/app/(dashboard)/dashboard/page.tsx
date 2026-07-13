@@ -83,8 +83,17 @@ export default function DashboardPage() {
       expensesQ = expensesQ.eq("location_id", effectiveLoc);
     }
 
-    const [productsRes, salesRes, customersRes, recentRes, topSellersRes, expensesRes, everSoldRes] = await Promise.all([
-      db.from("products").select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued").eq("discontinued", false),
+    const [products, salesRes, customersRes, recentRes, topSellersRes, expensesRes, everSoldRes] = await Promise.all([
+      // Paginated: Supabase's server-side max_rows ceiling (default 1000)
+      // silently truncates a plain select, which is why a 1,329-SKU catalogue
+      // reported exactly "1000 products" and why low-stock alerts for anything
+      // past row 1000 never appeared.
+      fetchAllPaged<ProductRow>(() =>
+        db.from("products")
+          .select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued")
+          .eq("discontinued", false)
+          .order("inventory_id")
+      ),
       salesQ,
       customersQ,
       recentQ,
@@ -94,7 +103,6 @@ export default function DashboardPage() {
       db.from("sales").select("id", { count: "exact", head: true }).eq("voided", false).limit(1),
     ]);
 
-    const products: any[] = productsRes.data || [];
     const sales: any[] = salesRes.data || [];
     const customers: any[] = customersRes.data || [];
     const recent = (recentRes.data || []) as { id: string; quantity: number; total_amount: number; payment_method: string; created_at: string; products: { name: string } | null }[];
@@ -625,10 +633,15 @@ async function downloadPnLReport(date: string) {
   const from = d.toISOString().split("T")[0];
   const to = date;
 
-  const [{ data: sales }, { data: expenses }, { data: products }] = await Promise.all([
+  const [{ data: sales }, { data: expenses }, products] = await Promise.all([
     db.from("sales").select("payment_method, total_amount, quantity, product_id").gte("sale_date", from).lte("sale_date", to).eq("voided", false),
     db.from("expenses").select("category, amount").gte("expense_date", from).lte("expense_date", to),
-    db.from("products").select("id, package_price, qty_in_pack"),
+    // Paginated: this builds the cost map behind COGS. Truncated at 1000, every
+    // sale of a product past that row silently costs R0 and gross profit is
+    // overstated. Money, so it must read the whole catalogue.
+    fetchAllPaged<ProductRow>(() =>
+      db.from("products").select("id, package_price, qty_in_pack").order("id")
+    ),
   ]);
 
   let cash = 0, card = 0, credit = 0;
@@ -642,7 +655,7 @@ async function downloadPnLReport(date: string) {
   const totalRevenue = cash + card + credit;
 
   const costMap: Record<string, number> = {};
-  ((products || []) as any[]).forEach((p: any) => {
+  products.forEach((p: any) => {
     costMap[p.id] = p.qty_in_pack && p.qty_in_pack > 0 && p.package_price ? p.package_price / p.qty_in_pack : 0;
   });
   let cogs = 0;

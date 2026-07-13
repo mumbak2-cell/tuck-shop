@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +33,14 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [items, setItems] = useState<ParsedItem[]>([]);
   const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState({ added: 0, updated: 0, skipped: 0 });
+  const [results, setResults] = useState<{
+    added: number; updated: number; skipped: number; failures: string[];
+  }>({ added: 0, updated: 0, skipped: 0, failures: [] });
 
   function reset() {
     setStep("upload");
     setItems([]);
-    setResults({ added: 0, updated: 0, skipped: 0 });
+    setResults({ added: 0, updated: 0, skipped: 0, failures: [] });
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -95,13 +98,19 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
       return;
     }
 
-    // Check which SKUs already exist
-    const { data: existing } = await db
-      .from("wms_catalog")
-      .select("id, sku");
+    // Check which SKUs already exist.
+    //
+    // Paginated: a plain select is capped at Supabase's max_rows (default 1000),
+    // so on a catalogue bigger than that every SKU past row 1000 looked "new".
+    // The importer would then INSERT it, hit the UNIQUE (org_id, sku)
+    // constraint, and silently bump `skipped` — so re-importing a 1,300-item
+    // catalogue quietly did nothing for the tail of the file.
+    const existing = await fetchAllPaged<{ id: number; sku: string }>(() =>
+      db.from("wms_catalog").select("id, sku").order("id")
+    );
 
     const existingMap = new Map<string, number>();
-    ((existing || []) as any[]).forEach((row: any) => {
+    existing.forEach((row) => {
       existingMap.set(row.sku, row.id);
     });
 
@@ -120,6 +129,9 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     let added = 0;
     let updated = 0;
     let skipped = 0;
+    // A skipped row used to vanish into a bare count. Keep the SKU and the
+    // reason so the operator can see what did not land and fix the file.
+    const failures: string[] = [];
 
     try {
       for (const item of items) {
@@ -163,6 +175,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
 
           if (err) {
             console.error("Failed to insert", row.sku, err);
+            failures.push(`${row.sku}: ${err.message}`);
             skipped++;
             continue;
           }
@@ -181,7 +194,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
         }
       }
 
-      setResults({ added, updated, skipped });
+      setResults({ added, updated, skipped, failures });
       setStep("done");
     } catch (err: any) {
       console.error("Import error:", err);
@@ -293,6 +306,23 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
               <Badge variant="amber">{results.skipped} skipped</Badge>
             )}
           </div>
+          {results.failures.length > 0 && (
+            <div className="mx-auto max-w-md text-left">
+              <p className="text-xs font-medium text-amber-800 mb-1">
+                These rows did not import:
+              </p>
+              <ul className="max-h-32 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-0.5">
+                {results.failures.slice(0, 20).map((msg) => (
+                  <li key={msg} className="font-mono">{msg}</li>
+                ))}
+                {results.failures.length > 20 && (
+                  <li className="text-amber-700">
+                    …and {results.failures.length - 20} more (see the browser console)
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
           <Button
             onClick={() => {
               handleClose();

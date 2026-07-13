@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -60,8 +61,8 @@ export default function WmsReceiveStockPage() {
   const [history, setHistory] = useState<PastReceipt[]>([]);
 
   const loadData = useCallback(async () => {
-    const [{ data: catalog }, { data: receipts }] = await Promise.all([
-      db.from("wms_catalog").select("*").order("item_name"),
+    const [catalog, { data: receipts }] = await Promise.all([
+      fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("*").order("item_name")),
       db
         .from("wms_receipts")
         .select("*")
