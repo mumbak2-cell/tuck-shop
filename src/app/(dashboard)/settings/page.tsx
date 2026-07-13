@@ -20,7 +20,7 @@ export default function SettingsPage() {
   const [wmsEnabled, setWmsEnabled] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
-  const { locations, refresh: refreshOrg } = useOrg();
+  const { locations, orgId, refresh: refreshOrg } = useOrg();
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -62,10 +62,30 @@ export default function SettingsPage() {
       { key: "stock_mode", value: stockMode },
     ];
 
-    for (const s of settings) {
-      await db
-        .from("app_settings")
-        .upsert({ key: s.key, value: s.value, updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (!orgId) {
+      setSaving(false);
+      alert("No organisation is loaded — cannot save settings.");
+      return;
+    }
+
+    // app_settings is keyed by (org_id, key) and org_id has no column default,
+    // so every row must carry org_id and the upsert must resolve on that pair.
+    // (Resolving on "key" alone matches no unique constraint and errors.)
+    const rows = settings.map((s) => ({
+      org_id: orgId,
+      key: s.key,
+      value: s.value,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await db
+      .from("app_settings")
+      .upsert(rows, { onConflict: "org_id,key" });
+
+    if (error) {
+      setSaving(false);
+      alert("Failed to save settings: " + (error.message || "Unknown error"));
+      return;
     }
 
     // Apply the currency immediately so the rest of the UI reflects it without a reload.
