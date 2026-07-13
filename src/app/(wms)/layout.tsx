@@ -10,7 +10,7 @@ import { signOutSafely } from "@/lib/sign-out";
 
 export default function WmsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { authenticated } = useAuth();
+  const { authenticated, role } = useAuth();
   const org = useOrg();
 
   useEffect(() => {
@@ -52,6 +52,57 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
 
   if (!authenticated) {
     return <PinPad />;
+  }
+
+  // Warehouse operations are admin/owner only. The sidebar hides these links
+  // for cashiers, but that is presentational — guard the route itself so a
+  // cashier cannot reach a warehouse write page by typing the URL.
+  if (role !== "admin") {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Warehouse access is restricted
+          </h2>
+          <p className="text-sm text-gray-500 mt-2">
+            Only owners and admins can manage warehouse stock. Ask an admin if
+            you need access.
+          </p>
+          <button
+            onClick={() => router.replace("/dashboard")}
+            className="mt-4 text-sm text-green-700 font-medium hover:underline"
+          >
+            Back to dashboard
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // The warehouse module is opt-in per org (Settings → Warehouse Management).
+  // The sidebar already hides these links when it is off; guard the route too
+  // so it can't be reached by direct URL. Only admins get here, so point them
+  // at the toggle rather than a generic "no access" message.
+  if (!org.wmsEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Warehouse module is off
+          </h2>
+          <p className="text-sm text-gray-500 mt-2">
+            Turn on Warehouse Management in Settings to receive, dispatch, and
+            count warehouse stock.
+          </p>
+          <button
+            onClick={() => router.replace("/settings")}
+            className="mt-4 text-sm text-green-700 font-medium hover:underline"
+          >
+            Go to settings
+          </button>
+        </div>
+      </div>
+    );
   }
 
   return (

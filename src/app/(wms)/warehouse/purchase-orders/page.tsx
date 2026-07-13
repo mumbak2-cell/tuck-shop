@@ -352,93 +352,31 @@ export default function WmsPurchaseOrdersPage() {
       const po = orders.find((o: POHeader) => o.id === receivePoId);
       if (!po) throw new Error("PO not found");
 
-      // Filter items with qty > 0
-      const toReceive = receiveItems.filter((item: POLineItem) => {
-        const qty = receiveQtys.get(item.id) || 0;
-        return qty > 0;
-      });
+      // Collect the (line item, qty) pairs the user entered.
+      const entries = receiveItems
+        .map((item: POLineItem) => ({
+          id: item.id,
+          qty: receiveQtys.get(item.id) || 0,
+        }))
+        .filter((e: { id: number; qty: number }) => e.qty > 0);
 
-      if (toReceive.length === 0) {
+      if (entries.length === 0) {
         alert("No items to receive");
         setReceiving(false);
         return;
       }
 
-      // 1. Create a receipt header
-      const totalCost = toReceive.reduce((sum: number, item: POLineItem) => {
-        const qty = receiveQtys.get(item.id) || 0;
-        return sum + qty * item.unit_cost;
-      }, 0);
+      // Single atomic RPC: receipt header, receipt lines, inventory,
+      // qty_received and the PO status roll-up all commit together. Unit cost
+      // is read server-side and each line is clamped to the outstanding qty.
+      const { error } = await db.rpc("receive_wms_purchase_order", {
+        p_po_id: receivePoId,
+        p_po_item_ids: entries.map((e: { id: number; qty: number }) => e.id),
+        p_qtys: entries.map((e: { id: number; qty: number }) => e.qty),
+        p_recorded_by: userName || null,
+      });
 
-      const { data: receipt, error: recErr } = await db
-        .from("wms_receipts")
-        .insert({
-          receipt_date: new Date().toISOString().split("T")[0],
-          supplier: po.supplier,
-          notes: "Received against " + po.po_number,
-          total_cost: totalCost,
-          recorded_by: userName || null,
-        })
-        .select("id")
-        .single();
-
-      if (recErr) throw recErr;
-      const receiptId = (receipt as any).id;
-
-      // 2. Insert receipt line items and update inventory
-      for (const item of toReceive) {
-        const qty = receiveQtys.get(item.id) || 0;
-
-        // Receipt line item
-        await db.from("wms_receipt_items").insert({
-          receipt_id: receiptId,
-          wms_item_id: item.wms_item_id,
-          packs: qty,
-          pack_size: 1,
-          total_units: qty,
-          unit_cost: item.unit_cost,
-          line_total: qty * item.unit_cost,
-        });
-
-        // Update inventory
-        const { data: inv } = await db
-          .from("wms_inventory")
-          .select("physical_qty")
-          .eq("wms_item_id", item.wms_item_id)
-          .single();
-
-        const currentQty = (inv as any)?.physical_qty ?? 0;
-
-        await db
-          .from("wms_inventory")
-          .update({
-            physical_qty: currentQty + qty,
-            updated_at: new Date().toISOString(),
-          })
-          .eq("wms_item_id", item.wms_item_id);
-
-        // Update PO item qty_received
-        await db
-          .from("wms_po_items")
-          .update({ qty_received: item.qty_received + qty })
-          .eq("id", item.id);
-      }
-
-      // 3. Update PO status
-      // Check if all items are fully received
-      const { data: updatedItems } = await db
-        .from("wms_po_items")
-        .select("qty_ordered, qty_received")
-        .eq("po_id", receivePoId);
-
-      const allReceived = ((updatedItems || []) as any[]).every(
-        (i: any) => i.qty_received >= i.qty_ordered
-      );
-
-      await updatePOStatus(
-        receivePoId,
-        allReceived ? "Received" : "Partially Received"
-      );
+      if (error) throw error;
 
       // Clear caches and reload
       setDetailCache(new Map());

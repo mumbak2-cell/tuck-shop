@@ -29,7 +29,7 @@ import {
   ArrowRightLeft,
   Percent,
 } from "lucide-react";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { LocationSwitcher } from "@/components/layout/location-switcher";
@@ -125,23 +125,34 @@ export function Sidebar() {
         <OfflineIndicator orgId={orgId} />
 
         <nav className="flex-1 overflow-y-auto p-4 space-y-1" aria-label="Main navigation">
-          {visibleItems.map((item) => {
+          {visibleItems.map((item, idx) => {
             const Icon = item.icon;
             const active = pathname === item.href;
+            // WMS items are contiguous at the end of the list; label the group
+            // with a header on the first one so warehouse functions are clearly
+            // separated from the shop menu.
+            const prev = visibleItems[idx - 1];
+            const startWarehouse = !!item.wmsOnly && (!prev || !prev.wmsOnly);
             return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setOpen(false)}
-                className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-green-50 text-green-700"
-                    : "text-gray-700 hover:bg-gray-50"
-                }`}
-              >
-                <Icon className="w-5 h-5 flex-shrink-0" />
-                {item.label}
-              </Link>
+              <Fragment key={item.href}>
+                {startWarehouse && (
+                  <div className="mt-3 pt-3 border-t border-gray-200 px-3 pb-1 text-xs font-semibold uppercase tracking-wide text-gray-400">
+                    Warehouse
+                  </div>
+                )}
+                <Link
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-green-50 text-green-700"
+                      : "text-gray-700 hover:bg-gray-50"
+                  }`}
+                >
+                  <Icon className="w-5 h-5 flex-shrink-0" />
+                  {item.label}
+                </Link>
+              </Fragment>
             );
           })}
         </nav>
