@@ -1,12 +1,16 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { Timeline, TimelineGroup, TimelineItem, Avatar } from "@/components/ui/timeline";
 import {
   Wrench,
   Plus,
@@ -66,10 +70,10 @@ export default function WmsAdjustmentsPage() {
   const loadData = useCallback(async () => {
     setLoading(true);
 
-    const [{ data: catalog }, { data: inventory }, { data: adjustmentRows }] =
+    const [catalog, inventory, { data: adjustmentRows }] =
       await Promise.all([
-        db.from("wms_catalog").select("id, sku, item_name").order("item_name"),
-        db.from("wms_inventory").select("wms_item_id, physical_qty"),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name").order("item_name")),
+        fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
         db
           .from("wms_adjustments")
           .select("*")
@@ -154,10 +158,12 @@ export default function WmsAdjustmentsPage() {
     ? inventoryMap.get(parseInt(selectedItem)) ?? 0
     : 0;
 
+  // Theft is the one reason that's genuinely alarming; breakage/expiry are
+  // losses worth flagging. A correction is routine bookkeeping and was blue for
+  // no reason — it's neutral now.
   const reasonColor = (r: string): string => {
-    if (r === "Breakage" || r === "Expired") return "amber";
     if (r === "Theft") return "red";
-    if (r === "Correction") return "blue";
+    if (r === "Breakage" || r === "Expired") return "amber";
     return "gray";
   };
 
@@ -168,6 +174,19 @@ export default function WmsAdjustmentsPage() {
       a.sku.toLowerCase().includes(search.toLowerCase()) ||
       a.reason.toLowerCase().includes(search.toLowerCase())
   );
+
+  // `adjustments` arrives newest-first, and filtering preserves that, so
+  // grouping by day keeps the reverse-chronological reading order.
+  const groupedAdjustments = (() => {
+    const byDay = new Map<string, AdjustmentDisplay[]>();
+    filtered.forEach((a) => {
+      const day = (a.adjustment_date || a.created_at).split("T")[0];
+      const rows = byDay.get(day) ?? [];
+      rows.push(a);
+      byDay.set(day, rows);
+    });
+    return [...byDay.entries()];
+  })();
 
   return (
     <div className="space-y-6">
@@ -212,61 +231,56 @@ export default function WmsAdjustmentsPage() {
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-200 bg-gray-50">
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Date</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Item</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Reason</th>
-                  <th className="text-right px-4 py-3 font-medium text-gray-600">Qty</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">Notes</th>
-                  <th className="text-left px-4 py-3 font-medium text-gray-600">By</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {filtered.map((adj: AdjustmentDisplay) => (
-                  <tr key={adj.id} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 text-gray-500">
-                      {formatDate(adj.created_at)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <p className="font-medium text-gray-900">{adj.item_name}</p>
-                      <p className="text-xs text-gray-400">{adj.sku}</p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <Badge variant={reasonColor(adj.reason) as any}>
-                        {adj.reason}
-                      </Badge>
-                    </td>
-                    <td className="px-4 py-3 text-right">
+        /* Same event log as the shop's Stock Adjustments, so it reads the same
+           way: a timeline grouped by day, with the actor on the rail. */
+        <div className="bg-gray-50 rounded-xl border border-gray-200 px-5 py-4">
+          <Timeline>
+            {groupedAdjustments.map(([day, rows]) => (
+              <TimelineGroup key={day} label={formatDate(day)}>
+                {rows.map((adj, i) => (
+                  <TimelineItem
+                    key={adj.id}
+                    last={i === rows.length - 1}
+                    marker={
+                      <Tooltip label={adj.recorded_by || "Unknown user"}>
+                        <Avatar name={adj.recorded_by} />
+                      </Tooltip>
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">{adj.item_name}</span>
+                          <span className="text-xs font-mono text-gray-400">{adj.sku}</span>
+                          <Badge variant={reasonColor(adj.reason) as any}>{adj.reason}</Badge>
+                        </div>
+                        {adj.notes && (
+                          <div className="text-sm text-gray-600 mt-1 max-w-md">
+                            <TruncatedText>{adj.notes}</TruncatedText>
+                          </div>
+                        )}
+                        <p className="text-xs text-gray-400 mt-1">{adj.recorded_by || "Unknown"}</p>
+                      </div>
+                      {/* Only a removal is a loss worth colouring; an addition is
+                          just a correction back up. */}
                       <span
-                        className={`inline-flex items-center gap-1 font-semibold ${
-                          adj.adjustment_qty < 0
-                            ? "text-red-600"
-                            : "text-green-600"
+                        className={`shrink-0 inline-flex items-center gap-1 text-lg font-bold tabular-nums ${
+                          adj.adjustment_qty < 0 ? "text-red-600" : "text-gray-700"
                         }`}
                       >
                         {adj.adjustment_qty < 0 ? (
-                          <ArrowDown className="w-3.5 h-3.5" />
+                          <ArrowDown className="w-4 h-4" />
                         ) : (
-                          <ArrowUp className="w-3.5 h-3.5" />
+                          <ArrowUp className="w-4 h-4" />
                         )}
-                        {Math.abs(adj.adjustment_qty)}
+                        {adj.adjustment_qty < 0 ? "−" : "+"}{Math.abs(adj.adjustment_qty)}
                       </span>
-                    </td>
-                    <td className="px-4 py-3 text-gray-500 max-w-[200px] truncate">
-                      {adj.notes || "—"}
-                    </td>
-                    <td className="px-4 py-3 text-gray-500">
-                      {adj.recorded_by || "—"}
-                    </td>
-                  </tr>
+                    </div>
+                  </TimelineItem>
                 ))}
-              </tbody>
-            </table>
-          </div>
+              </TimelineGroup>
+            ))}
+          </Timeline>
         </div>
       )}
 

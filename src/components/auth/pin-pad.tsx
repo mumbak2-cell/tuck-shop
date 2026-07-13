@@ -88,9 +88,12 @@ export function PinPad() {
             if (d === "") return <div key={i} />;
             if (d === "back") {
               return (
+                // aria-label rather than a tooltip: this is a touch-first PIN
+                // pad, where a hover tooltip would never appear anyway.
                 <button
                   key={i}
                   onClick={handleBackspace}
+                  aria-label="Delete last digit"
                   className="h-14 rounded-xl flex items-center justify-center text-gray-500 hover:bg-gray-100 transition-colors touch-manipulation"
                 >
                   <Delete className="w-6 h-6" />

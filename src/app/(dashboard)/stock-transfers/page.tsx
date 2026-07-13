@@ -13,8 +13,12 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { ActionMenu, MenuItem } from "@/components/ui/menu";
+import { Timeline, TimelineGroup, TimelineItem } from "@/components/ui/timeline";
 import {
-  ArrowRightLeft, AlertCircle, Check, Package, MapPin, Plus, Trash2, Send, Info,
+  ArrowRightLeft, ArrowRight, AlertCircle, Check, Package, MapPin, Plus, Trash2, Send, Info,
   Printer, Mail, MessageCircle, FileDown, RotateCcw,
 } from "lucide-react";
 import { formatZAR } from "@/lib/format";
@@ -395,7 +399,7 @@ export default function StockTransfersPage() {
             </div>
             <div>
               <p className="text-xs font-medium uppercase text-gray-500">To</p>
-              <p className="font-semibold text-green-700 mt-1">{receipt.toName}</p>
+              <p className="font-semibold text-gray-900 mt-1">{receipt.toName}</p>
             </div>
           </div>
 
@@ -416,9 +420,9 @@ export default function StockTransfersPage() {
                   <td className="py-2 text-gray-500">{idx + 1}</td>
                   <td className="py-2 font-mono text-xs text-gray-600">{it.inventoryId}</td>
                   <td className="py-2 font-medium text-gray-900">{it.productName}</td>
-                  <td className="py-2 text-right font-semibold text-gray-900">{it.quantity}</td>
-                  <td className="py-2 text-right text-gray-600">{formatZAR(it.unitPrice)}</td>
-                  <td className="py-2 text-right text-gray-900">{formatZAR(it.unitPrice * it.quantity)}</td>
+                  <td className="py-2 text-right font-semibold text-gray-900 tabular-nums">{it.quantity}</td>
+                  <td className="py-2 text-right text-gray-600 tabular-nums">{formatZAR(it.unitPrice)}</td>
+                  <td className="py-2 text-right text-gray-900 tabular-nums">{formatZAR(it.unitPrice * it.quantity)}</td>
                 </tr>
               ))}
             </tbody>
@@ -444,20 +448,29 @@ export default function StockTransfersPage() {
           </div>
         </div>
 
-        {/* Action buttons */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 no-print">
-          <Button onClick={printReceipt} variant="secondary">
+        {/* Print is what you do with a transfer receipt; sharing it is the
+            exception, so the share routes sit behind the menu. "Save PDF" was a
+            second button calling the same printReceipt() — it's now stated once,
+            as the hint under Print that it always was. */}
+        <div className="flex items-center gap-3 no-print">
+          <Button onClick={printReceipt}>
             <Printer className="w-4 h-4 mr-2" /> Print
           </Button>
-          <Button onClick={printReceipt} variant="secondary">
-            <FileDown className="w-4 h-4 mr-2" /> Save PDF
-          </Button>
-          <Button onClick={shareEmail} variant="secondary">
-            <Mail className="w-4 h-4 mr-2" /> Email
-          </Button>
-          <Button onClick={shareWhatsApp} variant="secondary">
-            <MessageCircle className="w-4 h-4 mr-2" /> WhatsApp
-          </Button>
+          <ActionMenu label="Share this receipt">
+            {(close) => (
+              <>
+                <MenuItem icon={FileDown} onClick={() => { close(); printReceipt(); }}>
+                  Save as PDF
+                </MenuItem>
+                <MenuItem icon={Mail} onClick={() => { close(); shareEmail(); }}>
+                  Email
+                </MenuItem>
+                <MenuItem icon={MessageCircle} onClick={() => { close(); shareWhatsApp(); }}>
+                  WhatsApp
+                </MenuItem>
+              </>
+            )}
+          </ActionMenu>
         </div>
         <p className="text-xs text-gray-500 mt-2 no-print">
           Tip: in the Print dialog, change destination to <strong>Save as PDF</strong> to download.
@@ -478,6 +491,19 @@ export default function StockTransfersPage() {
 
   const totalDraftUnits = draft.reduce((s, it) => s + it.quantity, 0);
   const totalDraftValue = draft.reduce((s, it) => s + it.unitPrice * it.quantity, 0);
+
+  // `recent` already arrives newest-first, so grouping by calendar day
+  // preserves that order both across and within groups.
+  const groupedRecent = (() => {
+    const byDay = new Map<string, TransferRow[]>();
+    recent.forEach((t) => {
+      const day = new Date(t.transferred_at).toISOString().split("T")[0];
+      const rows = byDay.get(day) ?? [];
+      rows.push(t);
+      byDay.set(day, rows);
+    });
+    return [...byDay.entries()];
+  })();
 
   return (
     <div className="max-w-4xl">
@@ -587,11 +613,13 @@ export default function StockTransfersPage() {
                       value={it.quantity}
                       onChange={(e) => handleEditQty(it.productId, parseInt(e.target.value, 10) || 1)}
                       className="w-20 text-right border border-gray-300 rounded-lg px-2 py-1 text-sm font-mono focus:border-green-500 focus:ring-1 focus:ring-green-500" />
-                    <button type="button" onClick={() => handleRemoveItem(it.productId)}
-                      className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                      title="Remove">
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <Tooltip label="Remove from transfer">
+                      <button type="button" onClick={() => handleRemoveItem(it.productId)}
+                        aria-label={`Remove ${it.productName} from transfer`}
+                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors">
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </Tooltip>
                   </div>
                 ))}
               </div>
@@ -637,42 +665,55 @@ export default function StockTransfersPage() {
             <p className="text-sm text-gray-500">No transfers yet.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-gray-50 border-b border-gray-200">
-                <tr>
-                  <th className="text-left px-5 py-3 font-medium text-gray-500">When</th>
-                  <th className="text-left px-5 py-3 font-medium text-gray-500">Product</th>
-                  <th className="text-right px-5 py-3 font-medium text-gray-500">Qty</th>
-                  <th className="text-left px-5 py-3 font-medium text-gray-500">From → To</th>
-                  <th className="text-left px-5 py-3 font-medium text-gray-500">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-100">
-                {recent.map((t) => (
-                  <tr key={t.id}>
-                    <td className="px-5 py-3 text-gray-700 whitespace-nowrap">
-                      {new Date(t.transferred_at).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}
-                    </td>
-                    <td className="px-5 py-3">
-                      <div className="font-medium text-gray-900">{t.product_name}</div>
-                      <div className="text-xs text-gray-400 font-mono">{t.inventory_id}</div>
-                    </td>
-                    <td className="px-5 py-3 text-right font-semibold text-gray-900">{t.quantity}</td>
-                    <td className="px-5 py-3">
-                      <div className="flex items-center gap-2 text-xs">
-                        <Badge color="amber">{t.from_name}</Badge>
-                        <ArrowRightLeft className="w-3.5 h-3.5 text-gray-400" />
-                        <Badge color="green">{t.to_name}</Badge>
+          /* Recent transfers is an event stream, so it reads as a timeline: the
+             day heading carries the date once instead of repeating a full
+             datetime on every row, and each entry keeps just its time. */
+          <div className="px-5 py-4 bg-gray-50">
+            <Timeline>
+              {groupedRecent.map(([day, rows]) => (
+                <TimelineGroup key={day} label={formatDayLabel(day)}>
+                  {rows.map((t, i) => (
+                    <TimelineItem
+                      key={t.id}
+                      last={i === rows.length - 1}
+                      marker={
+                        <span className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-gray-500">
+                          <ArrowRight className="w-4 h-4" />
+                        </span>
+                      }
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0 flex-1">
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="font-medium text-gray-900 min-w-0 max-w-[18rem]">
+                              <TruncatedText>{t.product_name}</TruncatedText>
+                            </span>
+                            <span className="text-xs text-gray-400 font-mono shrink-0">{t.inventory_id}</span>
+                          </div>
+                          {/* Direction is carried by the arrow and the reading
+                              order, so the branches don't need colour. Amber on
+                              the source read as a warning it never was. */}
+                          <div className="flex items-center gap-2 text-xs mt-1">
+                            <Badge variant="gray">{t.from_name}</Badge>
+                            <ArrowRight className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                            <Badge variant="gray">{t.to_name}</Badge>
+                            <span className="text-gray-400">
+                              {new Date(t.transferred_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}
+                            </span>
+                          </div>
+                          {t.notes && (
+                            <div className="text-xs text-gray-500 mt-1 max-w-md">
+                              <TruncatedText>{t.notes}</TruncatedText>
+                            </div>
+                          )}
+                        </div>
+                        <p className="shrink-0 text-lg font-bold text-gray-900 tabular-nums">×{t.quantity}</p>
                       </div>
-                    </td>
-                    <td className="px-5 py-3 text-gray-600 max-w-xs truncate" title={t.notes || ""}>
-                      {t.notes || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </TimelineItem>
+                  ))}
+                </TimelineGroup>
+              ))}
+            </Timeline>
           </div>
         )}
       </div>
@@ -680,16 +721,20 @@ export default function StockTransfersPage() {
       {/* Review modal — "Are you sure?" */}
       <Modal open={showConfirm} onClose={() => !submitting && setShowConfirm(false)} title="Review transfer" wide>
         <div className="space-y-4">
+          {/* Neutral: "from" is not a warning. The amber/green pair implied a
+              bad-to-good move. The labels and order carry the direction; the
+              genuine warning in this modal is the "Are you sure?" panel below,
+              which now has the only amber on the screen. */}
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3">
-              <p className="text-xs font-medium uppercase text-amber-700">From</p>
-              <p className="font-semibold text-amber-900 mt-0.5">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <p className="text-xs font-medium uppercase text-gray-500">From</p>
+              <p className="font-semibold text-gray-900 mt-0.5">
                 {locations.find((l) => l.id === fromLocId)?.name || "—"}
               </p>
             </div>
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3">
-              <p className="text-xs font-medium uppercase text-green-700">To</p>
-              <p className="font-semibold text-green-900 mt-0.5">
+            <div className="bg-gray-50 border border-gray-200 rounded-lg p-3">
+              <p className="text-xs font-medium uppercase text-gray-500">To</p>
+              <p className="font-semibold text-gray-900 mt-0.5">
                 {locations.find((l) => l.id === toLocId)?.name || "—"}
               </p>
             </div>
@@ -746,4 +791,22 @@ export default function StockTransfersPage() {
       </Modal>
     </div>
   );
+}
+
+/** Day heading for the transfer timeline — "Today"/"Yesterday" where it helps,
+ *  an explicit date otherwise. */
+function formatDayLabel(day: string): string {
+  const today = new Date().toISOString().split("T")[0];
+  const yesterdayDate = new Date();
+  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
+  const yesterday = yesterdayDate.toISOString().split("T")[0];
+
+  if (day === today) return "Today";
+  if (day === yesterday) return "Yesterday";
+  return new Date(day + "T00:00:00").toLocaleDateString("en-ZA", {
+    weekday: "short",
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
 }

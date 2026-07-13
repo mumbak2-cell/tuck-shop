@@ -12,7 +12,10 @@ import { ProductForm } from "@/components/products/product-form";
 import { CsvUploadModal } from "@/components/products/csv-upload";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useDebounce } from "@/lib/use-debounce";
-import { Plus, Search, Filter, Upload, Download, Tag } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { ActionMenu, MenuItem } from "@/components/ui/menu";
+import { Plus, Search, Filter, Upload, Download, Tag, Pencil, Trash2 } from "lucide-react";
 
 export default function ProductsPage() {
   const { currentLocationId, currentLocationName } = useOrg();
@@ -271,19 +274,28 @@ export default function ProductsPage() {
             </p>
           )}
         </div>
+        {/* Add Product is the everyday action and stays exposed; managing
+            categories, exporting and bulk-importing are occasional, so they
+            live behind the overflow menu rather than holding permanent space. */}
         <div className="flex gap-2 flex-wrap">
-          <Button variant="secondary" onClick={() => setShowCategories(true)}>
-            <Tag className="w-4 h-4 mr-2" /> Categories
-          </Button>
-          <Button variant="secondary" onClick={handleExport}>
-            <Download className="w-4 h-4 mr-2" /> Export
-          </Button>
-          <Button variant="secondary" onClick={() => setShowCsv(true)}>
-            <Upload className="w-4 h-4 mr-2" /> CSV Import
-          </Button>
           <Button onClick={() => setShowForm(true)}>
             <Plus className="w-4 h-4 mr-2" /> Add Product
           </Button>
+          <ActionMenu label="More product actions">
+            {(close) => (
+              <>
+                <MenuItem icon={Tag} onClick={() => { close(); setShowCategories(true); }}>
+                  Manage categories
+                </MenuItem>
+                <MenuItem icon={Upload} onClick={() => { close(); setShowCsv(true); }}>
+                  CSV import
+                </MenuItem>
+                <MenuItem icon={Download} onClick={() => { close(); handleExport(); }}>
+                  Export to CSV
+                </MenuItem>
+              </>
+            )}
+          </ActionMenu>
         </div>
       </div>
 
@@ -397,7 +409,7 @@ export default function ProductsPage() {
                     : p.opening_stock;
                   const lowStock = displayStock <= p.reorder_level && p.reorder_level > 0;
                   return (
-                    <tr key={p.id} className={`hover:bg-gray-50 ${selectedIds.has(p.id) ? "bg-green-50" : ""}`}>
+                    <tr key={p.id} className={`group hover:bg-gray-50 ${selectedIds.has(p.id) ? "bg-green-50" : ""}`}>
                       <td className="px-3 py-3">
                         <input
                           type="checkbox"
@@ -407,30 +419,60 @@ export default function ProductsPage() {
                         />
                       </td>
                       <td className="px-4 py-3 text-gray-500 font-mono text-xs">{p.inventory_id}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {p.name}
-                        {p.is_prepared && <Badge variant="blue">Prepared</Badge>}
+                      <td className="px-4 py-3 font-medium text-gray-900 max-w-[18rem]">
+                        <div className="flex items-center gap-2">
+                          <TruncatedText>{p.name}</TruncatedText>
+                          {p.is_prepared && <Badge variant="gray">Prepared</Badge>}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{p.category}</td>
-                      <td className="px-4 py-3 text-right text-gray-600">
+                      <td className="px-4 py-3">
+                        {p.category ? <Badge variant="gray">{p.category}</Badge> : <span className="text-gray-400">—</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right text-gray-600 tabular-nums">
                         {p.cost_per_unit ? formatZAR(p.cost_per_unit) : "—"}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">{formatZAR(p.selling_price)}</td>
-                      <td className="px-4 py-3 text-right">
-                        {margin !== null ? (
-                          <Badge variant={margin < 10 ? "red" : margin < 30 ? "yellow" : "green"}>
-                            {margin.toFixed(1)}%
-                          </Badge>
-                        ) : "—"}
+                      <td className="px-4 py-3 text-right font-medium tabular-nums">{formatZAR(p.selling_price)}</td>
+                      {/* Only a margin that needs attention gets colour. A green
+                          chip on every healthy product made the column decorative
+                          — the thin margins no longer stood out. */}
+                      <td className="px-4 py-3 text-right tabular-nums">
+                        {margin === null ? (
+                          <span className="text-gray-400">—</span>
+                        ) : margin < 10 ? (
+                          <Badge variant="red">{margin.toFixed(1)}%</Badge>
+                        ) : (
+                          <span className="text-gray-600">{margin.toFixed(1)}%</span>
+                        )}
                       </td>
-                      <td className="px-4 py-3 text-right">
+                      <td className="px-4 py-3 text-right tabular-nums">
                         <span className={lowStock ? "text-red-600 font-semibold" : ""}>
                           {displayStock}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right space-x-2">
-                        <button onClick={() => handleEdit(p)} className="text-green-600 hover:underline text-xs">Edit</button>
-                        <button onClick={() => handleDiscontinue(p)} className="text-red-500 hover:underline text-xs">Remove</button>
+                      {/* Row actions are revealed on hover/focus-within: at ~1,400
+                          SKUs a permanent Edit/Remove pair on every row is louder
+                          than the data. Kept focusable for keyboard users. */}
+                      <td className="px-4 py-3 text-right">
+                        <div className="inline-flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          <Tooltip label="Edit product">
+                            <button
+                              onClick={() => handleEdit(p)}
+                              aria-label={`Edit ${p.name}`}
+                              className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900"
+                            >
+                              <Pencil className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
+                          <Tooltip label="Discontinue product">
+                            <button
+                              onClick={() => handleDiscontinue(p)}
+                              aria-label={`Discontinue ${p.name}`}
+                              className="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-700"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -635,7 +677,7 @@ function ManageCategoriesModal({
             <div className="px-4 py-6 text-center text-sm text-gray-400">No categories yet — add your first one above.</div>
           ) : (
             rows.map((r) => (
-              <div key={r.name} className="px-4 py-3 flex items-center justify-between gap-3">
+              <div key={r.name} className="group px-4 py-3 flex items-center justify-between gap-3">
                 {renameFrom === r.name ? (
                   <>
                     <input
@@ -661,22 +703,32 @@ function ManageCategoriesModal({
                         {!r.inTable && " · only on products (not in your formal list)"}
                       </p>
                     </div>
-                    <button
-                      type="button"
-                      onClick={() => { setRenameFrom(r.name); setRenameTo(r.name); }}
-                      disabled={busy === r.name}
-                      className="text-xs text-green-700 hover:underline"
-                    >
-                      Rename
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleDiscontinue(r.name, r.count)}
-                      disabled={busy === r.name}
-                      className="text-xs text-red-600 hover:underline disabled:opacity-50"
-                    >
-                      Remove
-                    </button>
+                    {/* Revealed on hover/focus — the list is for reading your
+                        taxonomy; renaming and removing are the rare cases. */}
+                    <div className="inline-flex shrink-0 gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      <Tooltip label="Rename category">
+                        <button
+                          type="button"
+                          onClick={() => { setRenameFrom(r.name); setRenameTo(r.name); }}
+                          disabled={busy === r.name}
+                          aria-label={`Rename ${r.name}`}
+                          className="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-gray-900 disabled:opacity-50"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
+                      <Tooltip label={r.count > 0 ? `In use by ${r.count} product${r.count !== 1 ? "s" : ""}` : "Remove category"}>
+                        <button
+                          type="button"
+                          onClick={() => handleDiscontinue(r.name, r.count)}
+                          disabled={busy === r.name}
+                          aria-label={`Remove ${r.name}`}
+                          className="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
+                    </div>
                   </>
                 )}
               </div>

@@ -1,6 +1,7 @@
 "use client";
 import { useState, useRef } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -32,12 +33,16 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [items, setItems] = useState<ParsedItem[]>([]);
   const [saving, setSaving] = useState(false);
-  const [results, setResults] = useState({ added: 0, updated: 0, skipped: 0 });
+  const [progress, setProgress] = useState({ done: 0, total: 0 });
+  const [results, setResults] = useState<{
+    added: number; updated: number; skipped: number; failures: string[];
+  }>({ added: 0, updated: 0, skipped: 0, failures: [] });
 
   function reset() {
     setStep("upload");
     setItems([]);
-    setResults({ added: 0, updated: 0, skipped: 0 });
+    setProgress({ done: 0, total: 0 });
+    setResults({ added: 0, updated: 0, skipped: 0, failures: [] });
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -95,13 +100,19 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
       return;
     }
 
-    // Check which SKUs already exist
-    const { data: existing } = await db
-      .from("wms_catalog")
-      .select("id, sku");
+    // Check which SKUs already exist.
+    //
+    // Paginated: a plain select is capped at Supabase's max_rows (default 1000),
+    // so on a catalogue bigger than that every SKU past row 1000 looked "new".
+    // The importer would then INSERT it, hit the UNIQUE (org_id, sku)
+    // constraint, and silently bump `skipped` — so re-importing a 1,300-item
+    // catalogue quietly did nothing for the tail of the file.
+    const existing = await fetchAllPaged<{ id: number; sku: string }>(() =>
+      db.from("wms_catalog").select("id, sku").order("id")
+    );
 
     const existingMap = new Map<string, number>();
-    ((existing || []) as any[]).forEach((row: any) => {
+    existing.forEach((row) => {
       existingMap.set(row.sku, row.id);
     });
 
@@ -115,73 +126,146 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     setStep("preview");
   }
 
+  /** Rows per request. A 1,300-item catalogue becomes ~3 catalog round-trips
+   *  plus ~3 inventory ones, instead of the ~4,000 sequential requests the
+   *  row-at-a-time loop used to make. */
+  const CHUNK = 500;
+
+  function chunked<T>(rows: T[], size: number): T[][] {
+    const out: T[][] = [];
+    for (let i = 0; i < rows.length; i += size) out.push(rows.slice(i, i + size));
+    return out;
+  }
+
   async function handleImport() {
     setSaving(true);
+    setProgress({ done: 0, total: items.length });
+
     let added = 0;
     let updated = 0;
     let skipped = 0;
+    // A skipped row used to vanish into a bare count. Keep the SKU and the
+    // reason so the operator can see what did not land and fix the file.
+    const failures: string[] = [];
+
+    // Reorder levels are applied to wms_inventory, which is keyed by the
+    // catalog id — an id we only learn after the write. Keep them by SKU and
+    // join back to whatever the database hands us.
+    const reorderBySku = new Map<string, { level: number; qty: number }>();
+    items.forEach(({ csvRow: r }) => {
+      reorderBySku.set(r.sku, {
+        level: parseInt(r.reorder_level || "10") || 10,
+        qty: parseInt(r.reorder_qty || "50") || 50,
+      });
+    });
+
+    const catalogRow = (item: ParsedItem) => {
+      const r = item.csvRow;
+      return {
+        // org_id is omitted deliberately: the column defaults to
+        // default_user_org_id(), so the tenant is decided server-side and a
+        // client can't write into someone else's org.
+        ...(item.existingId ? { id: item.existingId } : {}),
+        sku: r.sku,
+        item_name: r.item_name,
+        category: r.category || null,
+        pack_size: parseInt(r.pack_size || "1") || 1,
+      };
+    };
 
     try {
+      // Drop SKUs repeated *within the file* before writing anything.
+      //
+      // This matters more now that writes are batched: Postgres rejects an
+      // INSERT ... ON CONFLICT that touches the same key twice ("cannot affect
+      // row a second time"), so a single duplicated SKU would fail its whole
+      // 500-row batch. Row-at-a-time only lost the duplicate itself. Last
+      // occurrence wins, which matches how a person edits a spreadsheet.
+      const bySku = new Map<string, ParsedItem>();
+      const duplicates: string[] = [];
       for (const item of items) {
-        const row = item.csvRow;
-        const packSize = parseInt(row.pack_size || "1") || 1;
-        const reorderLevel = parseInt(row.reorder_level || "10") || 10;
-        const reorderQty = parseInt(row.reorder_qty || "50") || 50;
+        if (bySku.has(item.csvRow.sku)) duplicates.push(item.csvRow.sku);
+        bySku.set(item.csvRow.sku, item);
+      }
+      if (duplicates.length > 0) {
+        skipped += duplicates.length;
+        [...new Set(duplicates)].forEach((sku) =>
+          failures.push(`${sku}: duplicated in the CSV — kept the last row`)
+        );
+      }
+      const unique = [...bySku.values()];
+      setProgress({ done: 0, total: unique.length });
 
-        if (item.existing && item.existingId) {
-          // Update existing
-          await db
-            .from("wms_catalog")
-            .update({
-              item_name: row.item_name,
-              category: row.category || null,
-              pack_size: packSize,
-            })
-            .eq("id", item.existingId);
+      // New items and existing ones are written the same way — an upsert. New
+      // rows insert (and the trg_wms_catalog_inventory trigger creates their
+      // inventory row); existing rows carry their primary key and so resolve to
+      // an update on conflict. `sku` is included on the update path too: the
+      // proposed tuple is NOT NULL-checked before the conflict is resolved.
+      const toInsert = unique.filter((i) => !i.existingId);
+      const toUpdate = unique.filter((i) => i.existingId);
 
-          await db
-            .from("wms_inventory")
-            .update({
-              reorder_level: reorderLevel,
-              reorder_qty: reorderQty,
-            })
-            .eq("wms_item_id", item.existingId);
+      // (catalog id, org_id) for every row we successfully wrote, so the
+      // inventory pass can address the trigger-created rows.
+      const written: { id: number; org_id: string; sku: string }[] = [];
+      let done = 0;
 
-          updated++;
-        } else {
-          // Insert new
-          const { data: newItem, error: err } = await db
-            .from("wms_catalog")
-            .insert({
-              sku: row.sku,
-              item_name: row.item_name,
-              category: row.category || null,
-              pack_size: packSize,
-            })
-            .select("id")
-            .single();
+      for (const [rows, isNew] of [
+        [toInsert, true] as const,
+        [toUpdate, false] as const,
+      ]) {
+        for (const batch of chunked(rows, CHUNK)) {
+          const payload = batch.map(catalogRow);
+          const { data, error } = isNew
+            ? await db.from("wms_catalog").insert(payload).select("id, org_id, sku")
+            : await db.from("wms_catalog").upsert(payload).select("id, org_id, sku");
 
-          if (err) {
-            console.error("Failed to insert", row.sku, err);
-            skipped++;
-            continue;
+          if (error) {
+            // One bad row rejects its whole batch, so name the batch rather
+            // than pretending we know which SKU was at fault.
+            console.error("Batch failed", error, batch.map((b) => b.csvRow.sku));
+            failures.push(
+              `${batch.length} row${batch.length !== 1 ? "s" : ""} (${batch[0].csvRow.sku}…${batch[batch.length - 1].csvRow.sku}): ${error.message}`
+            );
+            skipped += batch.length;
+          } else {
+            const rowsBack = (data || []) as { id: number; org_id: string; sku: string }[];
+            written.push(...rowsBack);
+            if (isNew) added += rowsBack.length;
+            else updated += rowsBack.length;
           }
-
-          // The trg_wms_catalog_inventory trigger already created the
-          // inventory row; apply this row's reorder levels to it.
-          await db
-            .from("wms_inventory")
-            .update({
-              reorder_level: reorderLevel,
-              reorder_qty: reorderQty,
-            })
-            .eq("wms_item_id", (newItem as any).id);
-
-          added++;
+          done += batch.length;
+          setProgress((p) => ({ ...p, done }));
         }
       }
 
-      setResults({ added, updated, skipped });
+      // Apply reorder levels. An upsert on (org_id, wms_item_id): the row
+      // already exists (trigger or prior import), so this resolves to an update
+      // of just these two columns — physical_qty is not in the payload and is
+      // therefore never clobbered.
+      const inventoryPayload = written
+        .map((w) => {
+          const ro = reorderBySku.get(w.sku);
+          if (!ro) return null;
+          return {
+            org_id: w.org_id,
+            wms_item_id: w.id,
+            reorder_level: ro.level,
+            reorder_qty: ro.qty,
+          };
+        })
+        .filter((r): r is NonNullable<typeof r> => r !== null);
+
+      for (const batch of chunked(inventoryPayload, CHUNK)) {
+        const { error } = await db
+          .from("wms_inventory")
+          .upsert(batch, { onConflict: "org_id,wms_item_id" });
+        if (error) {
+          console.error("Inventory batch failed", error);
+          failures.push(`Reorder levels for ${batch.length} items: ${error.message}`);
+        }
+      }
+
+      setResults({ added, updated, skipped, failures });
       setStep("done");
     } catch (err: any) {
       console.error("Import error:", err);
@@ -276,7 +360,9 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
               Back
             </Button>
             <Button onClick={handleImport} disabled={saving}>
-              {saving ? "Importing..." : `Import ${items.length} items`}
+              {saving
+                ? `Importing… ${progress.done} / ${progress.total}`
+                : `Import ${items.length} items`}
             </Button>
           </div>
         </div>
@@ -293,6 +379,23 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
               <Badge variant="amber">{results.skipped} skipped</Badge>
             )}
           </div>
+          {results.failures.length > 0 && (
+            <div className="mx-auto max-w-md text-left">
+              <p className="text-xs font-medium text-amber-800 mb-1">
+                These rows did not import:
+              </p>
+              <ul className="max-h-32 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 space-y-0.5">
+                {results.failures.slice(0, 20).map((msg) => (
+                  <li key={msg} className="font-mono">{msg}</li>
+                ))}
+                {results.failures.length > 20 && (
+                  <li className="text-amber-700">
+                    …and {results.failures.length - 20} more (see the browser console)
+                  </li>
+                )}
+              </ul>
+            </div>
+          )}
           <Button
             onClick={() => {
               handleClose();

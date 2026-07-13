@@ -5,6 +5,7 @@ import { formatZAR, formatDate } from "@/lib/format";
 import { toInternationalPhone } from "@/lib/currency";
 import { useOrg } from "@/lib/org-context";
 import { Badge } from "@/components/ui/badge";
+import { Sparkline, bucketByDay } from "@/components/ui/sparkline";
 import { BookOpen, ArrowUpRight, ArrowDownLeft, MessageCircle, Download } from "lucide-react";
 import type { Customer } from "@/types/database";
 
@@ -237,6 +238,16 @@ export default function CreditLedgerPage() {
     .reduce((sum, e) => sum + e.amount, 0);
   const totalOutstanding = customers.reduce((sum, c) => sum + c.balance, 0);
 
+  // One bar per day across the whole selected range, so quiet days show as
+  // gaps rather than being collapsed out of the series.
+  const creditByDay = bucketByDay(
+    entries.filter((e) => e.type === "credit_sale"),
+    (e) => e.date,
+    (e) => e.amount,
+    filterFrom,
+    filterTo
+  );
+
   const selectedCustomer = customers.find((c) => c.id === filterCustomer);
   const groupedLines = filterCustomer !== "all" ? buildGroupedLines() : [];
   const periodBalance = broughtForward + totalCreditSales - totalPayments;
@@ -352,21 +363,42 @@ export default function CreditLedgerPage() {
         </p>
       </div>
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <div className="bg-white border border-red-100 rounded-xl px-5 py-4">
-          <p className="text-sm text-red-600">Credit Sales (Period)</p>
-          <p className="text-2xl font-bold text-red-700">{formatZAR(totalCreditSales)}</p>
+      {/* Summary cards. Credit sales and payments are routine bookkeeping and
+          read neutral; Outstanding is the only figure that demands action, so
+          it's the only one that keeps its colour. */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
+          <p className="text-sm text-gray-500">Credit Sales (Period)</p>
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatZAR(totalCreditSales)}</p>
         </div>
-        <div className="bg-white border border-green-100 rounded-xl px-5 py-4">
-          <p className="text-sm text-green-600">Payments Received (Period)</p>
-          <p className="text-2xl font-bold text-green-700">{formatZAR(totalPayments)}</p>
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
+          <p className="text-sm text-gray-500">Payments Received (Period)</p>
+          <p className="text-2xl font-bold text-gray-900 tabular-nums">{formatZAR(totalPayments)}</p>
         </div>
-        <div className="bg-white border border-amber-100 rounded-xl px-5 py-4">
-          <p className="text-sm text-amber-600">Total Outstanding (All Time)</p>
-          <p className="text-2xl font-bold text-amber-700">{formatZAR(totalOutstanding)}</p>
+        <div className="bg-white border border-amber-200 rounded-xl px-5 py-4">
+          <p className="text-sm text-amber-700">Total Outstanding (All Time)</p>
+          <p className="text-2xl font-bold text-amber-700 tabular-nums">{formatZAR(totalOutstanding)}</p>
         </div>
       </div>
+
+      {/* Rollup: new credit extended per day over the selected period. The
+          ledger below answers "who owes what"; this answers "is the book
+          growing, and when did it jump" without scanning dates. */}
+      {!loading && creditByDay.length > 1 && (
+        <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 mb-6">
+          <div className="flex items-baseline justify-between mb-3">
+            <h2 className="text-sm font-medium text-gray-700">Credit extended per day</h2>
+            <p className="text-xs text-gray-500">{formatDate(filterFrom)} – {formatDate(filterTo)}</p>
+          </div>
+          <Sparkline
+            points={creditByDay}
+            format={(v) => formatZAR(v)}
+            barClass="bg-gray-200"
+            emphasisClass="bg-amber-500"
+            height={44}
+          />
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap gap-3 mb-4 items-end">

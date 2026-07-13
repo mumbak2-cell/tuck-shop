@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
@@ -233,12 +234,15 @@ export default function ExpensesPage() {
               </div>
               <div className="flex items-center gap-3">
                 <p className="text-lg font-bold text-gray-900">{formatZAR(exp.amount)}</p>
-                <button
-                  onClick={() => handleDelete(exp.id)}
-                  className="p-1.5 text-gray-400 hover:text-red-600 rounded"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
+                <Tooltip label="Delete expense">
+                  <button
+                    onClick={() => handleDelete(exp.id)}
+                    aria-label="Delete expense"
+                    className="p-1.5 text-gray-400 hover:text-red-600 rounded"
+                  >
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           ))}

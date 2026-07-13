@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
@@ -7,6 +7,9 @@ import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { Sparkline, bucketByDay } from "@/components/ui/sparkline";
+import { Timeline, TimelineGroup, TimelineItem, Avatar } from "@/components/ui/timeline";
 import type { Product } from "@/types/database";
 import { Wrench, Plus, Search, ArrowDown, ArrowUp, Package, Store } from "lucide-react";
 
@@ -187,6 +190,49 @@ export default function StockAdjustmentsPage() {
     ? stockAt(selectedProd.id, formLocationId)
     : 0;
 
+  // Timeline grouping. `adjustments` already arrives newest-first from the
+  // query, so grouping preserves that order within and across days.
+  const groupedByDay = useMemo(() => {
+    const byDay = new Map<string, Adjustment[]>();
+    adjustments.forEach((a) => {
+      const day = a.adjustment_date;
+      const rows = byDay.get(day) ?? [];
+      rows.push(a);
+      byDay.set(day, rows);
+    });
+    return [...byDay.entries()];
+  }, [adjustments]);
+
+  // Rollup window: the last 30 days, or the full span of the loaded log if
+  // that's shorter. Capped because a quiet shop's 50 adjustments can stretch
+  // over a year, and 365 hairline bars communicate nothing.
+  const ROLLUP_DAYS = 30;
+  const { removalsByDay, unitsRemoved } = useMemo(() => {
+    const removals = adjustments.filter((a) => a.direction === "decrease");
+    if (adjustments.length === 0) return { removalsByDay: [], unitsRemoved: 0 };
+
+    const today = new Date();
+    const windowStart = new Date(today);
+    windowStart.setDate(windowStart.getDate() - (ROLLUP_DAYS - 1));
+
+    const oldest = adjustments.map((a) => a.adjustment_date).sort()[0];
+    const from = oldest > windowStart.toISOString().split("T")[0]
+      ? oldest
+      : windowStart.toISOString().split("T")[0];
+
+    const inWindow = removals.filter((a) => a.adjustment_date >= from);
+    return {
+      removalsByDay: bucketByDay(
+        inWindow,
+        (a) => a.adjustment_date,
+        (a) => a.quantity,
+        from,
+        today.toISOString().split("T")[0]
+      ),
+      unitsRemoved: inWindow.reduce((sum, a) => sum + a.quantity, 0),
+    };
+  }, [adjustments]);
+
   const reasonColors: Record<string, string> = {
     Breakage: "red",
     Expired: "amber",
@@ -215,7 +261,9 @@ export default function StockAdjustmentsPage() {
         </Button>
       </div>
 
-      {/* Adjustment history */}
+      {/* Adjustment history — a time-sequenced event log, so it reads as a
+          timeline rather than a table: the day headings and the rail carry the
+          sequence, and the avatar answers "who did this" at a glance. */}
       {loading ? (
         <div className="text-center py-12 text-gray-400">Loading...</div>
       ) : adjustments.length === 0 ? (
@@ -224,41 +272,77 @@ export default function StockAdjustmentsPage() {
           <p className="text-gray-500">No stock adjustments recorded yet.</p>
         </div>
       ) : (
-        <div className="space-y-2">
-          {adjustments.map((adj) => (
-            <div
-              key={adj.id}
-              className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between"
-            >
-              <div className="flex-1">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="font-medium text-gray-900">{adj.product_name}</span>
-                  <span className="text-xs font-mono text-gray-400">{adj.inventory_id}</span>
-                  <Badge color={reasonColors[adj.reason] || "gray"}>{adj.reason}</Badge>
-                  {adj.location_name && (
-                    <span className="text-xs text-gray-600 inline-flex items-center gap-1">
-                      <Store className="w-3 h-3" /> {adj.location_name}
-                    </span>
-                  )}
-                  {adj.direction === "decrease" ? (
-                    <span className="text-xs text-red-600 flex items-center gap-0.5"><ArrowDown className="w-3 h-3" />Remove</span>
-                  ) : (
-                    <span className="text-xs text-green-600 flex items-center gap-0.5"><ArrowUp className="w-3 h-3" />Add</span>
-                  )}
-                </div>
-                {adj.notes && <p className="text-sm text-gray-600 mt-1">{adj.notes}</p>}
-                <p className="text-xs text-gray-400 mt-1">
-                  {formatDate(adj.adjustment_date)} · {adj.adjusted_by || "Unknown"} · Stock: {adj.stock_before} → {adj.stock_after}
-                </p>
-              </div>
-              <div className="text-right">
-                <p className={`text-lg font-bold ${adj.direction === "decrease" ? "text-red-600" : "text-green-600"}`}>
-                  {adj.direction === "decrease" ? "−" : "+"}{adj.quantity}
-                </p>
-              </div>
+        <>
+          {/* Rollup: units written off per day. Spotting the bad day is the
+              whole point of this log, and scanning 50 timestamps won't do it. */}
+          <div className="bg-white border border-gray-200 rounded-xl px-5 py-4 mb-6">
+            <div className="flex items-baseline justify-between mb-3">
+              <h2 className="text-sm font-medium text-gray-700">Stock removed per day</h2>
+              <p className="text-xs text-gray-500">
+                <span className="font-semibold text-gray-900">{unitsRemoved}</span> unit
+                {unitsRemoved !== 1 ? "s" : ""} written off in the last {ROLLUP_DAYS} days
+              </p>
             </div>
-          ))}
-        </div>
+            <Sparkline
+              points={removalsByDay}
+              format={(v) => `${v} unit${v !== 1 ? "s" : ""} removed`}
+              barClass="bg-gray-200"
+              emphasisClass="bg-red-500"
+              height={48}
+            />
+          </div>
+
+          <Timeline>
+            {groupedByDay.map(([day, rows]) => (
+              <TimelineGroup key={day} label={formatDate(day)}>
+                {rows.map((adj, i) => (
+                  <TimelineItem
+                    key={adj.id}
+                    last={i === rows.length - 1}
+                    marker={
+                      <Tooltip label={adj.adjusted_by || "Unknown user"}>
+                        <Avatar name={adj.adjusted_by} />
+                      </Tooltip>
+                    }
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-medium text-gray-900">{adj.product_name}</span>
+                          <span className="text-xs font-mono text-gray-400">{adj.inventory_id}</span>
+                          <Badge color={reasonColors[adj.reason] || "gray"}>{adj.reason}</Badge>
+                          {adj.location_name && (
+                            <span className="text-xs text-gray-600 inline-flex items-center gap-1">
+                              <Store className="w-3 h-3" /> {adj.location_name}
+                            </span>
+                          )}
+                        </div>
+                        {adj.notes && <p className="text-sm text-gray-600 mt-1">{adj.notes}</p>}
+                        <p className="text-xs text-gray-400 mt-1">
+                          {adj.adjusted_by || "Unknown"} · Stock {adj.stock_before} → {adj.stock_after}
+                        </p>
+                      </div>
+                      {/* Direction is already carried by the sign and the arrow;
+                          only a removal (a real loss) is coloured. */}
+                      <p
+                        className={`shrink-0 text-lg font-bold tabular-nums flex items-center gap-0.5 ${
+                          adj.direction === "decrease" ? "text-red-600" : "text-gray-700"
+                        }`}
+                      >
+                        {adj.direction === "decrease" ? (
+                          <ArrowDown className="w-4 h-4" />
+                        ) : (
+                          <ArrowUp className="w-4 h-4" />
+                        )}
+                        {adj.direction === "decrease" ? "−" : "+"}{adj.quantity}
+                      </p>
+                    </div>
+                  </TimelineItem>
+                ))}
+              </TimelineGroup>
+            ))}
+          </Timeline>
+        </>
       )}
 
       {/* New Adjustment Modal */}

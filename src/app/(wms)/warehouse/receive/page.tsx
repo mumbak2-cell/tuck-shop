@@ -1,9 +1,13 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { Avatar } from "@/components/ui/timeline";
 import { Input } from "@/components/ui/input";
 import {
   PackagePlus,
@@ -57,8 +61,8 @@ export default function WmsReceiveStockPage() {
   const [history, setHistory] = useState<PastReceipt[]>([]);
 
   const loadData = useCallback(async () => {
-    const [{ data: catalog }, { data: receipts }] = await Promise.all([
-      db.from("wms_catalog").select("*").order("item_name"),
+    const [catalog, { data: receipts }] = await Promise.all([
+      fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("*").order("item_name")),
       db
         .from("wms_receipts")
         .select("*")
@@ -312,12 +316,15 @@ export default function WmsReceiveStockPage() {
                           {formatZAR(line.packs * line.packSize * line.unitCost)}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => removeLine(line.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <Tooltip label="Remove line">
+                            <button
+                              onClick={() => removeLine(line.id)}
+                              aria-label="Remove line"
+                              className="text-gray-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
                         </td>
                       </tr>
                     ))}
@@ -369,20 +376,25 @@ export default function WmsReceiveStockPage() {
                 <tbody className="divide-y divide-gray-100">
                   {history.map((r: PastReceipt) => (
                     <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                         {formatDate(r.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-gray-900">
-                        {r.supplier || "—"}
+                      <td className="px-4 py-3 text-gray-900 max-w-[12rem]">
+                        {r.supplier ? <TruncatedText>{r.supplier}</TruncatedText> : "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {r.notes || "—"}
+                      <td className="px-4 py-3 text-gray-500 max-w-[16rem]">
+                        {r.notes ? <TruncatedText>{r.notes}</TruncatedText> : "—"}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">
+                      <td className="px-4 py-3 text-right font-medium tabular-nums">
                         {formatZAR(r.total_cost)}
                       </td>
                       <td className="px-4 py-3 text-gray-500">
-                        {r.recorded_by || "—"}
+                        {r.recorded_by ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Avatar name={r.recorded_by} className="h-6 w-6 text-[10px]" />
+                            <span>{r.recorded_by}</span>
+                          </span>
+                        ) : "—"}
                       </td>
                     </tr>
                   ))}

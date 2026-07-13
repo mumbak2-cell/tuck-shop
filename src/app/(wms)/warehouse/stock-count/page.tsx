@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -16,6 +17,11 @@ import {
   Filter,
   Clock,
 } from "lucide-react";
+
+interface WmsInventoryRow {
+  wms_item_id: number;
+  physical_qty: number;
+}
 
 interface WmsCatalogItem {
   id: number;
@@ -95,13 +101,15 @@ export default function WmsStockCountPage() {
     async (forSessionId?: string) => {
       setLoading(true);
 
-      const [{ data: catalog }, { data: inventory }, { data: todayCounts }] =
+      const [catalog, inventory, { data: todayCounts }] =
         await Promise.all([
-          db
-            .from("wms_catalog")
-            .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at")
-            .order("item_name"),
-          db.from("wms_inventory").select("wms_item_id, physical_qty"),
+          fetchAllPaged<WmsCatalogItem>(() =>
+            db
+              .from("wms_catalog")
+              .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at")
+              .order("item_name")
+          ),
+          fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
           db
             .from("wms_stock_counts")
             .select("session_id, session_label, counted_by, counted_at")
@@ -404,7 +412,7 @@ export default function WmsStockCountPage() {
             className={"rounded-xl border p-3 text-left transition-colors " + (countMode === "abc_" + cls.toLowerCase() ? "border-green-400 bg-green-50" : "border-gray-200 bg-white hover:border-green-300")}
           >
             <div className="flex items-center gap-2 mb-1">
-              <Badge variant={cls === "A" ? "red" : cls === "B" ? "amber" : "blue"}>
+              <Badge variant="gray">
                 Class {cls}
               </Badge>
             </div>
@@ -480,7 +488,7 @@ export default function WmsStockCountPage() {
             </button>
             <button
               onClick={startNewSession}
-              className="text-xs text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-100 transition-colors whitespace-nowrap"
+              className="text-xs text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors whitespace-nowrap"
             >
               <Plus className="w-3 h-3 inline mr-1" />
               New Session
@@ -578,7 +586,7 @@ export default function WmsStockCountPage() {
                       {row.catalog.item_name}
                     </p>
                     {row.saved && <Check className="w-4 h-4 text-green-600 flex-shrink-0" />}
-                    <Badge variant={row.catalog.abc_class === "A" ? "red" : row.catalog.abc_class === "B" ? "amber" : "blue"}>
+                    <Badge variant="gray">
                       {row.catalog.abc_class}
                     </Badge>
                     {row.isOverdue && row.countedQty === "" && (

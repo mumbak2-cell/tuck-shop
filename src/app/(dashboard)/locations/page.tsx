@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg, type LocationRow } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Store, Plus, Pencil, Power, Trash2, Check, X } from "lucide-react";
 
 export default function LocationsPage() {
@@ -165,10 +166,16 @@ export default function LocationsPage() {
               </tr>
             )}
             {locations.map((loc) => (
-              <tr key={loc.id} className="hover:bg-gray-50">
-                <td className="px-4 py-3 font-medium text-gray-900">{loc.name}</td>
-                <td className="px-4 py-3 text-gray-600">{loc.address || "—"}</td>
-                <td className="px-4 py-3 text-gray-600">{loc.phone || "—"}</td>
+              // Disabled branches are shaded and dimmed so the eye skips them.
+              // Their action buttons stay at full strength — re-enabling a
+              // branch is exactly what you come to a disabled row to do.
+              <tr
+                key={loc.id}
+                className={`group hover:bg-gray-50 ${loc.active ? "" : "bg-gray-50/70"}`}
+              >
+                <td className={`px-4 py-3 font-medium text-gray-900 ${loc.active ? "" : "opacity-55"}`}>{loc.name}</td>
+                <td className={`px-4 py-3 text-gray-600 ${loc.active ? "" : "opacity-55"}`}>{loc.address || "—"}</td>
+                <td className={`px-4 py-3 text-gray-600 ${loc.active ? "" : "opacity-55"}`}>{loc.phone || "—"}</td>
                 <td className="px-4 py-3">
                   {loc.active ? (
                     <span className="inline-flex items-center gap-1 px-2 py-0.5 bg-green-50 text-green-700 rounded-full text-xs font-medium">
@@ -182,29 +189,35 @@ export default function LocationsPage() {
                 </td>
                 {canManage && (
                   <td className="px-4 py-3 text-right">
-                    <div className="inline-flex gap-1">
-                      <button
-                        onClick={() => openEditForm(loc)}
-                        className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded"
-                        title="Edit"
-                      >
-                        <Pencil className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => toggleActive(loc)}
-                        className="p-1.5 text-gray-500 hover:text-amber-700 hover:bg-amber-50 rounded"
-                        title={loc.active ? "Disable" : "Enable"}
-                      >
-                        <Power className="w-4 h-4" />
-                      </button>
-                      {locations.length > 1 && (
+                    <div className="inline-flex gap-1 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                      <Tooltip label="Edit location">
                         <button
-                          onClick={() => remove(loc)}
-                          className="p-1.5 text-gray-500 hover:text-red-700 hover:bg-red-50 rounded"
-                          title="Delete"
+                          onClick={() => openEditForm(loc)}
+                          aria-label={`Edit ${loc.name}`}
+                          className="p-1.5 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Pencil className="w-4 h-4" />
                         </button>
+                      </Tooltip>
+                      <Tooltip label={loc.active ? "Disable location" : "Enable location"}>
+                        <button
+                          onClick={() => toggleActive(loc)}
+                          aria-label={`${loc.active ? "Disable" : "Enable"} ${loc.name}`}
+                          className="p-1.5 text-gray-500 hover:text-amber-700 hover:bg-amber-50 rounded"
+                        >
+                          <Power className="w-4 h-4" />
+                        </button>
+                      </Tooltip>
+                      {locations.length > 1 && (
+                        <Tooltip label="Delete location">
+                          <button
+                            onClick={() => remove(loc)}
+                            aria-label={`Delete ${loc.name}`}
+                            className="p-1.5 text-gray-500 hover:text-red-700 hover:bg-red-50 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </Tooltip>
                       )}
                     </div>
                   </td>
