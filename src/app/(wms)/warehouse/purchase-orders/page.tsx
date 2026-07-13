@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -570,9 +571,15 @@ export default function WmsPurchaseOrdersPage() {
                           {formatZAR(line.qtyOrdered * line.unitCost)}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <button onClick={() => removePOLine(line.localId)} className="text-gray-400 hover:text-red-500">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <Tooltip label="Remove line">
+                            <button
+                              onClick={() => removePOLine(line.localId)}
+                              aria-label="Remove line"
+                              className="text-gray-400 hover:text-red-500"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
                         </td>
                       </tr>
                     ))}

@@ -12,11 +12,11 @@ import {
   ArrowRight,
   Banknote,
   CreditCard,
-  Download,
   FileSpreadsheet,
   Receipt,
   TrendingUp,
 } from "lucide-react";
+import { ActionMenu, MenuItem } from "@/components/ui/menu";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket } from "@/lib/payment-buckets";
@@ -40,6 +40,9 @@ interface DashboardData {
   monthlyOperating: number;
   monthlyDirectorW: number;
   expenseBreakdown: { category: string; total: number }[];
+  /** Any sale ever, not just today — drives the onboarding checklist, which
+   *  must not un-tick itself the morning after the first sale. */
+  hasAnySale: boolean;
   /** L3: comparison period data */
   compSales?: number;
   compTransactions?: number;
@@ -80,13 +83,15 @@ export default function DashboardPage() {
       expensesQ = expensesQ.eq("location_id", effectiveLoc);
     }
 
-    const [productsRes, salesRes, customersRes, recentRes, topSellersRes, expensesRes] = await Promise.all([
+    const [productsRes, salesRes, customersRes, recentRes, topSellersRes, expensesRes, everSoldRes] = await Promise.all([
       db.from("products").select("name, opening_stock, reorder_level, selling_price, cost_per_unit, discontinued").eq("discontinued", false),
       salesQ,
       customersQ,
       recentQ,
       topSellersQ,
       expensesQ,
+      // Existence check only — head:true so we never pull the rows back.
+      db.from("sales").select("id", { count: "exact", head: true }).eq("voided", false).limit(1),
     ]);
 
     const products: any[] = productsRes.data || [];
@@ -172,6 +177,7 @@ export default function DashboardPage() {
       monthlyOperating,
       monthlyDirectorW,
       expenseBreakdown,
+      hasAnySale: (everSoldRes.count ?? 0) > 0,
       compSales,
       compTransactions,
     });
@@ -186,6 +192,24 @@ export default function DashboardPage() {
   if (loading || !data) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
   }
+
+  // CSV import is not a milestone of its own — it's just a faster way to do
+  // step 1 — so it's offered inside that step rather than as a step that can
+  // never be ticked off.
+  const onboarding = (() => {
+    const steps = [
+      { label: "Add your first product", href: "/products", cta: "Add products", done: data.totalProducts > 0 },
+      { label: "Make your first sale", href: "/pos", cta: "Open POS", done: data.hasAnySale },
+      { label: "Add a credit customer", href: "/customers", cta: "Add customer", done: data.totalCustomers > 0 },
+    ];
+    const doneCount = steps.filter((s) => s.done).length;
+    return {
+      steps,
+      doneCount,
+      complete: doneCount === steps.length,
+      next: steps.find((s) => !s.done),
+    };
+  })();
 
   return (
     <div className="max-w-5xl">
@@ -203,36 +227,70 @@ export default function DashboardPage() {
             {showComparison ? "vs Yesterday ✓" : "Compare Yesterday"}
           </button>
           <LocationFilter value={locFilter} onChange={setLocFilter} />
+          {/* Reports were a permanent four-button panel below the fold. They're
+              a once-a-day/once-a-month action, so they live in a menu now. */}
+          <ActionMenu label="Download a report">
+            {(close) => (
+              <>
+                <MenuItem icon={FileSpreadsheet} onClick={() => { close(); downloadDailySalesReport(today); }}>
+                  Daily sales
+                </MenuItem>
+                <MenuItem icon={FileSpreadsheet} onClick={() => { close(); downloadStockReport(); }}>
+                  Stock levels
+                </MenuItem>
+                <MenuItem icon={FileSpreadsheet} onClick={() => { close(); downloadCreditReport(); }}>
+                  Credit outstanding
+                </MenuItem>
+                <MenuItem icon={FileSpreadsheet} onClick={() => { close(); downloadPnLReport(today); }}>
+                  Full P&amp;L
+                </MenuItem>
+              </>
+            )}
+          </ActionMenu>
         </div>
       </div>
 
-      {/* First-run onboarding checklist */}
-      {data.totalProducts === 0 && (
-        <div className="bg-gradient-to-br from-green-50 to-emerald-50 border border-green-200 rounded-xl p-6 mb-6">
-          <h2 className="text-lg font-bold text-gray-900 mb-1">Welcome to Tilify!</h2>
-          <p className="text-sm text-gray-600 mb-4">Get your shop set up in a few quick steps.</p>
+      {/* First-run checklist. Persistent (not a one-time modal) and driven by
+          real state, so it survives a reload, ticks itself off as the operator
+          works, and disappears only once the shop is genuinely running.
+          Only the next incomplete step carries a CTA — the later ones are
+          visible as context but not actionable yet. */}
+      {onboarding && !onboarding.complete && (
+        <div className="bg-white border border-gray-200 rounded-xl p-6 mb-6">
+          <h2 className="text-lg font-bold text-gray-900 mb-1">Get your shop running</h2>
+          <p className="text-sm text-gray-500 mb-4">
+            {onboarding.doneCount} of {onboarding.steps.length} done — {onboarding.next?.label}.
+          </p>
           <div className="space-y-3">
-            <OnboardingStep done={false} label="Add your first product" href="/products" cta="Add Product" />
-            <OnboardingStep done={false} label="Import products from CSV" href="/products" cta="CSV Import" />
-            <OnboardingStep done={data.totalCustomers > 0} label="Add a credit customer" href="/customers" cta="Add Customer" />
-            <OnboardingStep done={false} label="Make your first sale" href="/pos" cta="Open POS" />
+            {onboarding.steps.map((step) => (
+              <OnboardingStep
+                key={step.label}
+                done={step.done}
+                label={step.label}
+                href={step.href}
+                cta={step.cta}
+                isNext={step.label === onboarding.next?.label}
+              />
+            ))}
           </div>
         </div>
       )}
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        {/* Icon tiles are neutral: the icon identifies the metric, the colour
+            used to say nothing. Low Stock is the one card whose colour is a
+            signal, and it only fires when there's actually something to fix. */}
         <StatCard
           label="Today's Sales"
           value={formatZAR(data.todaySales)}
           sub={`${data.todayTransactions} transactions`}
           icon={ShoppingCart}
-          color="bg-green-600"
           delta={data.compSales != null ? deltaLabel(data.todaySales, data.compSales) : undefined}
         />
-        <StatCard label="Products" value={`${data.inStockProducts} in stock`} sub={`${data.totalProducts} total`} icon={Package} color="bg-blue-600" />
-        <StatCard label="Low Stock" value={data.lowStockCount.toString()} sub="need restocking" icon={AlertTriangle} color={data.lowStockCount > 0 ? "bg-red-600" : "bg-gray-400"} />
-        <StatCard label="Credit Owed" value={formatZAR(data.creditOutstanding)} sub={`${data.totalCustomers} customers`} icon={Wallet} color="bg-amber-500" />
+        <StatCard label="Products" value={`${data.inStockProducts} in stock`} sub={`${data.totalProducts} total`} icon={Package} />
+        <StatCard label="Low Stock" value={data.lowStockCount.toString()} sub="need restocking" icon={AlertTriangle} tone={data.lowStockCount > 0 ? "warning" : "neutral"} />
+        <StatCard label="Credit Owed" value={formatZAR(data.creditOutstanding)} sub={`${data.totalCustomers} customers`} icon={Wallet} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -327,18 +385,21 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {/* Totals row */}
+              {/* Neutral: a recorded expense is routine bookkeeping, not an
+                  alert. Red here competed with the low-stock warning for
+                  attention while carrying no urgency of its own. */}
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-red-50 rounded-lg px-4 py-3">
-                  <p className="text-xs text-red-600">Total Outflows</p>
-                  <p className="text-lg font-bold text-red-700">{formatZAR(data.monthlyExpenses)}</p>
+                <div className="bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500">Total Outflows</p>
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyExpenses)}</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg px-4 py-3">
                   <p className="text-xs text-gray-500">Operating</p>
-                  <p className="text-lg font-bold text-gray-900">{formatZAR(data.monthlyOperating)}</p>
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyOperating)}</p>
                 </div>
-                <div className="bg-amber-50 rounded-lg px-4 py-3">
-                  <p className="text-xs text-amber-600">Director W/D</p>
-                  <p className="text-lg font-bold text-amber-700">{formatZAR(data.monthlyDirectorW)}</p>
+                <div className="bg-gray-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-gray-500">Director W/D</p>
+                  <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyDirectorW)}</p>
                 </div>
               </div>
               {/* Category breakdown */}
@@ -386,20 +447,6 @@ export default function DashboardPage() {
         </div>
       </div>
 
-      {/* Reports section */}
-      <div className="mt-6 bg-white rounded-xl border border-gray-200 p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <FileSpreadsheet className="w-5 h-5 text-green-600" />
-          <h2 className="font-semibold text-gray-900">Download Reports</h2>
-        </div>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          <ReportButton label="Daily Sales" onClick={() => downloadDailySalesReport(today)} />
-          <ReportButton label="Stock Levels" onClick={downloadStockReport} />
-          <ReportButton label="Credit Outstanding" onClick={downloadCreditReport} />
-          <ReportButton label="Full P&L" onClick={() => downloadPnLReport(today)} />
-        </div>
-      </div>
-
       {/* Quick actions */}
       <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
         <QuickAction href="/pos" label="Open POS" icon={ShoppingCart} />
@@ -420,19 +467,20 @@ function deltaLabel(current: number, previous: number): { text: string; positive
   return { text: `${pct > 0 ? "+" : ""}${pct}%`, positive: pct > 0 };
 }
 
-function StatCard({ label, value, sub, icon: Icon, color, delta }: {
+function StatCard({ label, value, sub, icon: Icon, tone = "neutral", delta }: {
   label: string;
   value: string;
   sub: string;
   icon: React.ElementType;
-  color: string;
+  /** "warning" is reserved for a state the operator must act on. */
+  tone?: "neutral" | "warning";
   delta?: { text: string; positive: boolean } | null;
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center gap-3">
-        <div className={`p-2.5 rounded-lg ${color}`}>
-          <Icon className="w-5 h-5 text-white" />
+        <div className={`p-2.5 rounded-lg ${tone === "warning" ? "bg-red-600" : "bg-gray-100"}`}>
+          <Icon className={`w-5 h-5 ${tone === "warning" ? "text-white" : "text-gray-500"}`} />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs text-gray-500">{label}</p>
@@ -472,18 +520,6 @@ function SalesBar({ label, amount, total, icon: Icon, color }: {
         <div className={`${color} h-2 rounded-full transition-all`} style={{ width: `${pct}%` }} />
       </div>
     </div>
-  );
-}
-
-function ReportButton({ label, onClick }: { label: string; onClick: () => void }) {
-  return (
-    <button
-      onClick={onClick}
-      className="flex items-center gap-2 bg-gray-50 rounded-lg border border-gray-200 p-3 hover:border-green-300 hover:bg-green-50 transition-colors touch-manipulation text-sm font-medium text-gray-700"
-    >
-      <Download className="w-4 h-4 text-green-600" />
-      {label}
-    </button>
   );
 }
 
@@ -655,19 +691,40 @@ function QuickAction({ href, label, icon: Icon }: { href: string; label: string;
   );
 }
 
-function OnboardingStep({ done, label, href, cta }: { done: boolean; label: string; href: string; cta: string }) {
+function OnboardingStep({ done, label, href, cta, isNext }: {
+  done: boolean;
+  label: string;
+  href: string;
+  cta: string;
+  isNext: boolean;
+}) {
   return (
-    <div className="flex items-center justify-between bg-white rounded-lg border border-gray-200 px-4 py-3">
+    <div
+      className={`flex items-center justify-between rounded-lg border px-4 py-3 ${
+        isNext ? "border-green-300 bg-green-50/50" : "border-gray-200 bg-white"
+      }`}
+    >
       <div className="flex items-center gap-3">
         <div className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold ${done ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-400"}`}>
           {done ? "✓" : "•"}
         </div>
-        <span className={`text-sm ${done ? "text-gray-400 line-through" : "text-gray-800 font-medium"}`}>{label}</span>
+        <span className={`text-sm ${done ? "text-gray-400 line-through" : isNext ? "text-gray-900 font-medium" : "text-gray-500"}`}>
+          {label}
+        </span>
       </div>
-      {!done && (
-        <Link href={href} className="text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded px-3 py-1.5 transition-colors">
-          {cta}
-        </Link>
+      {/* Only the step you're actually on gets a CTA. Later steps stay listed
+          so the operator can see what's coming, but they don't compete. */}
+      {isNext && (
+        <div className="flex items-center gap-3">
+          {href === "/products" && (
+            <Link href="/products" className="text-xs text-gray-500 hover:underline">
+              or import a CSV
+            </Link>
+          )}
+          <Link href={href} className="text-xs font-medium text-green-700 bg-green-100 hover:bg-green-200 rounded px-3 py-1.5 transition-colors">
+            {cta}
+          </Link>
+        </div>
       )}
     </div>
   );

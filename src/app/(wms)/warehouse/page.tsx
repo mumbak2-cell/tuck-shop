@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -377,12 +378,15 @@ export default function WarehousePage() {
                       </td>
                       {role === "admin" && (
                         <td className="px-4 py-3 text-center">
-                          <button
-                            onClick={() => openEditForm(r.catalog, r.inventory)}
-                            className="text-gray-400 hover:text-green-600 transition-colors"
-                          >
-                            <Edit2 className="w-4 h-4" />
-                          </button>
+                          <Tooltip label="Edit item">
+                            <button
+                              onClick={() => openEditForm(r.catalog, r.inventory)}
+                              aria-label={`Edit ${r.catalog.item_name}`}
+                              className="text-gray-400 hover:text-green-600 transition-colors"
+                            >
+                              <Edit2 className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
                         </td>
                       )}
                     </tr>

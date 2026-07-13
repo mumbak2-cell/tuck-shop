@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
 import { PackagePlus, Plus, Trash2, Search, Save, History } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
@@ -422,9 +423,15 @@ export default function ReceiveStockPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-medium">{formatZAR(l.quantity * l.unitCost)}</td>
                       <td className="px-2 py-3">
-                        <button onClick={() => removeLine(l.id)} className="p-1.5 text-gray-400 hover:text-red-600 rounded">
-                          <Trash2 className="w-4 h-4" />
-                        </button>
+                        <Tooltip label="Remove item">
+                          <button
+                            onClick={() => removeLine(l.id)}
+                            aria-label="Remove item"
+                            className="p-1.5 text-gray-400 hover:text-red-600 rounded"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </Tooltip>
                       </td>
                     </tr>
                   ))}

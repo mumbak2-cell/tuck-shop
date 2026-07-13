@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { Input } from "@/components/ui/input";
 import {
   PackagePlus,
@@ -312,12 +313,15 @@ export default function WmsReceiveStockPage() {
                           {formatZAR(line.packs * line.packSize * line.unitCost)}
                         </td>
                         <td className="px-3 py-2 text-center">
-                          <button
-                            onClick={() => removeLine(line.id)}
-                            className="text-gray-400 hover:text-red-500 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          <Tooltip label="Remove line">
+                            <button
+                              onClick={() => removeLine(line.id)}
+                              aria-label="Remove line"
+                              className="text-gray-400 hover:text-red-500 transition-colors"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          </Tooltip>
                         </td>
                       </tr>
                     ))}
