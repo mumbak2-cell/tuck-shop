@@ -79,6 +79,32 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
     );
   }
 
+  // The warehouse module is opt-in per org (Settings → Warehouse Management).
+  // The sidebar already hides these links when it is off; guard the route too
+  // so it can't be reached by direct URL. Only admins get here, so point them
+  // at the toggle rather than a generic "no access" message.
+  if (!org.wmsEnabled) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-6">
+        <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">
+          <h2 className="text-lg font-semibold text-gray-900">
+            Warehouse module is off
+          </h2>
+          <p className="text-sm text-gray-500 mt-2">
+            Turn on Warehouse Management in Settings to receive, dispatch, and
+            count warehouse stock.
+          </p>
+          <button
+            onClick={() => router.replace("/settings")}
+            className="mt-4 text-sm text-green-700 font-medium hover:underline"
+          >
+            Go to settings
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-screen">
       <Sidebar />
