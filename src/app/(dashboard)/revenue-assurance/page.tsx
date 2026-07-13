@@ -5,10 +5,14 @@ import { formatZAR } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import {
   ShieldCheck, AlertTriangle, Eye, Calendar, Info,
-  MessageSquare, Wrench, Send,
+  MessageSquare, Wrench, Send, ChevronDown,
 } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
+import { Badge } from "@/components/ui/badge";
+import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { Avatar } from "@/components/ui/timeline";
 
 interface CountOption {
   key: string;
@@ -497,22 +501,25 @@ export default function RevenueAssurancePage() {
             <>
               {/* Summary cards */}
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                {/* Only "Unrecorded" carries colour — it's the one card that
+                    reports a pass/fail state. Expected Revenue was blue purely
+                    for decoration and competed with the real alert. */}
                 <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
                   <p className="text-xs text-gray-500">Units Sold (by stock)</p>
-                  <p className="text-xl font-bold text-gray-900">{totalUnitsSold}</p>
+                  <p className="text-xl font-bold text-gray-900 tabular-nums">{totalUnitsSold}</p>
                 </div>
-                <div className="bg-blue-50 border border-blue-200 rounded-xl px-5 py-4">
-                  <p className="text-xs text-blue-600">Expected Revenue</p>
-                  <p className="text-xl font-bold text-blue-700">{formatZAR(totalExpectedRevenue)}</p>
-                  <p className="text-xs text-blue-500 mt-0.5">What should be in cash + POS</p>
+                <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
+                  <p className="text-xs text-gray-500">Expected Revenue</p>
+                  <p className="text-xl font-bold text-gray-900 tabular-nums">{formatZAR(totalExpectedRevenue)}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">What should be in cash + POS</p>
                 </div>
                 <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
                   <p className="text-xs text-gray-500">Recorded in POS</p>
-                  <p className="text-xl font-bold text-gray-900">{formatZAR(totalRecordedRevenue)}</p>
+                  <p className="text-xl font-bold text-gray-900 tabular-nums">{formatZAR(totalRecordedRevenue)}</p>
                 </div>
                 <div className={`border rounded-xl px-5 py-4 ${totalMissingRevenue > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
                   <p className={`text-xs ${totalMissingRevenue > 0 ? "text-red-600" : "text-green-600"}`}>Unrecorded</p>
-                  <p className={`text-xl font-bold ${totalMissingRevenue > 0 ? "text-red-700" : "text-green-700"}`}>{formatZAR(totalMissingRevenue)}</p>
+                  <p className={`text-xl font-bold tabular-nums ${totalMissingRevenue > 0 ? "text-red-700" : "text-green-700"}`}>{formatZAR(totalMissingRevenue)}</p>
                   {totalUnrecorded > 0 && <p className="text-xs text-red-500 mt-0.5">{totalUnrecorded} units not in POS</p>}
                 </div>
               </div>
@@ -567,39 +574,53 @@ export default function RevenueAssurancePage() {
                               <td colSpan={9} className="p-0">
                                 {/* Main row */}
                                 <div className={`flex items-center ${r.unrecordedUnits > 0 ? "bg-red-50/50" : ""}`}>
-                                  <div className="flex-1 px-4 py-3">
-                                    <span className="font-medium text-gray-900">{r.name}</span>
-                                    <span className="text-xs text-gray-400 ml-2 font-mono">{r.inventoryId}</span>
-                                    <span className="block text-xs text-gray-400">{r.category} · {formatZAR(r.sellingPrice)}/unit</span>
-                                    {rowNotes.length > 0 && (
-                                      <span className="inline-flex items-center gap-1 text-xs text-blue-600 mt-1">
-                                        <MessageSquare className="w-3 h-3" /> {rowNotes.length} note{rowNotes.length !== 1 ? "s" : ""}
+                                  <div className="flex-1 min-w-0 px-4 py-3">
+                                    <div className="flex items-baseline gap-2 min-w-0">
+                                      <span className="font-medium text-gray-900 min-w-0 max-w-[16rem]">
+                                        <TruncatedText>{r.name}</TruncatedText>
                                       </span>
-                                    )}
+                                      <span className="text-xs text-gray-400 font-mono shrink-0">{r.inventoryId}</span>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {r.category && <Badge variant="gray">{r.category}</Badge>}
+                                      <span className="text-xs text-gray-400">{formatZAR(r.sellingPrice)}/unit</span>
+                                      {rowNotes.length > 0 && (
+                                        <span className="inline-flex items-center gap-1 text-xs text-gray-500">
+                                          <MessageSquare className="w-3 h-3" /> {rowNotes.length} note{rowNotes.length !== 1 ? "s" : ""}
+                                        </span>
+                                      )}
+                                    </div>
                                   </div>
-                                  <div className="text-right px-3 py-3 text-gray-600 w-16">{r.openingStock}</div>
-                                  <div className="text-right px-3 py-3 text-gray-600 w-16">{r.replenished > 0 ? `+${r.replenished}` : "—"}</div>
-                                  <div className="text-right px-3 py-3 text-gray-600 w-16">{r.closingStock}</div>
-                                  <div className="text-right px-3 py-3 font-medium text-gray-900 w-20">{r.unitsSold}</div>
-                                  <div className="text-right px-3 py-3 text-gray-600 w-24">{r.recordedSales}</div>
-                                  <div className={`text-right px-3 py-3 font-semibold w-24 ${r.unrecordedUnits > 0 ? "text-red-600" : "text-green-600"}`}>
+                                  <div className="text-right px-3 py-3 text-gray-600 w-16 tabular-nums">{r.openingStock}</div>
+                                  <div className="text-right px-3 py-3 text-gray-600 w-16 tabular-nums">{r.replenished > 0 ? `+${r.replenished}` : "—"}</div>
+                                  <div className="text-right px-3 py-3 text-gray-600 w-16 tabular-nums">{r.closingStock}</div>
+                                  <div className="text-right px-3 py-3 font-medium text-gray-900 w-20 tabular-nums">{r.unitsSold}</div>
+                                  <div className="text-right px-3 py-3 text-gray-600 w-24 tabular-nums">{r.recordedSales}</div>
+                                  <div className={`text-right px-3 py-3 font-semibold w-24 tabular-nums ${r.unrecordedUnits > 0 ? "text-red-600" : "text-green-600"}`}>
                                     {r.unrecordedUnits > 0 ? r.unrecordedUnits : "✓"}
                                   </div>
-                                  <div className={`text-right px-3 py-3 font-bold w-28 ${r.missingRevenue > 0 ? "text-red-700" : "text-gray-400"}`}>
+                                  <div className={`text-right px-3 py-3 font-bold w-28 tabular-nums ${r.missingRevenue > 0 ? "text-red-700" : "text-gray-400"}`}>
                                     {r.missingRevenue > 0 ? formatZAR(r.missingRevenue) : "—"}
                                   </div>
-                                  <div className="px-3 py-3 flex gap-1 w-24 justify-center">
-                                    <button onClick={() => toggleRow(r.productId, "comment")}
-                                      title="Add comment"
-                                      className={`p-1.5 rounded-md transition-colors ${isExpanded && actionMode === "comment" ? "bg-blue-100 text-blue-700" : "text-gray-400 hover:text-blue-600 hover:bg-blue-50"}`}>
-                                      <MessageSquare className="w-4 h-4" />
-                                    </button>
-                                    {r.unrecordedUnits > 0 && (
-                                      <button onClick={() => toggleRow(r.productId, "correct")}
-                                        title="Create stock adjustment"
-                                        className={`p-1.5 rounded-md transition-colors ${isExpanded && actionMode === "correct" ? "bg-amber-100 text-amber-700" : "text-gray-400 hover:text-amber-600 hover:bg-amber-50"}`}>
-                                        <Wrench className="w-4 h-4" />
+                                  {/* Revealed on hover/focus, but pinned open while the row's
+                                      form is expanded — otherwise moving the mouse to the form
+                                      would hide the button that opened it. */}
+                                  <div className={`px-3 py-3 flex gap-1 w-24 justify-center transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${isExpanded ? "opacity-100" : "opacity-0"}`}>
+                                    <Tooltip label="Add comment">
+                                      <button onClick={() => toggleRow(r.productId, "comment")}
+                                        aria-label={`Add comment on ${r.name}`}
+                                        className={`p-1.5 rounded-md transition-colors ${isExpanded && actionMode === "comment" ? "bg-gray-200 text-gray-900" : "text-gray-400 hover:text-gray-900 hover:bg-gray-100"}`}>
+                                        <MessageSquare className="w-4 h-4" />
                                       </button>
+                                    </Tooltip>
+                                    {r.unrecordedUnits > 0 && (
+                                      <Tooltip label="Write off as stock adjustment">
+                                        <button onClick={() => toggleRow(r.productId, "correct")}
+                                          aria-label={`Write off unrecorded units of ${r.name}`}
+                                          className={`p-1.5 rounded-md transition-colors ${isExpanded && actionMode === "correct" ? "bg-amber-100 text-amber-700" : "text-gray-400 hover:text-amber-600 hover:bg-amber-50"}`}>
+                                          <Wrench className="w-4 h-4" />
+                                        </button>
+                                      </Tooltip>
                                     )}
                                   </div>
                                 </div>
@@ -609,7 +630,7 @@ export default function RevenueAssurancePage() {
                                   <div className="px-4 pb-2">
                                     {rowNotes.map((n) => (
                                       <div key={n.id} className="flex items-start gap-2 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2 mb-1">
-                                        <MessageSquare className="w-3 h-3 mt-0.5 text-blue-400 flex-shrink-0" />
+                                        <Avatar name={n.noted_by} className="h-6 w-6 text-[10px] flex-shrink-0" />
                                         <div>
                                           <span className="font-medium text-gray-700">{n.noted_by}</span>
                                           <span className="text-gray-400 ml-1">
@@ -629,9 +650,9 @@ export default function RevenueAssurancePage() {
                                       <input type="text" placeholder="Add a comment about this discrepancy..."
                                         value={commentText} onChange={(e) => setCommentText(e.target.value)}
                                         onKeyDown={(e) => e.key === "Enter" && saveComment(r.productId)}
-                                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-blue-500 focus:ring-1 focus:ring-blue-500" />
+                                        className="flex-1 border border-gray-200 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500" />
                                       <button onClick={() => saveComment(r.productId)} disabled={saving || !commentText.trim()}
-                                        className="px-3 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 disabled:opacity-50 transition-colors flex items-center gap-1">
+                                        className="px-3 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors flex items-center gap-1">
                                         <Send className="w-3.5 h-3.5" /> Save
                                       </button>
                                     </div>
@@ -688,38 +709,44 @@ export default function RevenueAssurancePage() {
                 </div>
               </div>
 
-              {/* Legend */}
-              <div className="mt-4 flex flex-wrap gap-4 text-xs text-gray-500">
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded bg-red-100 border border-red-200" /> Units left shelves without POS record
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded bg-white border border-gray-200" /> Stock movement matches POS
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <MessageSquare className="w-3 h-3" /> Add a comment to explain
-                </span>
-                <span className="flex items-center gap-1.5">
-                  <Wrench className="w-3 h-3" /> Write off as stock adjustment
-                </span>
-              </div>
-
-              {/* How it works */}
-              <div className="mt-6 bg-gray-50 rounded-xl border border-gray-200 px-5 py-4 text-sm text-gray-600">
-                <p className="font-semibold text-gray-700 mb-2">How this works</p>
-                <p>
-                  1. Do a stock count at the <strong>start of your shift</strong> (opening count).{" "}
-                  2. Sell throughout the shift.{" "}
-                  3. Do another stock count at the <strong>end of the shift</strong> (closing count).{" "}
-                  4. Select both counts above.
-                </p>
-                <p className="mt-2">
-                  <strong>Units Sold = Opening Stock + Replenished − Closing Stock</strong>.{" "}
-                  The difference between units sold and what the POS recorded is the unrecorded amount.
-                  Use the <strong>comment</strong> button to explain discrepancies and the <strong>write off</strong> button
-                  to create a stock adjustment for breakage, theft, or other losses.
-                </p>
-              </div>
+              {/* Legend and the method explanation are read once and then never
+                  again, so they're collapsed by default rather than sitting under
+                  every session's results. Native <details> — keyboard- and
+                  screen-reader-accessible with no extra JS. */}
+              <details className="group/help mt-6 bg-gray-50 rounded-xl border border-gray-200 text-sm text-gray-600">
+                <summary className="flex cursor-pointer items-center gap-2 px-5 py-3 font-semibold text-gray-700 marker:content-none">
+                  <ChevronDown className="w-4 h-4 text-gray-400 transition-transform group-open/help:rotate-180" />
+                  How this works
+                </summary>
+                <div className="px-5 pb-4 space-y-3">
+                  <p>
+                    1. Do a stock count at the <strong>start of your shift</strong> (opening count).{" "}
+                    2. Sell throughout the shift.{" "}
+                    3. Do another stock count at the <strong>end of the shift</strong> (closing count).{" "}
+                    4. Select both counts above.
+                  </p>
+                  <p>
+                    <strong>Units Sold = Opening Stock + Replenished − Closing Stock</strong>.{" "}
+                    The difference between units sold and what the POS recorded is the unrecorded amount.
+                    Use the <strong>comment</strong> button to explain discrepancies and the <strong>write off</strong> button
+                    to create a stock adjustment for breakage, theft, or other losses.
+                  </p>
+                  <div className="flex flex-wrap gap-4 text-xs text-gray-500 pt-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded bg-red-100 border border-red-200" /> Units left shelves without POS record
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded bg-white border border-gray-200" /> Stock movement matches POS
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <MessageSquare className="w-3 h-3" /> Add a comment to explain
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <Wrench className="w-3 h-3" /> Write off as stock adjustment
+                    </span>
+                  </div>
+                </div>
+              </details>
             </>
           )}
         </>
