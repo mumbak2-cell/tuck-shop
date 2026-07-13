@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
+import { dispatchStatusColor } from "@/lib/wms-status";
 import Link from "next/link";
 import {
   BarChart3,
@@ -287,13 +288,18 @@ export default function WmsDashboardPage() {
   }, [fetchAll]);
 
   // ---- Summary cards ----
+  // Six cards in six different colours told the reader nothing — the icon
+  // already identifies the metric. Only the two cards that can report a bad
+  // state (stock below reorder level, stock disappearing) carry colour, and
+  // only when that state is actually true.
+  const NEUTRAL = "text-gray-500 bg-gray-100";
   const cards: SummaryCard[] = [
     {
       label: "Catalog Items",
       value: totalItems,
       sub: totalUnitsInStock.toLocaleString() + " total units",
       icon: Package,
-      color: "text-blue-600 bg-blue-50",
+      color: NEUTRAL,
       href: "/warehouse",
     },
     {
@@ -301,14 +307,14 @@ export default function WmsDashboardPage() {
       value: formatZAR(estimatedValue),
       sub: "Based on last receipt costs",
       icon: Boxes,
-      color: "text-green-600 bg-green-50",
+      color: NEUTRAL,
     },
     {
       label: "Reorder Alerts",
       value: reorderAlerts.length,
       sub: reorderAlerts.length > 0 ? "Items at or below reorder level" : "All items above threshold",
       icon: AlertTriangle,
-      color: reorderAlerts.length > 0 ? "text-red-600 bg-red-50" : "text-green-600 bg-green-50",
+      color: reorderAlerts.length > 0 ? "text-red-600 bg-red-50" : NEUTRAL,
       href: "/warehouse",
     },
     {
@@ -316,7 +322,7 @@ export default function WmsDashboardPage() {
       value: dispatchCount,
       sub: dispatchUnits.toLocaleString() + " units shipped",
       icon: Send,
-      color: "text-purple-600 bg-purple-50",
+      color: NEUTRAL,
       href: "/warehouse/dispatch",
     },
     {
@@ -324,7 +330,7 @@ export default function WmsDashboardPage() {
       value: receiptCount,
       sub: formatZAR(receiptSpend) + " spent",
       icon: PackagePlus,
-      color: "text-cyan-600 bg-cyan-50",
+      color: NEUTRAL,
       href: "/warehouse/receive",
     },
     {
@@ -332,7 +338,7 @@ export default function WmsDashboardPage() {
       value: totalShrinkage + " units",
       sub: adjustments.length + " adjustments logged",
       icon: TrendingDown,
-      color: totalShrinkage > 0 ? "text-orange-600 bg-orange-50" : "text-green-600 bg-green-50",
+      color: totalShrinkage > 0 ? "text-amber-700 bg-amber-50" : NEUTRAL,
       href: "/warehouse/adjustments",
     },
   ];
@@ -422,7 +428,7 @@ export default function WmsDashboardPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <ClipboardCheck className="w-4 h-4 text-blue-500" />
+              <ClipboardCheck className="w-4 h-4 text-gray-400" />
               Cycle Count Status
             </h2>
             <Link href="/warehouse/stock-count" className="text-xs text-green-600 hover:underline flex items-center gap-1">
@@ -444,23 +450,26 @@ export default function WmsDashboardPage() {
             </div>
           </div>
 
-          {/* ABC breakdown */}
+          {/* ABC breakdown. The class chips are neutral — A/B/C ranks value, it
+              doesn't rank severity, and painting Class A red made the most
+              valuable stock look like a fault. "Overdue" is the real signal
+              here, and it keeps its colour. */}
           <div className="space-y-3">
             {[
-              { cls: "A", total: cycleStatus.classA, overdue: cycleStatus.classAOverdue, color: "red" as const },
-              { cls: "B", total: cycleStatus.classB, overdue: cycleStatus.classBOverdue, color: "yellow" as const },
-              { cls: "C", total: cycleStatus.classC, overdue: cycleStatus.classCOverdue, color: "blue" as const },
-            ].map((row: { cls: string; total: number; overdue: number; color: "red" | "yellow" | "blue" }) => (
+              { cls: "A", total: cycleStatus.classA, overdue: cycleStatus.classAOverdue },
+              { cls: "B", total: cycleStatus.classB, overdue: cycleStatus.classBOverdue },
+              { cls: "C", total: cycleStatus.classC, overdue: cycleStatus.classCOverdue },
+            ].map((row: { cls: string; total: number; overdue: number }) => (
               <div key={row.cls} className="flex items-center justify-between py-1">
                 <div className="flex items-center gap-2">
-                  <Badge color={row.color}>Class {row.cls}</Badge>
-                  <span className="text-sm text-gray-700">{row.total} items</span>
+                  <Badge color="gray">Class {row.cls}</Badge>
+                  <span className="text-sm text-gray-700 tabular-nums">{row.total} items</span>
                 </div>
                 <div className="text-right">
                   {row.overdue > 0 ? (
-                    <span className="text-sm font-medium text-orange-600">{row.overdue} overdue</span>
+                    <span className="text-sm font-medium text-amber-700 tabular-nums">{row.overdue} overdue</span>
                   ) : (
-                    <span className="text-sm text-green-600">On schedule</span>
+                    <span className="text-sm text-gray-400">On schedule</span>
                   )}
                 </div>
               </div>
@@ -475,7 +484,7 @@ export default function WmsDashboardPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-              <Send className="w-4 h-4 text-purple-500" />
+              <Send className="w-4 h-4 text-gray-400" />
               Recent Dispatches
             </h2>
             <Link href="/warehouse/dispatch" className="text-xs text-green-600 hover:underline flex items-center gap-1">
@@ -492,11 +501,14 @@ export default function WmsDashboardPage() {
                     <p className="text-sm font-medium text-gray-900">{d.destination_id}</p>
                     <p className="text-xs text-gray-500">{d.destination_type} &middot; {formatDate(d.created_at)}</p>
                   </div>
+                  {/* Shares dispatchStatusColor with the Dispatch page — the two
+                      screens were mapping the same status to different colours
+                      (Dispatched was green here, blue there). */}
                   <div className="text-right">
-                    <Badge color={d.status === "Dispatched" ? "green" : d.status === "Pending" ? "yellow" : "blue"}>
+                    <Badge color={dispatchStatusColor(d.status)}>
                       {d.status}
                     </Badge>
-                    <p className="text-xs text-gray-500 mt-1">{d.itemCount} items, {d.totalUnits} units</p>
+                    <p className="text-xs text-gray-500 mt-1 tabular-nums">{d.itemCount} items, {d.totalUnits} units</p>
                   </div>
                 </div>
               ))}

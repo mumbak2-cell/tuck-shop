@@ -5,6 +5,7 @@ import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
@@ -637,25 +638,34 @@ export default function WmsPurchaseOrdersPage() {
                 {orders.map((po: POHeader) => {
                   const isExpanded = expandedId === po.id;
                   const detailItems = detailCache.get(po.id);
+                  // A cancelled PO is a dead row — it's kept for the record, not
+                  // to be acted on, so it's shaded and dimmed rather than sitting
+                  // at the same weight as a live order. Still expandable.
+                  const isCancelled = po.status === "Cancelled";
                   return (
                     <>
                       <tr
                         key={po.id}
-                        className={"cursor-pointer transition-colors " + (isExpanded ? "bg-green-50/50" : "hover:bg-gray-50")}
+                        className={
+                          "cursor-pointer transition-colors " +
+                          (isExpanded ? "bg-green-50/50" : isCancelled ? "bg-gray-50/70 hover:bg-gray-100/70" : "hover:bg-gray-50")
+                        }
                         onClick={() => toggleExpand(po.id)}
                       >
                         <td className="px-2 py-3 text-gray-400">
                           {isExpanded ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
                         </td>
-                        <td className="px-4 py-3 font-mono text-sm font-medium text-gray-900">{po.po_number}</td>
-                        <td className="px-4 py-3 text-gray-900">{po.supplier}</td>
+                        <td className={`px-4 py-3 font-mono text-sm font-medium text-gray-900 ${isCancelled ? "opacity-55" : ""}`}>{po.po_number}</td>
+                        <td className={`px-4 py-3 text-gray-900 max-w-[14rem] ${isCancelled ? "opacity-55" : ""}`}>
+                          <TruncatedText>{po.supplier}</TruncatedText>
+                        </td>
                         <td className="px-4 py-3">
                           <Badge color={statusColor(po.status)}>{po.status}</Badge>
                         </td>
-                        <td className="px-4 py-3 text-gray-500">
+                        <td className={`px-4 py-3 text-gray-500 ${isCancelled ? "opacity-55" : ""}`}>
                           {po.expected_date ? formatDate(po.expected_date) : "—"}
                         </td>
-                        <td className="px-4 py-3 text-gray-500">{formatDate(po.created_at)}</td>
+                        <td className={`px-4 py-3 text-gray-500 ${isCancelled ? "opacity-55" : ""}`}>{formatDate(po.created_at)}</td>
                         <td className="px-4 py-3 text-center" onClick={(e: any) => e.stopPropagation()}>
                           {po.status === "Draft" && (
                             <>
@@ -726,14 +736,14 @@ export default function WmsPurchaseOrdersPage() {
                                       <tr key={item.id}>
                                         <td className="py-1.5 pr-4 text-gray-900">{item.item_name}</td>
                                         <td className="py-1.5 pr-4 font-mono text-gray-500">{item.sku}</td>
-                                        <td className="py-1.5 pr-4 text-right text-gray-900">{item.qty_ordered}</td>
+                                        <td className="py-1.5 pr-4 text-right text-gray-900 tabular-nums">{item.qty_ordered}</td>
                                         <td className="py-1.5 pr-4 text-right">
                                           <span className={item.qty_received >= item.qty_ordered ? "text-green-600 font-medium" : "text-orange-600"}>
                                             {item.qty_received}
                                           </span>
                                         </td>
-                                        <td className="py-1.5 pr-4 text-right text-gray-700">{formatZAR(item.unit_cost)}</td>
-                                        <td className="py-1.5 text-right font-medium text-gray-900">{formatZAR(item.line_total)}</td>
+                                        <td className="py-1.5 pr-4 text-right text-gray-700 tabular-nums">{formatZAR(item.unit_cost)}</td>
+                                        <td className="py-1.5 text-right font-medium text-gray-900 tabular-nums">{formatZAR(item.line_total)}</td>
                                       </tr>
                                     ))}
                                   </tbody>

@@ -4,6 +4,8 @@ import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { ActionMenu, MenuItem } from "@/components/ui/menu";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +21,13 @@ import {
   Upload,
   Link2,
 } from "lucide-react";
+
+/** A bare "A" / "B" / "C" means nothing until someone tells you what it ranks. */
+const ABC_LABELS: Record<string, string> = {
+  A: "Class A — highest-value stock, count most often",
+  B: "Class B — mid-value stock",
+  C: "Class C — low-value stock, count least often",
+};
 
 interface WmsCatalogItem {
   id: number;
@@ -237,14 +246,18 @@ export default function WarehousePage() {
         </div>
         {role === "admin" && (
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => setShowCsv(true)}>
-              <Upload className="w-4 h-4 mr-1" />
-              CSV Import
-            </Button>
             <Button onClick={openAddForm}>
               <Plus className="w-4 h-4 mr-1" />
               Add Item
             </Button>
+            {/* Bulk import is a setup-time action, not a daily one. */}
+            <ActionMenu label="More catalog actions">
+              {(close) => (
+                <MenuItem icon={Upload} onClick={() => { close(); setShowCsv(true); }}>
+                  CSV import
+                </MenuItem>
+              )}
+            </ActionMenu>
           </div>
         )}
       </div>
@@ -331,62 +344,70 @@ export default function WarehousePage() {
                   return (
                     <tr
                       key={r.catalog.id}
-                      className={isLow ? "bg-amber-50/50" : "hover:bg-gray-50"}
+                      className={`group ${isLow ? "bg-amber-50/50" : "hover:bg-gray-50"}`}
                     >
                       <td className="px-4 py-3 font-mono text-xs text-gray-500">
                         {r.catalog.sku}
                       </td>
-                      <td className="px-4 py-3 font-medium text-gray-900">
-                        {r.catalog.item_name}
-                        {r.catalog.product_id && (
-                          <span className="ml-2 inline-flex items-center gap-0.5 text-xs font-normal text-green-600 align-middle">
-                            <Link2 className="w-3 h-3" /> POS
-                          </span>
-                        )}
+                      <td className="px-4 py-3 font-medium text-gray-900 max-w-[18rem]">
+                        <div className="flex items-center gap-2">
+                          <TruncatedText>{r.catalog.item_name}</TruncatedText>
+                          {/* "Linked to POS" is an attribute, not a good/bad state —
+                              it was green for no reason. */}
+                          {r.catalog.product_id && (
+                            <Tooltip label="Linked to a POS product">
+                              <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-normal text-gray-500">
+                                <Link2 className="w-3 h-3" /> POS
+                              </span>
+                            </Tooltip>
+                          )}
+                        </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {r.catalog.category || "—"}
+                      <td className="px-4 py-3">
+                        {r.catalog.category
+                          ? <Badge variant="gray">{r.catalog.category}</Badge>
+                          : <span className="text-gray-400">—</span>}
                       </td>
+                      {/* ABC is a value classification, not a severity: an A-class
+                          item is your most valuable stock, not a failure. Painting
+                          it red made every high-value line look like an alert and
+                          drowned out the actual low-stock rows. */}
                       <td className="px-4 py-3 text-center">
-                        <Badge
-                          variant={
-                            r.catalog.abc_class === "A"
-                              ? "red"
-                              : r.catalog.abc_class === "B"
-                              ? "amber"
-                              : "blue"
-                          }
-                        >
-                          {r.catalog.abc_class}
-                        </Badge>
+                        <Tooltip label={ABC_LABELS[r.catalog.abc_class] ?? "Value class"}>
+                          <Badge variant="gray">{r.catalog.abc_class}</Badge>
+                        </Tooltip>
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500">
+                      <td className="px-4 py-3 text-right text-gray-500 tabular-nums">
                         {r.catalog.pack_size}
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold">
+                      <td className="px-4 py-3 text-right font-semibold tabular-nums">
                         {qty}
                       </td>
-                      <td className="px-4 py-3 text-right text-gray-500">
+                      <td className="px-4 py-3 text-right text-gray-500 tabular-nums">
                         {reorder}
                       </td>
+                      {/* Only the row that needs restocking is coloured. A green
+                          "OK" on every healthy row is noise that hides the amber. */}
                       <td className="px-4 py-3 text-right">
                         {isLow ? (
                           <Badge variant="amber">Low Stock</Badge>
                         ) : (
-                          <Badge variant="green">OK</Badge>
+                          <span className="text-xs text-gray-400">OK</span>
                         )}
                       </td>
                       {role === "admin" && (
                         <td className="px-4 py-3 text-center">
-                          <Tooltip label="Edit item">
-                            <button
-                              onClick={() => openEditForm(r.catalog, r.inventory)}
-                              aria-label={`Edit ${r.catalog.item_name}`}
-                              className="text-gray-400 hover:text-green-600 transition-colors"
-                            >
-                              <Edit2 className="w-4 h-4" />
-                            </button>
-                          </Tooltip>
+                          <div className="inline-flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                            <Tooltip label="Edit item">
+                              <button
+                                onClick={() => openEditForm(r.catalog, r.inventory)}
+                                aria-label={`Edit ${r.catalog.item_name}`}
+                                className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+                              >
+                                <Edit2 className="w-4 h-4" />
+                              </button>
+                            </Tooltip>
+                          </div>
                         </td>
                       )}
                     </tr>

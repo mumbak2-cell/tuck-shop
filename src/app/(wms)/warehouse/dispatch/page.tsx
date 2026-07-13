@@ -6,8 +6,11 @@ import { useOrg, type LocationRow } from "@/lib/org-context";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { Avatar } from "@/components/ui/timeline";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { dispatchStatusColor } from "@/lib/wms-status";
 import {
   Truck,
   Plus,
@@ -250,11 +253,7 @@ export default function WmsDispatchPage() {
       item.sku.toLowerCase().includes(search.toLowerCase())
   );
 
-  const statusColor = (status: string) => {
-    if (status === "Received") return "green";
-    if (status === "Dispatched") return "blue";
-    return "amber";
-  };
+  const statusColor = dispatchStatusColor;
 
   return (
     <div className="space-y-6">
@@ -555,19 +554,28 @@ export default function WmsDispatchPage() {
                           <td className="px-4 py-3 text-gray-500">
                             {formatDate(d.created_at)}
                           </td>
-                          <td className="px-4 py-3 text-gray-900">
-                            {d.destination_type}
+                          {/* Destination type is a three-value enum, so it reads
+                              as a chip. Neutral — no type is better or worse. */}
+                          <td className="px-4 py-3">
+                            <Badge variant="gray">{d.destination_type}</Badge>
                           </td>
-                          <td className="px-4 py-3 text-gray-900">
-                            {d.destination_id}
+                          <td className="px-4 py-3 text-gray-900 max-w-[14rem]">
+                            <TruncatedText>{d.destination_id}</TruncatedText>
                           </td>
                           <td className="px-4 py-3">
                             <Badge variant={statusColor(d.status) as any}>
                               {d.status}
                             </Badge>
                           </td>
+                          {/* The avatar answers "who dispatched this" faster than
+                              re-reading the name on every row. */}
                           <td className="px-4 py-3 text-gray-500">
-                            {d.created_by || "—"}
+                            {d.created_by ? (
+                              <span className="inline-flex items-center gap-2">
+                                <Avatar name={d.created_by} className="h-6 w-6 text-[10px]" />
+                                <span className="truncate">{d.created_by}</span>
+                              </span>
+                            ) : "—"}
                           </td>
                           <td className="px-4 py-3 text-center" onClick={(e: any) => e.stopPropagation()}>
                             {d.status === "Pending" && (

@@ -5,6 +5,8 @@ import { useAuth } from "@/lib/auth-context";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { TruncatedText } from "@/components/ui/truncate";
+import { Avatar } from "@/components/ui/timeline";
 import { Input } from "@/components/ui/input";
 import {
   PackagePlus,
@@ -373,20 +375,25 @@ export default function WmsReceiveStockPage() {
                 <tbody className="divide-y divide-gray-100">
                   {history.map((r: PastReceipt) => (
                     <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-500">
+                      <td className="px-4 py-3 text-gray-500 whitespace-nowrap">
                         {formatDate(r.created_at)}
                       </td>
-                      <td className="px-4 py-3 text-gray-900">
-                        {r.supplier || "—"}
+                      <td className="px-4 py-3 text-gray-900 max-w-[12rem]">
+                        {r.supplier ? <TruncatedText>{r.supplier}</TruncatedText> : "—"}
                       </td>
-                      <td className="px-4 py-3 text-gray-500">
-                        {r.notes || "—"}
+                      <td className="px-4 py-3 text-gray-500 max-w-[16rem]">
+                        {r.notes ? <TruncatedText>{r.notes}</TruncatedText> : "—"}
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">
+                      <td className="px-4 py-3 text-right font-medium tabular-nums">
                         {formatZAR(r.total_cost)}
                       </td>
                       <td className="px-4 py-3 text-gray-500">
-                        {r.recorded_by || "—"}
+                        {r.recorded_by ? (
+                          <span className="inline-flex items-center gap-2">
+                            <Avatar name={r.recorded_by} className="h-6 w-6 text-[10px]" />
+                            <span>{r.recorded_by}</span>
+                          </span>
+                        ) : "—"}
                       </td>
                     </tr>
                   ))}
