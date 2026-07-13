@@ -167,13 +167,15 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
             continue;
           }
 
-          // Create inventory row
-          await db.from("wms_inventory").insert({
-            wms_item_id: (newItem as any).id,
-            physical_qty: 0,
-            reorder_level: reorderLevel,
-            reorder_qty: reorderQty,
-          });
+          // The trg_wms_catalog_inventory trigger already created the
+          // inventory row; apply this row's reorder levels to it.
+          await db
+            .from("wms_inventory")
+            .update({
+              reorder_level: reorderLevel,
+              reorder_qty: reorderQty,
+            })
+            .eq("wms_item_id", (newItem as any).id);
 
           added++;
         }

@@ -2,6 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg, type LocationRow } from "@/lib/org-context";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -63,6 +64,7 @@ type DestinationType = "Internal Shop" | "External Client" | "Wholesale";
 
 export default function WmsDispatchPage() {
   const { name: userName } = useAuth();
+  const { locations } = useOrg();
 
   // Data
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
@@ -72,6 +74,7 @@ export default function WmsDispatchPage() {
   // Form
   const [destinationType, setDestinationType] = useState<DestinationType>("Internal Shop");
   const [destinationId, setDestinationId] = useState("");
+  const [destinationLocationId, setDestinationLocationId] = useState("");
   const [notes, setNotes] = useState("");
   const [lines, setLines] = useState<DispatchLine[]>([]);
   const [saving, setSaving] = useState(false);
@@ -184,8 +187,13 @@ export default function WmsDispatchPage() {
     (l: DispatchLine) => l.qty > l.available
   );
 
+  const destinationReady =
+    destinationType === "Internal Shop"
+      ? !!destinationLocationId
+      : !!destinationId.trim();
+
   async function handleDispatch() {
-    if (lines.length === 0 || !destinationId.trim() || hasOverage) return;
+    if (lines.length === 0 || !destinationReady || hasOverage) return;
     setSaving(true);
     setSuccess(false);
 
@@ -195,60 +203,28 @@ export default function WmsDispatchPage() {
         qty: l.qty,
       }));
 
-      if (destinationType === "Internal Shop") {
-        const { error } = await db.rpc("process_tilify_dispatch", {
-          p_org_id: null,
-          p_destination_id: destinationId.trim(),
-          p_items: items,
-          p_notes: notes.trim() || null,
-          p_created_by: userName || null,
-        });
+      // One atomic RPC for every destination type. For Internal Shop it also
+      // credits the destination location's retail stock (product_stock) via
+      // add_product_stock_at_location; external/wholesale only deducts
+      // warehouse stock. Header, line items and stock movements commit
+      // together, and the subscription gate is enforced server-side.
+      const { error } = await db.rpc("create_wms_dispatch", {
+        p_destination_type: destinationType,
+        p_destination_location_id:
+          destinationType === "Internal Shop" ? destinationLocationId : null,
+        p_destination_name:
+          destinationType === "Internal Shop" ? null : destinationId.trim(),
+        p_items: items,
+        p_notes: notes.trim() || null,
+        p_created_by: userName || null,
+      });
 
-        if (error) throw error;
-      } else {
-        const { data: dispatch, error: dispErr } = await db
-          .from("wms_dispatches")
-          .insert({
-            destination_type: destinationType,
-            destination_id: destinationId.trim(),
-            status: "Dispatched",
-            notes: notes.trim() || null,
-            created_by: userName || null,
-          })
-          .select("id")
-          .single();
-
-        if (dispErr) throw dispErr;
-
-        const dispatchId = (dispatch as any).id;
-
-        const lineInserts = lines.map((l: DispatchLine) => ({
-          dispatch_id: dispatchId,
-          wms_item_id: l.wmsItemId,
-          qty_sent: l.qty,
-        }));
-
-        const { error: lineErr } = await db
-          .from("wms_dispatch_items")
-          .insert(lineInserts);
-
-        if (lineErr) throw lineErr;
-
-        for (const l of lines) {
-          const currentQty = inventoryMap.get(l.wmsItemId) ?? 0;
-          await db
-            .from("wms_inventory")
-            .update({
-              physical_qty: currentQty - l.qty,
-              updated_at: new Date().toISOString(),
-            })
-            .eq("wms_item_id", l.wmsItemId);
-        }
-      }
+      if (error) throw error;
 
       setSuccess(true);
       setLines([]);
       setDestinationId("");
+      setDestinationLocationId("");
       setNotes("");
       setDetailCache(new Map());
       await loadData();
@@ -340,9 +316,11 @@ export default function WmsDispatchPage() {
               </label>
               <select
                 value={destinationType}
-                onChange={(e: any) =>
-                  setDestinationType(e.target.value as DestinationType)
-                }
+                onChange={(e: any) => {
+                  setDestinationType(e.target.value as DestinationType);
+                  setDestinationId("");
+                  setDestinationLocationId("");
+                }}
                 className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
               >
                 <option value="Internal Shop">Internal Shop (Tilify POS)</option>
@@ -353,20 +331,33 @@ export default function WmsDispatchPage() {
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
                 {destinationType === "Internal Shop"
-                  ? "Shop Name"
+                  ? "Destination Shop"
                   : destinationType === "External Client"
                   ? "Client Name"
                   : "Wholesale Customer"}
               </label>
-              <Input
-                value={destinationId}
-                onChange={(e: any) => setDestinationId(e.target.value)}
-                placeholder={
-                  destinationType === "Internal Shop"
-                    ? "e.g. Main Tuck Shop"
-                    : "Customer or business name"
-                }
-              />
+              {destinationType === "Internal Shop" ? (
+                <select
+                  value={destinationLocationId}
+                  onChange={(e: any) => setDestinationLocationId(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="">Select a shop...</option>
+                  {locations
+                    .filter((l: LocationRow) => l.active)
+                    .map((l: LocationRow) => (
+                      <option key={l.id} value={l.id}>
+                        {l.name}
+                      </option>
+                    ))}
+                </select>
+              ) : (
+                <Input
+                  value={destinationId}
+                  onChange={(e: any) => setDestinationId(e.target.value)}
+                  placeholder="Customer or business name"
+                />
+              )}
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -496,7 +487,7 @@ export default function WmsDispatchPage() {
               disabled={
                 saving ||
                 lines.length === 0 ||
-                !destinationId.trim() ||
+                !destinationReady ||
                 hasOverage
               }
             >

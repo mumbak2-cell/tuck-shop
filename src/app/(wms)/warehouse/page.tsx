@@ -16,6 +16,7 @@ import {
   Package,
   Filter,
   Upload,
+  Link2,
 } from "lucide-react";
 
 interface WmsCatalogItem {
@@ -27,6 +28,13 @@ interface WmsCatalogItem {
   abc_class: string;
   count_frequency_days: number;
   last_counted_at: string | null;
+  product_id: string | null;
+}
+
+interface RetailProduct {
+  id: string;
+  name: string;
+  inventory_id: string;
 }
 
 interface WmsInventoryRow {
@@ -46,6 +54,7 @@ interface StockRow {
 export default function WarehousePage() {
   const { role } = useAuth();
   const [rows, setRows] = useState<StockRow[]>([]);
+  const [products, setProducts] = useState<RetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -62,19 +71,27 @@ export default function WarehousePage() {
   const [formReorderQty, setFormReorderQty] = useState("50");
   const [formAbcClass, setFormAbcClass] = useState("C");
   const [formFrequency, setFormFrequency] = useState("30");
+  const [formProductId, setFormProductId] = useState("");
   const [showCsv, setShowCsv] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true);
 
-    const [{ data: catalog }, { data: inventory }] = await Promise.all([
-      db.from("wms_catalog").select("*").order("item_name"),
-      db.from("wms_inventory").select("*"),
-    ]);
+    const [{ data: catalog }, { data: inventory }, { data: prods }] =
+      await Promise.all([
+        db.from("wms_catalog").select("*").order("item_name"),
+        db.from("wms_inventory").select("*"),
+        db
+          .from("products")
+          .select("id, name, inventory_id")
+          .eq("discontinued", false)
+          .order("name"),
+      ]);
 
     const catalogItems: WmsCatalogItem[] = (catalog || []) as any[];
     const inventoryItems: WmsInventoryRow[] = (inventory || []) as any[];
+    setProducts((prods || []) as any[]);
 
     const invMap = new Map<number, WmsInventoryRow>();
     inventoryItems.forEach((inv: any) => invMap.set(inv.wms_item_id, inv));
@@ -108,6 +125,7 @@ export default function WarehousePage() {
     setFormReorderQty("50");
     setFormAbcClass("C");
     setFormFrequency("30");
+    setFormProductId("");
     setShowForm(true);
   }
 
@@ -121,6 +139,7 @@ export default function WarehousePage() {
     setFormReorderQty(String(inv?.reorder_qty ?? 50));
     setFormAbcClass(item.abc_class || "C");
     setFormFrequency(String(item.count_frequency_days ?? 30));
+    setFormProductId(item.product_id ?? "");
     setShowForm(true);
   }
 
@@ -139,6 +158,7 @@ export default function WarehousePage() {
             pack_size: parseInt(formPackSize) || 1,
             abc_class: formAbcClass,
             count_frequency_days: parseInt(formFrequency) || 30,
+            product_id: formProductId || null,
           })
           .eq("id", editing.id);
 
@@ -159,18 +179,23 @@ export default function WarehousePage() {
             pack_size: parseInt(formPackSize) || 1,
             abc_class: formAbcClass,
             count_frequency_days: parseInt(formFrequency) || 30,
+            product_id: formProductId || null,
           })
           .select("id")
           .single();
 
         if (catErr) throw catErr;
 
-        await db.from("wms_inventory").insert({
-          wms_item_id: (newItem as any).id,
-          physical_qty: 0,
-          reorder_level: parseInt(formReorderLevel) || 10,
-          reorder_qty: parseInt(formReorderQty) || 50,
-        });
+        // The trg_wms_catalog_inventory trigger already created the inventory
+        // row (physical_qty 0, default reorder levels) in the same transaction
+        // as the catalog insert. Apply the form's reorder levels to it.
+        await db
+          .from("wms_inventory")
+          .update({
+            reorder_level: parseInt(formReorderLevel) || 10,
+            reorder_qty: parseInt(formReorderQty) || 50,
+          })
+          .eq("wms_item_id", (newItem as any).id);
       }
 
       setShowForm(false);
@@ -312,6 +337,11 @@ export default function WarehousePage() {
                       </td>
                       <td className="px-4 py-3 font-medium text-gray-900">
                         {r.catalog.item_name}
+                        {r.catalog.product_id && (
+                          <span className="ml-2 inline-flex items-center gap-0.5 text-xs font-normal text-green-600 align-middle">
+                            <Link2 className="w-3 h-3" /> POS
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-gray-500">
                         {r.catalog.category || "—"}
@@ -389,6 +419,28 @@ export default function WarehousePage() {
               onChange={(e: any) => setFormCategory(e.target.value)}
               placeholder="e.g. Snacks"
             />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Linked retail product{" "}
+              <span className="font-normal text-gray-400">(optional)</span>
+            </label>
+            <select
+              value={formProductId}
+              onChange={(e: any) => setFormProductId(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">Not linked — warehouse only</option>
+              {products.map((p: RetailProduct) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.inventory_id})
+                </option>
+              ))}
+            </select>
+            <p className="text-xs text-gray-400 mt-1">
+              When linked, dispatching this item to an internal shop adds stock
+              to this POS product at that shop&apos;s location.
+            </p>
           </div>
           <div className="grid grid-cols-3 gap-3">
             <div>

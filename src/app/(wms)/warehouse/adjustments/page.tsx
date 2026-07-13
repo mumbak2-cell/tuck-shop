@@ -127,29 +127,18 @@ export default function WmsAdjustmentsPage() {
     try {
       const adjustmentQty = direction === "decrease" ? -qty : qty;
 
-      // 1. Log the adjustment
-      const { error: adjErr } = await db.from("wms_adjustments").insert({
-        adjustment_date: new Date().toISOString().split("T")[0],
-        wms_item_id: itemId,
-        reason,
-        adjustment_qty: adjustmentQty,
-        notes: notes.trim() || null,
-        recorded_by: userName || null,
+      // Single atomic RPC: logs the adjustment AND moves inventory in one
+      // transaction, derives the org server-side, enforces the subscription
+      // gate, and upserts so a missing inventory row can't swallow the move.
+      const { error } = await db.rpc("record_wms_adjustment", {
+        p_wms_item_id: itemId,
+        p_adjustment_qty: adjustmentQty,
+        p_reason: reason,
+        p_notes: notes.trim() || null,
+        p_recorded_by: userName || null,
       });
 
-      if (adjErr) throw adjErr;
-
-      // 2. Update inventory
-      const currentQty = inventoryMap.get(itemId) ?? 0;
-      const newQty = Math.max(currentQty + adjustmentQty, 0);
-
-      await db
-        .from("wms_inventory")
-        .update({
-          physical_qty: newQty,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("wms_item_id", itemId);
+      if (error) throw error;
 
       setShowForm(false);
       await loadData();
