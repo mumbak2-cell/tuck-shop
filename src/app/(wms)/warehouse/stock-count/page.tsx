@@ -5,6 +5,7 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { abcClassColor } from "@/lib/wms-status";
 import {
   ClipboardCheck,
   Search,
@@ -412,7 +413,7 @@ export default function WmsStockCountPage() {
             className={"rounded-xl border p-3 text-left transition-colors " + (countMode === "abc_" + cls.toLowerCase() ? "border-green-400 bg-green-50" : "border-gray-200 bg-white hover:border-green-300")}
           >
             <div className="flex items-center gap-2 mb-1">
-              <Badge variant="gray">
+              <Badge variant={abcClassColor(cls)}>
                 Class {cls}
               </Badge>
             </div>
@@ -586,7 +587,7 @@ export default function WmsStockCountPage() {
                       {row.catalog.item_name}
                     </p>
                     {row.saved && <Check className="w-4 h-4 text-green-600 flex-shrink-0" />}
-                    <Badge variant="gray">
+                    <Badge variant={abcClassColor(row.catalog.abc_class)}>
                       {row.catalog.abc_class}
                     </Badge>
                     {row.isOverdue && row.countedQty === "" && (

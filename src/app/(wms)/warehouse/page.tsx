@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { WmsCsvUploadModal } from "@/components/wms/csv-catalog-upload";
+import { abcClassColor, ABC_LABELS } from "@/lib/wms-status";
 import {
   Warehouse,
   Search,
@@ -22,13 +23,6 @@ import {
   Upload,
   Link2,
 } from "lucide-react";
-
-/** A bare "A" / "B" / "C" means nothing until someone tells you what it ranks. */
-const ABC_LABELS: Record<string, string> = {
-  A: "Class A — highest-value stock, count most often",
-  B: "Class B — mid-value stock",
-  C: "Class C — low-value stock, count least often",
-};
 
 interface WmsCatalogItem {
   id: number;
@@ -369,13 +363,9 @@ export default function WarehousePage() {
                           ? <Badge variant="gray">{r.catalog.category}</Badge>
                           : <span className="text-gray-400">—</span>}
                       </td>
-                      {/* ABC is a value classification, not a severity: an A-class
-                          item is your most valuable stock, not a failure. Painting
-                          it red made every high-value line look like an alert and
-                          drowned out the actual low-stock rows. */}
                       <td className="px-4 py-3 text-center">
                         <Tooltip label={ABC_LABELS[r.catalog.abc_class] ?? "Value class"}>
-                          <Badge variant="gray">{r.catalog.abc_class}</Badge>
+                          <Badge variant={abcClassColor(r.catalog.abc_class)}>{r.catalog.abc_class}</Badge>
                         </Tooltip>
                       </td>
                       <td className="px-4 py-3 text-right text-gray-500 tabular-nums">
