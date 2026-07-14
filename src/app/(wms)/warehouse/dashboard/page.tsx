@@ -4,7 +4,7 @@ import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { dispatchStatusColor } from "@/lib/wms-status";
+import { dispatchStatusColor, abcClassColor } from "@/lib/wms-status";
 import Link from "next/link";
 import {
   BarChart3,
@@ -465,13 +465,13 @@ export default function WmsDashboardPage() {
           {/* ABC breakdown */}
           <div className="space-y-3">
             {[
-              { cls: "A", total: cycleStatus.classA, overdue: cycleStatus.classAOverdue, color: "red" as const },
-              { cls: "B", total: cycleStatus.classB, overdue: cycleStatus.classBOverdue, color: "yellow" as const },
-              { cls: "C", total: cycleStatus.classC, overdue: cycleStatus.classCOverdue, color: "blue" as const },
-            ].map((row: { cls: string; total: number; overdue: number; color: "red" | "yellow" | "blue" }) => (
+              { cls: "A", total: cycleStatus.classA, overdue: cycleStatus.classAOverdue },
+              { cls: "B", total: cycleStatus.classB, overdue: cycleStatus.classBOverdue },
+              { cls: "C", total: cycleStatus.classC, overdue: cycleStatus.classCOverdue },
+            ].map((row: { cls: string; total: number; overdue: number }) => (
               <div key={row.cls} className="flex items-center justify-between py-1">
                 <div className="flex items-center gap-2">
-                  <Badge color={row.color}>Class {row.cls}</Badge>
+                  <Badge color={abcClassColor(row.cls)}>Class {row.cls}</Badge>
                   <span className="text-sm text-gray-700 tabular-nums">{row.total} items</span>
                 </div>
                 <div className="text-right">
