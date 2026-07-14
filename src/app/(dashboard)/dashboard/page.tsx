@@ -286,19 +286,17 @@ export default function DashboardPage() {
 
       {/* Top stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-        {/* Icon tiles are neutral: the icon identifies the metric, the colour
-            used to say nothing. Low Stock is the one card whose colour is a
-            signal, and it only fires when there's actually something to fix. */}
         <StatCard
           label="Today's Sales"
           value={formatZAR(data.todaySales)}
           sub={`${data.todayTransactions} transactions`}
           icon={ShoppingCart}
+          color="bg-green-600"
           delta={data.compSales != null ? deltaLabel(data.todaySales, data.compSales) : undefined}
         />
-        <StatCard label="Products" value={`${data.inStockProducts} in stock`} sub={`${data.totalProducts} total`} icon={Package} />
-        <StatCard label="Low Stock" value={data.lowStockCount.toString()} sub="need restocking" icon={AlertTriangle} tone={data.lowStockCount > 0 ? "warning" : "neutral"} />
-        <StatCard label="Credit Owed" value={formatZAR(data.creditOutstanding)} sub={`${data.totalCustomers} customers`} icon={Wallet} />
+        <StatCard label="Products" value={`${data.inStockProducts} in stock`} sub={`${data.totalProducts} total`} icon={Package} color="bg-blue-600" />
+        <StatCard label="Low Stock" value={data.lowStockCount.toString()} sub="need restocking" icon={AlertTriangle} color={data.lowStockCount > 0 ? "bg-red-600" : "bg-gray-400"} />
+        <StatCard label="Credit Owed" value={formatZAR(data.creditOutstanding)} sub={`${data.totalCustomers} customers`} icon={Wallet} color="bg-amber-500" />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -393,21 +391,18 @@ export default function DashboardPage() {
           ) : (
             <div className="space-y-4">
               {/* Totals row */}
-              {/* Neutral: a recorded expense is routine bookkeeping, not an
-                  alert. Red here competed with the low-stock warning for
-                  attention while carrying no urgency of its own. */}
               <div className="grid grid-cols-3 gap-3">
-                <div className="bg-gray-50 rounded-lg px-4 py-3">
-                  <p className="text-xs text-gray-500">Total Outflows</p>
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyExpenses)}</p>
+                <div className="bg-red-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-red-600">Total Outflows</p>
+                  <p className="text-lg font-bold text-red-700 tabular-nums">{formatZAR(data.monthlyExpenses)}</p>
                 </div>
                 <div className="bg-gray-50 rounded-lg px-4 py-3">
                   <p className="text-xs text-gray-500">Operating</p>
                   <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyOperating)}</p>
                 </div>
-                <div className="bg-gray-50 rounded-lg px-4 py-3">
-                  <p className="text-xs text-gray-500">Director W/D</p>
-                  <p className="text-lg font-bold text-gray-900 tabular-nums">{formatZAR(data.monthlyDirectorW)}</p>
+                <div className="bg-amber-50 rounded-lg px-4 py-3">
+                  <p className="text-xs text-amber-600">Director W/D</p>
+                  <p className="text-lg font-bold text-amber-700 tabular-nums">{formatZAR(data.monthlyDirectorW)}</p>
                 </div>
               </div>
               {/* Category breakdown */}
@@ -475,20 +470,19 @@ function deltaLabel(current: number, previous: number): { text: string; positive
   return { text: `${pct > 0 ? "+" : ""}${pct}%`, positive: pct > 0 };
 }
 
-function StatCard({ label, value, sub, icon: Icon, tone = "neutral", delta }: {
+function StatCard({ label, value, sub, icon: Icon, color, delta }: {
   label: string;
   value: string;
   sub: string;
   icon: React.ElementType;
-  /** "warning" is reserved for a state the operator must act on. */
-  tone?: "neutral" | "warning";
+  color: string;
   delta?: { text: string; positive: boolean } | null;
 }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-4">
       <div className="flex items-center gap-3">
-        <div className={`p-2.5 rounded-lg ${tone === "warning" ? "bg-red-600" : "bg-gray-100"}`}>
-          <Icon className={`w-5 h-5 ${tone === "warning" ? "text-white" : "text-gray-500"}`} />
+        <div className={`p-2.5 rounded-lg ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
         </div>
         <div className="min-w-0 flex-1">
           <p className="text-xs text-gray-500">{label}</p>
