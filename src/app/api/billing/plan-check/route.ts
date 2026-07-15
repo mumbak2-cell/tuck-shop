@@ -37,6 +37,33 @@ export async function GET(req: Request) {
     ? "live"
     : "unknown/unset";
 
+  // ?verify=<reference> — inspect a specific transaction to see whether Paystack
+  // actually attached a plan / created a subscription for it. This is the
+  // definitive check when a checkout charges but no subscription appears.
+  const verifyRef = new URL(req.url).searchParams.get("verify");
+  if (verifyRef) {
+    const res = await fetch(
+      `https://api.paystack.co/transaction/verify/${encodeURIComponent(verifyRef)}`,
+      { headers: { Authorization: `Bearer ${key}` } },
+    );
+    const json = await res.json();
+    const d = json.data || {};
+    return NextResponse.json({
+      reference: verifyRef,
+      httpStatus: res.status,
+      transactionStatus: d.status,
+      amount: d.amount,
+      currency: d.currency,
+      planAttached: d.plan ?? null, // plan code if a plan was applied to the txn
+      planObject: d.plan_object ?? null,
+      subscription: d.subscription ?? null,
+      customerCode: d.customer?.customer_code ?? null,
+      authorizationReusable: d.authorization?.reusable ?? null,
+      metadata: d.metadata ?? null,
+      message: json.message,
+    });
+  }
+
   const results: Record<string, unknown>[] = [];
   for (const plan of PLANS) {
     for (const cycle of CYCLES) {
