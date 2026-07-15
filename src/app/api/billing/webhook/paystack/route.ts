@@ -37,12 +37,15 @@ export async function POST(req: Request) {
   }
 
   const expected = crypto.createHmac("sha512", secret).update(rawBody).digest("hex");
+  // Compare as fixed-length buffers. crypto.timingSafeEqual throws a RangeError
+  // when the inputs differ in length, so a malformed (wrong-length) signature
+  // must be rejected with the length check *before* the comparison — otherwise
+  // it crashes the handler with a 500 instead of a clean 401.
+  const signatureBuf = Buffer.from(signature, "utf8");
+  const expectedBuf = Buffer.from(expected, "utf8");
   if (
-    !signature ||
-    !crypto.timingSafeEqual(
-      Buffer.from(signature, "utf8"),
-      Buffer.from(expected, "utf8")
-    )
+    signatureBuf.length !== expectedBuf.length ||
+    !crypto.timingSafeEqual(signatureBuf, expectedBuf)
   ) {
     return NextResponse.json({ error: "Invalid signature" }, { status: 401 });
   }
@@ -62,28 +65,40 @@ export async function POST(req: Request) {
   const currency = event.data?.currency ?? null;
 
   // Append-only audit log first — any failures below still leave a trace.
-  // onConflict prevents duplicate webhook deliveries from re-processing.
-  const { data: logged } = await getSupabaseAdmin()
+  //
+  // Idempotency is enforced by the partial UNIQUE index on
+  // (provider, provider_reference) WHERE provider_reference IS NOT NULL. We use
+  // a plain INSERT rather than upsert(onConflict): PostgREST's onConflict
+  // cannot target a *partial* index — it can't emit the WHERE predicate — so an
+  // upsert raised 42P10 and, with the error swallowed, silently no-op'd every
+  // delivery (no audit row, no reconciliation). Catching the unique-violation
+  // (23505) is the idempotency guard instead. Events without a reference are
+  // not covered by the partial index, so they always insert (always logged).
+  const { data: logged, error: logErr } = await getSupabaseAdmin()
     .from("invoice_events")
-    .upsert(
-      {
-        org_id: orgId,
-        provider: "paystack",
-        event_type: event.event,
-        provider_reference: reference,
-        amount_minor: amount,
-        currency,
-        payload: event,
-        processed: false,
-      },
-      { onConflict: "provider,provider_reference", ignoreDuplicates: true }
-    )
+    .insert({
+      org_id: orgId,
+      provider: "paystack",
+      event_type: event.event,
+      provider_reference: reference,
+      amount_minor: amount,
+      currency,
+      payload: event,
+      processed: false,
+    })
     .select("id")
     .single();
 
-  // If upsert returned nothing, this is a duplicate delivery — ack and stop.
-  if (!logged && reference) {
-    return NextResponse.json({ received: true, duplicate: true });
+  if (logErr) {
+    // Duplicate delivery of an event we already recorded — ack and stop.
+    if (logErr.code === "23505") {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    // Any other failure means the event could not be recorded. Fail loudly with
+    // a 500 so Paystack retries, rather than reconciling with no audit trail —
+    // a silent swallow here is exactly what hid the original defect.
+    console.error("[webhook/paystack] failed to log invoice_event", logErr);
+    return NextResponse.json({ error: "Could not record event" }, { status: 500 });
   }
 
   // Only act on successful charges that we recognise as a Tilify subscription.
