@@ -17,6 +17,8 @@ interface Member {
   isSelf: boolean;
   isOwner: boolean;
   joinedAt: string;
+  assignedLocationId: string | null;
+  assignedLocationName: string | null;
 }
 
 interface NewCredential {
@@ -39,7 +41,7 @@ async function token(): Promise<string> {
 }
 
 export function TeamSection() {
-  const { role } = useOrg();
+  const { role, locations } = useOrg();
   const [members, setMembers] = useState<Member[]>([]);
   const [seats, setSeats] = useState<{ used: number; max: number | null }>({ used: 0, max: null });
   const [loading, setLoading] = useState(true);
@@ -47,6 +49,7 @@ export function TeamSection() {
 
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
+  const [locationId, setLocationId] = useState("");
   const [adding, setAdding] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [credential, setCredential] = useState<NewCredential | null>(null);
@@ -95,7 +98,7 @@ export function TeamSection() {
       const res = await fetch("/api/team", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ email, name: name || undefined }),
+        body: JSON.stringify({ email, name: name || undefined, locationId: locationId || undefined }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Could not add cashier");
@@ -106,6 +109,7 @@ export function TeamSection() {
       }
       setEmail("");
       setName("");
+      setLocationId("");
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add cashier");
@@ -200,6 +204,13 @@ export function TeamSection() {
                   {m.email}
                   {m.isSelf && <span className="text-gray-400 font-normal"> (you)</span>}
                 </p>
+                {m.role === "member" && (
+                  <p className="text-xs text-gray-500 truncate">
+                    {m.assignedLocationName
+                      ? `Assigned to ${m.assignedLocationName}`
+                      : "All locations"}
+                  </p>
+                )}
               </div>
               <div className="flex items-center gap-3 shrink-0">
                 <Badge color={m.isOwner ? "green" : m.role === "admin" ? "blue" : "gray"}>
@@ -245,6 +256,25 @@ export function TeamSection() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
           </div>
+          {locations.length > 1 && (
+            <div>
+              <select
+                value={locationId}
+                onChange={(e) => setLocationId(e.target.value)}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              >
+                <option value="">All locations (no restriction)</option>
+                {locations.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    Restrict to {l.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                A restricted cashier can only see and sell at the chosen branch.
+              </p>
+            </div>
+          )}
           <Button type="submit" loading={adding}>
             <UserPlus className="w-4 h-4 mr-1.5" />
             Add cashier

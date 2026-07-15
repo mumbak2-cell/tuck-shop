@@ -2,13 +2,15 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 import { DailyDigestSection } from "@/components/settings/daily-digest-section";
 import { TeamSection } from "@/components/settings/team-section";
+import { PricingModal } from "@/components/billing/pricing-modal";
+import { getPlan } from "@/lib/plans";
 
 export default function SettingsPage() {
   const [adminPin, setAdminPin] = useState("");
@@ -20,7 +22,21 @@ export default function SettingsPage() {
   const [wmsEnabled, setWmsEnabled] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
-  const { locations, orgId, refresh: refreshOrg } = useOrg();
+  const {
+    locations,
+    orgId,
+    currentLocationId,
+    subscriptionPlan,
+    subscriptionStatus,
+    refresh: refreshOrg,
+  } = useOrg();
+  // PINs are per-location (location_settings). `pinLocationId` is the branch the
+  // owner has explicitly picked to edit; until then we fall back to the active
+  // location. Deriving (rather than syncing via an effect) avoids a cascading
+  // render when the active location resolves.
+  const [pinLocationId, setPinLocationId] = useState<string | null>(null);
+  const effectivePinLocationId = pinLocationId ?? currentLocationId;
+  const [showPricing, setShowPricing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -29,13 +45,16 @@ export default function SettingsPage() {
     loadSettings();
   }, []);
 
+  // Load the PINs for the branch being edited (and reload when it changes).
+  useEffect(() => {
+    if (effectivePinLocationId) loadPins(effectivePinLocationId);
+  }, [effectivePinLocationId]);
+
   async function loadSettings() {
     const { data } = await db.from("app_settings").select("*");
     const map: Record<string, string> = {};
     ((data || []) as any[]).forEach((row: any) => (map[row.key] = row.value));
 
-    setAdminPin(map.admin_pin || "1234");
-    setCashierPin(map.cashier_pin || "0000");
     setIkhokhaLink(map.ikhokha_link || "");
     setBusinessName(map.business_name || "My Shop");
     setBusinessPhone(map.business_phone || "");
@@ -46,13 +65,26 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
+  // PINs come from location_settings (per branch), not app_settings.
+  async function loadPins(locationId: string) {
+    const { data } = await db
+      .from("location_settings")
+      .select("key, value")
+      .eq("location_id", locationId)
+      .in("key", ["admin_pin", "cashier_pin"]);
+    const map: Record<string, string> = {};
+    ((data || []) as { key: string; value: string }[]).forEach((row) => (map[row.key] = row.value));
+    setAdminPin(map.admin_pin || "1234");
+    setCashierPin(map.cashier_pin || "0000");
+  }
+
   async function handleSave() {
     setSaving(true);
     setSuccess(false);
 
+    // PINs are handled separately (location_settings) — everything else is
+    // org-wide and lives in app_settings.
     const settings = [
-      { key: "admin_pin", value: adminPin || "1234" },
-      { key: "cashier_pin", value: cashierPin || "0000" },
       { key: "ikhokha_link", value: ikhokhaLink },
       { key: "business_name", value: businessName || "My Shop" },
       { key: "business_phone", value: businessPhone },
@@ -88,6 +120,23 @@ export default function SettingsPage() {
       return;
     }
 
+    // PINs — per branch. location_settings is keyed UNIQUE(location_id, key).
+    // Absence of the target location is only possible before the org has loaded.
+    if (effectivePinLocationId) {
+      const pinRows = [
+        { org_id: orgId, location_id: effectivePinLocationId, key: "admin_pin", value: adminPin || "1234", updated_at: new Date().toISOString() },
+        { org_id: orgId, location_id: effectivePinLocationId, key: "cashier_pin", value: cashierPin || "0000", updated_at: new Date().toISOString() },
+      ];
+      const { error: pinErr } = await db
+        .from("location_settings")
+        .upsert(pinRows, { onConflict: "location_id,key" });
+      if (pinErr) {
+        setSaving(false);
+        alert("Failed to save PINs: " + (pinErr.message || "Unknown error"));
+        return;
+      }
+    }
+
     // Apply the currency immediately so the rest of the UI reflects it without a reload.
     setActiveCurrency(currency);
     try {
@@ -118,6 +167,41 @@ export default function SettingsPage() {
       </div>
 
       <div className="space-y-6">
+        {/* Plan & Billing — always-available upgrade / change-plan entry point */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <CreditCard className="w-5 h-5 text-gray-600" />
+            Plan &amp; Billing
+          </h2>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-sm text-gray-700">
+                Current plan:{" "}
+                <span className="font-semibold">
+                  {(subscriptionPlan && getPlan(subscriptionPlan as "starter" | "growth" | "pro")?.name) || "Trial"}
+                </span>
+                {subscriptionStatus === "trialing" && (
+                  <span className="text-gray-400 font-normal"> · on trial</span>
+                )}
+                {subscriptionStatus === "past_due" && (
+                  <span className="text-amber-600 font-normal"> · payment overdue</span>
+                )}
+                {subscriptionStatus === "cancelled" && (
+                  <span className="text-red-600 font-normal"> · cancelled</span>
+                )}
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Upgrade any time to unlock more locations, users and priority support.
+              </p>
+            </div>
+            <Button onClick={() => setShowPricing(true)}>
+              <Sparkles className="w-4 h-4 mr-2" />
+              {subscriptionStatus === "active" ? "Change plan" : "Upgrade"}
+            </Button>
+          </div>
+        </div>
+        <PricingModal open={showPricing} onClose={() => setShowPricing(false)} />
+
         {/* Business Details */}
         <div className="bg-white border border-gray-200 rounded-xl p-6">
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
@@ -178,8 +262,28 @@ export default function SettingsPage() {
           <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
             <Key className="w-5 h-5 text-gray-600" />
             Access PINs
+            {locations.length > 1 && (
+              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
+            )}
           </h2>
           <div className="space-y-4">
+            {locations.length > 1 && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Branch</label>
+                <select
+                  value={effectivePinLocationId ?? ""}
+                  onChange={(e) => setPinLocationId(e.target.value)}
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                >
+                  {locations.map((l) => (
+                    <option key={l.id} value={l.id}>{l.name}</option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  Each branch has its own PINs. Pick a branch to set its Admin and Cashier PINs.
+                </p>
+              </div>
+            )}
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Admin PIN</label>
               <input
