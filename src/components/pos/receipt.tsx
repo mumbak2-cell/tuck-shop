@@ -3,6 +3,24 @@ import { forwardRef } from "react";
 import { formatMoney } from "@/lib/format";
 import { CartItem } from "./cart";
 
+/**
+ * Fiscal data returned by the VSDC on a successful saveSales. When present, the
+ * receipt prints the full ZRA Smart Invoice fiscal block. Absent = ordinary
+ * (non-fiscal) Tilify receipt.
+ */
+export interface ZraFiscalData {
+  /** ZRA-assigned invoice number (printed as "Invoice #"). */
+  rcptNo: string;
+  /** SDC ID, e.g. SDC0030002973. */
+  sdcId?: string | null;
+  /** Receipt signature, printed verbatim. */
+  rcptSign?: string | null;
+  /** Internal data string from the VSDC. */
+  intrlData?: string | null;
+  /** VSDC receipt publish date-time (yyyyMMddHHmmss). */
+  vsdcRcptPbctDate?: string | null;
+}
+
 export interface ReceiptData {
   orgName: string;
   locationName: string;
@@ -15,12 +33,13 @@ export interface ReceiptData {
   change?: number | null;
   paymentReference?: string | null;
   customerName?: string | null;
+  customerTpin?: string | null;
   saleDate: Date;
   tpin?: string | null;
   vatPercent?: number | null;
   receiptNumber?: string | null;
-  /** ZRA Smart Invoice receipt number (returned by VSDC). */
-  zraReceiptNo?: string | null;
+  /** ZRA Smart Invoice fiscal data (present only once submitted to VSDC). */
+  zra?: ZraFiscalData | null;
 }
 
 /** Generate a short receipt number from a timestamp: YYMMDD-HHMM-XXXX */
@@ -50,12 +69,16 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
       change,
       paymentReference,
       customerName,
+      customerTpin,
       saleDate,
       tpin,
       vatPercent,
       receiptNumber,
-      zraReceiptNo,
+      zra,
     } = data;
+
+    // Zambia's walk-in default TPIN when no registered customer is attached.
+    const WALK_IN_TPIN = "1000000000";
 
     const dateStr = saleDate.toLocaleDateString("en-ZA", {
       year: "numeric",
@@ -169,6 +192,38 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             font-size: 10px;
             margin-top: 6px;
           }
+          .receipt-original {
+            font-size: 11px;
+            font-weight: bold;
+            letter-spacing: 3px;
+            margin-top: 2px;
+          }
+          .receipt-fiscal-word {
+            font-size: 8px;
+            word-break: break-all;
+            text-align: right;
+          }
+          .receipt-fiscal-marker {
+            text-align: center;
+            font-size: 12px;
+            font-weight: bold;
+            letter-spacing: 1px;
+            margin: 6px 0;
+          }
+          .receipt-qr {
+            margin: 8px auto;
+            width: 120px;
+            height: 120px;
+            border: 1px dashed #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            font-size: 9px;
+            line-height: 1.3;
+            box-sizing: border-box;
+            padding: 4px;
+          }
 
           @media print {
             @page { size: 80mm auto; margin: 0; }
@@ -192,6 +247,7 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
           {locationPhone && <p>Tel: {locationPhone}</p>}
           {tpin && <p>TPIN: {tpin}</p>}
           {tpin && <p className="receipt-subtitle">TAX INVOICE</p>}
+          {zra && <p className="receipt-original">ORIGINAL</p>}
         </div>
 
         <hr className="receipt-divider" />
@@ -206,12 +262,6 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             <div className="receipt-meta-row">
               <span>Receipt #:</span>
               <span>{receiptNumber}</span>
-            </div>
-          )}
-          {zraReceiptNo && (
-            <div className="receipt-meta-row">
-              <span>ZRA Invoice #:</span>
-              <span>{zraReceiptNo}</span>
             </div>
           )}
         </div>
@@ -290,13 +340,66 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
           )}
         </div>
 
+        {/* ZRA Smart Invoice fiscal block — only when submitted to the VSDC */}
+        {zra && (
+          <>
+            <hr className="receipt-divider" />
+            <div className="receipt-meta">
+              {zra.sdcId && (
+                <div className="receipt-meta-row">
+                  <span>SDC ID:</span>
+                  <span>{zra.sdcId}</span>
+                </div>
+              )}
+              <div className="receipt-meta-row">
+                <span>Invoice #:</span>
+                <span>{zra.rcptNo}</span>
+              </div>
+              {zra.rcptSign && (
+                <div className="receipt-meta-row">
+                  <span>Signature:</span>
+                  <span className="receipt-fiscal-word">{zra.rcptSign}</span>
+                </div>
+              )}
+              {zra.intrlData && (
+                <div className="receipt-meta-row">
+                  <span>Internal:</span>
+                  <span className="receipt-fiscal-word">{zra.intrlData}</span>
+                </div>
+              )}
+            </div>
+
+            <hr className="receipt-divider" />
+            <div className="receipt-meta">
+              <div className="receipt-meta-row">
+                <span>Client Name:</span>
+                <span>{customerName || "Cash Sales"}</span>
+              </div>
+              <div className="receipt-meta-row">
+                <span>TPIN:</span>
+                <span>{customerTpin || WALK_IN_TPIN}</span>
+              </div>
+            </div>
+
+            <p className="receipt-fiscal-marker">*** FISCAL RECEIPT ***</p>
+
+            {/*
+              TODO (ZRA go-live): render the scannable verification QR here.
+              The exact payload ZRA expects must be confirmed against a real
+              VSDC response during the first live invoice test — until then
+              this is a marked placeholder so the layout is final.
+            */}
+            <div className="receipt-qr">ZRA QR CODE<br />(added at go-live)</div>
+          </>
+        )}
+
         <hr className="receipt-divider" />
 
         {/* Footer */}
         <div className="receipt-footer">
           <p>Thank you for your purchase!</p>
           <p className="receipt-receipt-no">
-            Powered by Tilify
+            {zra ? "Powered by ZRA Smart Invoice" : "Powered by Tilify"}
           </p>
         </div>
       </div>

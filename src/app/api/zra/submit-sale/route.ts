@@ -213,6 +213,8 @@ export async function POST(req: Request) {
         .update({
           status: "submitted",
           rcpt_no: zraData?.rcptNo ? String(zraData.rcptNo) : null,
+          sdc_id: zraData?.sdcId ?? null,
+          mrc_no: zraData?.mrcNo ?? null,
           intrl_data: zraData?.intrlData ?? null,
           rcpt_sign: zraData?.rcptSign ?? null,
           vsdc_rcpt_pbct_date: zraData?.vsdcRcptPbctDate ?? null,
@@ -226,8 +228,11 @@ export async function POST(req: Request) {
       ok: true,
       zraEnabled: true,
       rcptNo: zraData?.rcptNo ? String(zraData.rcptNo) : null,
+      sdcId: zraData?.sdcId ?? null,
+      mrcNo: zraData?.mrcNo ?? null,
       intrlData: zraData?.intrlData ?? null,
       rcptSign: zraData?.rcptSign ?? null,
+      vsdcRcptPbctDate: zraData?.vsdcRcptPbctDate ?? null,
     });
   } catch (err) {
     // Log the failure

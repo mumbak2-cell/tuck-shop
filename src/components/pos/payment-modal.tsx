@@ -23,7 +23,7 @@ import {
   CloudOff,
   Printer,
 } from "lucide-react";
-import { Receipt, ReceiptData, generateReceiptNumber } from "./receipt";
+import { Receipt, ReceiptData, ZraFiscalData, generateReceiptNumber } from "./receipt";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
@@ -80,7 +80,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   // --- WhatsApp receipt state ---
   const [whatsAppPhone, setWhatsAppPhone] = useState("");
   const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
-  const [zraReceiptNo, setZraReceiptNo] = useState<string | null>(null);
+  const [zraFiscal, setZraFiscal] = useState<ZraFiscalData | null>(null);
 
   useEffect(() => {
     if (open) {
@@ -95,7 +95,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setQueuedToast(false);
       setShowWhatsAppInput(false);
       setWhatsAppPhone("");
-      setZraReceiptNo(null);
+      setZraFiscal(null);
 
       const cachedMethods = orgId
         ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
@@ -174,13 +174,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       change: tendered != null && tendered > total ? tendered - total : null,
       paymentReference: paymentReference || null,
       customerName: customer?.name ?? null,
+      customerTpin: (customer as { tpin?: string | null } | null | undefined)?.tpin ?? null,
       saleDate: new Date(),
       tpin: orgState.tpin,
       vatPercent: orgState.vatPercent,
       receiptNumber: generateReceiptNumber(),
-      zraReceiptNo,
+      zra: zraFiscal,
     };
-  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference, zraReceiptNo]);
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference, zraFiscal]);
 
   function handlePrintReceipt() {
     const el = receiptRef.current;
@@ -264,15 +265,15 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           : null,
         saleDate: new Date().toISOString(),
         receiptNo,
-      }).then((rcpt) => {
-        if (rcpt) setZraReceiptNo(rcpt);
+      }).then((fiscal) => {
+        if (fiscal) setZraFiscal(fiscal);
       }).catch(() => {
         // Silently fail — sale is already recorded, ZRA can be retried
       });
     }
   }
 
-  /** Submit sale to ZRA via the server-side proxy. Returns ZRA receipt number or null. */
+  /** Submit sale to ZRA via the server-side proxy. Returns the fiscal data or null. */
   async function submitToZra(payload: {
     saleId: string;
     items: { productId: string; name: string; quantity: number; unitPrice: number }[];
@@ -281,7 +282,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     customerName?: string | null;
     saleDate: string;
     receiptNo: string;
-  }): Promise<string | null> {
+  }): Promise<ZraFiscalData | null> {
     try {
       const { data: { session } } = await db.auth.getSession();
       if (!session?.access_token) return null;
@@ -295,7 +296,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         body: JSON.stringify(payload),
       });
       const json = await res.json();
-      return json.rcptNo ?? null;
+      if (!json?.rcptNo) return null;
+      return {
+        rcptNo: String(json.rcptNo),
+        sdcId: json.sdcId ?? null,
+        rcptSign: json.rcptSign ?? null,
+        intrlData: json.intrlData ?? null,
+        vsdcRcptPbctDate: json.vsdcRcptPbctDate ?? null,
+      };
     } catch {
       return null;
     }
@@ -359,6 +367,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const customer = selectedKind === "credit"
         ? customers.find((c) => c.id === selectedCustomer)
         : null;
+      const fiscal = zraFiscal;
       const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
       const CW = 302;
@@ -387,10 +396,24 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       lc += 1; // payment
       if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) lc += 2;
       if (customer) lc += 1;
+      // ZRA fiscal block
+      let qrPx = 0;
+      if (fiscal) {
+        lc += 1; // ORIGINAL (header)
+        lc += 1; // dash before fiscal meta
+        if (fiscal.sdcId) lc += 1;
+        lc += 1; // Invoice #
+        if (fiscal.rcptSign) lc += 1;
+        if (fiscal.intrlData) lc += 1;
+        lc += 1; // dash before client
+        lc += 2; // Client Name + TPIN
+        lc += 1; // *** FISCAL RECEIPT ***
+        qrPx = 132; // 120px QR box + margins
+      }
       lc += 1; // dash
       lc += 3; // footer
 
-      const CH = PD * 2 + lc * LH + 30;
+      const CH = PD * 2 + lc * LH + 30 + qrPx;
 
       const canvas = document.createElement("canvas");
       canvas.width = CW;
@@ -436,6 +459,24 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         ctx!.stroke();
         y += 4;
       }
+      // Placeholder QR box — the scannable ZRA verification QR is finalized at
+      // go-live once the exact VSDC payload is confirmed (see receipt.tsx TODO).
+      function qrBox() {
+        const size = 120;
+        const bx = (CW - size) / 2;
+        ctx!.save();
+        ctx!.strokeStyle = "#000";
+        ctx!.lineWidth = 1;
+        ctx!.setLineDash([3, 3]);
+        ctx!.strokeRect(bx, y, size, size);
+        ctx!.restore();
+        ctx!.fillStyle = "#000";
+        ctx!.textAlign = "center";
+        ctx!.font = FSS;
+        ctx!.fillText("ZRA QR CODE", CW / 2, y + size / 2 - 4, size - 8);
+        ctx!.fillText("(added at go-live)", CW / 2, y + size / 2 + 12, size - 8);
+        y += size + 12;
+      }
 
       // Header
       center(shopName, FTL);
@@ -444,15 +485,13 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       if (locTel) center("Tel: " + locTel, FSM);
       if (tpin) center("TPIN: " + tpin, FSM);
       if (tpin) center("TAX INVOICE", FBL);
+      if (fiscal) center("ORIGINAL", FBL);
 
       dash();
 
       // Meta
       row(dateStr, timeStr, FSM);
       row("Receipt #:", receiptNo, FSM);
-      if (zraReceiptNo) {
-        row("ZRA Invoice #:", zraReceiptNo, FSM);
-      }
 
       dash();
 
@@ -499,12 +538,28 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         row("Customer:", customer.name, FSM);
       }
 
+      // ZRA fiscal block
+      if (fiscal) {
+        dash();
+        if (fiscal.sdcId) row("SDC ID:", fiscal.sdcId, FSM);
+        row("Invoice #:", fiscal.rcptNo, FSM);
+        if (fiscal.rcptSign) row("Signature:", fiscal.rcptSign, FSS);
+        if (fiscal.intrlData) row("Internal:", fiscal.intrlData, FSS);
+        dash();
+        const clientTpin = (customer as { tpin?: string | null } | null | undefined)?.tpin || "1000000000";
+        row("Client Name:", customer?.name || "Cash Sales", FSM);
+        row("TPIN:", clientTpin, FSM);
+        y += 2;
+        center("*** FISCAL RECEIPT ***", FBL);
+        qrBox();
+      }
+
       dash();
 
       // Footer
       center("Thank you for your purchase!", FSM);
       y += 4;
-      center("Powered by Tilify", FSS);
+      center(fiscal ? "Powered by ZRA Smart Invoice" : "Powered by Tilify", FSS);
 
       canvas.toBlob((blob) => resolve(blob), "image/png");
     });
