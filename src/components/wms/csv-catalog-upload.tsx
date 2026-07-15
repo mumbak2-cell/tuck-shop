@@ -28,6 +28,55 @@ interface Props {
   onComplete: () => void;
 }
 
+/**
+ * Parse one CSV line into fields, honouring quoted values.
+ *
+ * A naive `line.split(",")` stored the raw CSV escaping verbatim: a value like
+ * `10" High cake box`, which a spreadsheet exports as the escaped
+ * `"10"" High cake box"`, landed in the database with its wrapping quotes and
+ * doubled inner quote intact. This unwraps `"…"` fields and collapses `""` back
+ * to a single `"`. Commas inside a quoted field are preserved too. Unquoted
+ * fields are trimmed (matching the old behaviour); quoted content is kept as-is.
+ *
+ * Line-based: embedded newlines inside a quoted field are not supported, which
+ * is fine for the SKU catalogues this importer handles.
+ */
+function parseCsvLine(line: string): string[] {
+  const result: string[] = [];
+  let field = "";
+  let inQuotes = false;
+  let quoted = false;
+  const push = () => {
+    result.push(quoted ? field : field.trim());
+    field = "";
+    quoted = false;
+  };
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (inQuotes) {
+      if (ch === '"') {
+        if (line[i + 1] === '"') {
+          field += '"';
+          i++;
+        } else {
+          inQuotes = false;
+        }
+      } else {
+        field += ch;
+      }
+    } else if (ch === '"') {
+      inQuotes = true;
+      quoted = true;
+    } else if (ch === ",") {
+      push();
+    } else {
+      field += ch;
+    }
+  }
+  push();
+  return result;
+}
+
 export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
@@ -63,7 +112,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     }
 
     // Parse header
-    const header = lines[0].split(",").map((h: string) => h.trim().toLowerCase().replace(/\s+/g, "_"));
+    const header = parseCsvLine(lines[0]).map((h: string) => h.toLowerCase().replace(/\s+/g, "_"));
     const skuIdx = header.indexOf("sku");
     const nameIdx = header.findIndex((h: string) => h === "item_name" || h === "name" || h === "product_name");
 
@@ -80,7 +129,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     // Parse rows
     const rows: CsvRow[] = [];
     for (let i = 1; i < lines.length; i++) {
-      const cols = lines[i].split(",").map((c: string) => c.trim());
+      const cols = parseCsvLine(lines[i]);
       const sku = cols[skuIdx];
       const name = cols[nameIdx];
       if (!sku || !name) continue;
@@ -267,9 +316,10 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
 
       setResults({ added, updated, skipped, failures });
       setStep("done");
-    } catch (err: any) {
+    } catch (err) {
       console.error("Import error:", err);
-      alert("Import failed: " + (err.message || "Unknown error"));
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert("Import failed: " + message);
     } finally {
       setSaving(false);
     }
