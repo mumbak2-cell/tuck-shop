@@ -41,9 +41,39 @@ interface PaystackEvent {
 }
 
 /**
- * Find the org an event belongs to. First checkout carries metadata.org_id;
- * recurring renewals don't, so fall back to the Paystack customer code (stored
- * on first charge) and then the subscription code.
+ * Resolve the org for a customer email → user (auth.users) → org (org_members).
+ * Deterministic because of the one-org-per-user invariant. Paged listUsers, run
+ * only as a last-resort fallback; the tenant base is small and subscription
+ * events are infrequent.
+ */
+async function orgIdByEmail(admin: Admin, email: string | undefined): Promise<string | null> {
+  if (!email) return null;
+  const target = email.toLowerCase();
+  for (let page = 1; page <= 20; page++) {
+    const { data, error } = await admin.auth.admin.listUsers({ page, perPage: 1000 });
+    if (error || !data?.users?.length) break;
+    const user = data.users.find((u) => u.email?.toLowerCase() === target);
+    if (user) {
+      const { data: m } = await admin
+        .from("org_members")
+        .select("org_id")
+        .eq("user_id", user.id)
+        .limit(1)
+        .maybeSingle();
+      return m?.org_id ?? null;
+    }
+    if (data.users.length < 1000) break;
+  }
+  return null;
+}
+
+/**
+ * Find the org an event belongs to. First checkout carries metadata.org_id.
+ * Subscription-lifecycle events (subscription.create/disable, invoice.*) do
+ * NOT, and they can arrive BEFORE the charge that stores the customer code —
+ * so resolution falls through: customer code → subscription code → customer
+ * EMAIL. The email path has no ordering dependency, so a subscription.create
+ * that races ahead of its charge.success still resolves.
  */
 async function resolveOrgId(admin: Admin, d: PaystackEvent["data"]): Promise<string | null> {
   if (d.metadata?.org_id) return d.metadata.org_id;
@@ -68,7 +98,7 @@ async function resolveOrgId(admin: Admin, d: PaystackEvent["data"]): Promise<str
     if (data) return data.id;
   }
 
-  return null;
+  return orgIdByEmail(admin, d.customer?.email);
 }
 
 export async function POST(req: Request) {
