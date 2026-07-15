@@ -112,7 +112,22 @@ interface InviteBody {
   email?: string;
   name?: string;
   locationId?: string;
+  /** "member" (cashier) or "admin" (manager). Defaults to member. */
+  role?: string;
 }
+
+/** Managers (org_members.admin) may only be added by an owner whose org runs
+ *  more than one location — a single-branch shop is expected to be managed by
+ *  the owner directly. Returns the location count for messaging. */
+async function locationCount(admin: SupabaseClient, orgId: string): Promise<number> {
+  const { count } = await admin
+    .from("locations")
+    .select("id", { count: "exact", head: true })
+    .eq("org_id", orgId);
+  return count ?? 0;
+}
+
+const MANAGER_MIN_LOCATIONS = 2; // "more than one"
 
 /** Validate that a location id belongs to the org. Returns the id when valid,
  *  null when the caller passed nothing, or throws a user-facing message when
@@ -155,16 +170,32 @@ export async function POST(req: Request) {
 
   const admin = getSupabaseAdmin();
 
+  // Cashier (member) or Manager (admin). A manager sees every location and is
+  // never location-locked; only an owner of a 3+ location org may create one.
+  const desiredRole: "member" | "admin" = body.role === "admin" ? "admin" : "member";
+  if (desiredRole === "admin") {
+    const locations = await locationCount(admin, auth.orgId!);
+    if (locations < MANAGER_MIN_LOCATIONS) {
+      return NextResponse.json(
+        { error: "Managers can be added once your shop has more than one location." },
+        { status: 403 }
+      );
+    }
+  }
+
   // Optional hard-lock to one location. Cashiers pinned here see and sell only
   // at their assigned location (org-context pins them; RLS scopes their rows).
-  let assignedLocationId: string | null;
-  try {
-    assignedLocationId = await resolveAssignedLocation(admin, auth.orgId!, body.locationId);
-  } catch (e) {
-    return NextResponse.json(
-      { error: e instanceof Error ? e.message : "Invalid location" },
-      { status: 400 }
-    );
+  // Managers are never pinned — they need every branch.
+  let assignedLocationId: string | null = null;
+  if (desiredRole === "member") {
+    try {
+      assignedLocationId = await resolveAssignedLocation(admin, auth.orgId!, body.locationId);
+    } catch (e) {
+      return NextResponse.json(
+        { error: e instanceof Error ? e.message : "Invalid location" },
+        { status: 400 }
+      );
+    }
   }
 
   // Seat check first — cheapest rejection, and avoids creating an auth user we
@@ -217,7 +248,7 @@ export async function POST(req: Request) {
     // Unattached existing login — safe to make this org their only membership.
     const { error: linkErr } = await admin
       .from("org_members")
-      .insert({ org_id: auth.orgId!, user_id: existingId, role: "member", assigned_location_id: assignedLocationId });
+      .insert({ org_id: auth.orgId!, user_id: existingId, role: desiredRole, assigned_location_id: assignedLocationId });
     if (linkErr) {
       // 23505 = unique_violation on (org_id, user_id): a concurrent add of the
       // same person raced us here. That's the "already on your team" outcome,
@@ -249,7 +280,7 @@ export async function POST(req: Request) {
 
   const { error: memberErr } = await admin
     .from("org_members")
-    .insert({ org_id: auth.orgId!, user_id: created.user.id, role: "member", assigned_location_id: assignedLocationId });
+    .insert({ org_id: auth.orgId!, user_id: created.user.id, role: desiredRole, assigned_location_id: assignedLocationId });
   if (memberErr) {
     // Roll back the orphaned auth user so a retry isn't blocked by "email exists".
     await admin.auth.admin.deleteUser(created.user.id);
