@@ -316,9 +316,10 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
 
       setResults({ added, updated, skipped, failures });
       setStep("done");
-    } catch (err: any) {
+    } catch (err) {
       console.error("Import error:", err);
-      alert("Import failed: " + (err.message || "Unknown error"));
+      const message = err instanceof Error ? err.message : "Unknown error";
+      alert("Import failed: " + message);
     } finally {
       setSaving(false);
     }
