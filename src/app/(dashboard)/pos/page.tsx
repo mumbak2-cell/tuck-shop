@@ -35,7 +35,7 @@ function buildPriceMap(
 
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
-  const { requiresShift, currentLocationId, orgId } = useOrg();
+  const { requiresShift, currentLocationId, orgId, locations } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
@@ -293,7 +293,13 @@ export default function POSPage() {
       {/* Product grid */}
       <div className="flex-1 min-w-0 overflow-y-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
-        <ProductGrid products={products} onAddToCart={addToCart} discountMap={discountMap} />
+        <ProductGrid
+          products={products}
+          onAddToCart={addToCart}
+          discountMap={discountMap}
+          locationName={locations.find((l) => l.id === currentLocationId)?.name ?? null}
+          hasMultipleLocations={locations.length > 1}
+        />
       </div>
 
       {/* Desktop/tablet cart (hidden on mobile) */}
