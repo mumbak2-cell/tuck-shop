@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { PinPad } from "@/components/auth/pin-pad";
+import { ForcePasswordChange } from "@/components/auth/force-password-change";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
@@ -30,6 +31,18 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
   }
 
   if (!org.session) return null;
+
+  // First-login gate: temporary-password accounts must set their own password
+  // before reaching any app surface (mirrors the dashboard layout).
+  if (org.session.user.user_metadata?.must_change_password === true) {
+    return (
+      <ForcePasswordChange
+        email={org.session.user.email}
+        onDone={() => org.refresh()}
+        onSignOut={() => void signOutSafely(org, () => router.replace("/login"))}
+      />
+    );
+  }
 
   if (!org.orgId) {
     return (

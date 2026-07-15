@@ -272,7 +272,8 @@ export async function POST(req: Request) {
     email,
     password,
     email_confirm: true,
-    user_metadata: name ? { name } : {},
+    // Flag the temporary password so the app forces a change on first sign-in.
+    user_metadata: { must_change_password: true, ...(name ? { name } : {}) },
   });
   if (createErr || !created.user) {
     return NextResponse.json({ error: createErr?.message || "Could not create login" }, { status: 500 });

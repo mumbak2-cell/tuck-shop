@@ -3,6 +3,7 @@ import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { PinPad } from "@/components/auth/pin-pad";
+import { ForcePasswordChange } from "@/components/auth/force-password-change";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg, hasEverHadOrg } from "@/lib/org-context";
@@ -46,6 +47,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // No Supabase session - redirect handled by the effect above; render nothing.
   if (!org.session) {
     return null;
+  }
+
+  // First-login gate: an account created with a one-time temporary password
+  // must set its own password before anything else (PIN, org load, app). The
+  // flag is cleared when they change it; org.refresh() re-reads the session.
+  if (org.session.user.user_metadata?.must_change_password === true) {
+    return (
+      <ForcePasswordChange
+        email={org.session.user.email}
+        onDone={() => org.refresh()}
+        onSignOut={() => void signOutSafely(org, () => router.replace("/login"))}
+      />
+    );
   }
 
   // Signed in but no organization membership. Three distinct cases:
