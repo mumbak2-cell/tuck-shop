@@ -21,6 +21,12 @@ interface Props {
   discountMap?: Map<string, number>;
   /** Called after barcode auto-add clears the search. */
   onBarcodeAutoAdd?: () => void;
+  /** Active location name — shown in the empty state so an empty grid caused
+   *  by being on the wrong branch is self-explanatory. */
+  locationName?: string | null;
+  /** True when the org has more than one location, so the empty state can
+   *  suggest switching branches rather than only receiving stock. */
+  hasMultipleLocations?: boolean;
 }
 
 interface CategoryRow {
@@ -30,7 +36,7 @@ interface CategoryRow {
 
 const ALL_TAB = "__all__";
 
-export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd }: Props) {
+export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
@@ -185,13 +191,25 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
 
         <div className="flex-1 overflow-y-auto">
           {filtered.length === 0 ? (
-            <div className="text-center text-gray-400 py-16">
-              {totalCount === 0
-                ? "No products available yet. Add products with stock above zero, then refresh."
-                : searchLower
-                ? `No products match "${search}" in ${activeCategory === ALL_TAB ? "the catalogue" : activeCategory}.`
-                : "No products in this category"}
-            </div>
+            totalCount === 0 ? (
+              <div className="text-center text-gray-500 py-16 px-6 max-w-sm mx-auto">
+                <LayoutGrid className="w-10 h-10 mx-auto mb-3 text-gray-300" />
+                <p className="font-medium text-gray-700">
+                  No items in stock{locationName ? ` at ${locationName}` : ""}
+                </p>
+                <p className="text-sm mt-1.5 text-gray-500">
+                  {hasMultipleLocations
+                    ? "Switch to another branch above, or receive stock for this one."
+                    : "Receive stock (quantity above zero) for your items, then refresh."}
+                </p>
+              </div>
+            ) : (
+              <div className="text-center text-gray-400 py-16">
+                {searchLower
+                  ? `No products match "${search}" in ${activeCategory === ALL_TAB ? "the catalogue" : activeCategory}.`
+                  : "No products in this category"}
+              </div>
+            )
           ) : (
             <>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2" role="list" aria-label="Products">
