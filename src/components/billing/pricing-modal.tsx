@@ -162,7 +162,11 @@ export function PricingModal({ open, onClose }: Props) {
                   variant={isHighlight ? "primary" : "secondary"}
                   className="mt-5 w-full"
                 >
-                  {isCurrent ? "Current plan" : price ? `Upgrade to ${plan.name}` : "Contact us"}
+                  {isCurrent
+                    ? "Current plan"
+                    : price
+                    ? `Upgrade to ${plan.name} — ${display}/${periodLabel}`
+                    : "Contact us"}
                 </Button>
               </div>
             );
