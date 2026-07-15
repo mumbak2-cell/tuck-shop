@@ -15,7 +15,7 @@ export interface PlanLimits {
 export interface PlanPrice {
   /** Monthly fee in the given currency, in minor units (cents for ZAR). */
   monthlyMinor: number;
-  /** Quarterly fee (3× monthly, no discount), in minor units. */
+  /** Quarterly fee (~6% off 3× monthly), in minor units. */
   quarterlyMinor: number;
   /** Annual fee with 2 months free (monthlyMinor * 10), in minor units. */
   annualMinor: number;
@@ -59,20 +59,12 @@ export const PLANS: Plan[] = [
     limits: { maxLocations: 1, maxUsers: 2 },
     prices: {
       ZAR: {
-        monthlyMinor: 24900,
-        quarterlyMinor: 74700,
-        annualMinor: 249000,
-        monthlyDisplay: "R249",
-        quarterlyDisplay: "R747",
-        annualDisplay: "R2,490",
-      },
-      MWK: {
-        monthlyMinor: 2400000,
-        quarterlyMinor: 7200000,
-        annualMinor: 24000000,
-        monthlyDisplay: "MK24,000",
-        quarterlyDisplay: "MK72,000",
-        annualDisplay: "MK240,000",
+        monthlyMinor: 29900,
+        quarterlyMinor: 84900,
+        annualMinor: 299000,
+        monthlyDisplay: "R299",
+        quarterlyDisplay: "R849",
+        annualDisplay: "R2,990",
       },
     },
   },
@@ -91,20 +83,12 @@ export const PLANS: Plan[] = [
     limits: { maxLocations: 3, maxUsers: 5 },
     prices: {
       ZAR: {
-        monthlyMinor: 49900,
-        quarterlyMinor: 149700,
-        annualMinor: 499000,
-        monthlyDisplay: "R499",
-        quarterlyDisplay: "R1,497",
-        annualDisplay: "R4,990",
-      },
-      MWK: {
-        monthlyMinor: 4800000,
-        quarterlyMinor: 14400000,
-        annualMinor: 48000000,
-        monthlyDisplay: "MK48,000",
-        quarterlyDisplay: "MK144,000",
-        annualDisplay: "MK480,000",
+        monthlyMinor: 59900,
+        quarterlyMinor: 169900,
+        annualMinor: 599000,
+        monthlyDisplay: "R599",
+        quarterlyDisplay: "R1,699",
+        annualDisplay: "R5,990",
       },
     },
   },
@@ -122,20 +106,12 @@ export const PLANS: Plan[] = [
     limits: { maxLocations: null, maxUsers: 15 },
     prices: {
       ZAR: {
-        monthlyMinor: 89900,
-        quarterlyMinor: 269700,
-        annualMinor: 899000,
-        monthlyDisplay: "R899",
-        quarterlyDisplay: "R2,697",
-        annualDisplay: "R8,990",
-      },
-      MWK: {
-        monthlyMinor: 8600000,
-        quarterlyMinor: 25800000,
-        annualMinor: 86000000,
-        monthlyDisplay: "MK86,000",
-        quarterlyDisplay: "MK258,000",
-        annualDisplay: "MK860,000",
+        monthlyMinor: 99900,
+        quarterlyMinor: 279900,
+        annualMinor: 999000,
+        monthlyDisplay: "R999",
+        quarterlyDisplay: "R2,799",
+        annualDisplay: "R9,990",
       },
     },
   },
