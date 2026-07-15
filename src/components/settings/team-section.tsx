@@ -50,7 +50,12 @@ export function TeamSection() {
   const [email, setEmail] = useState("");
   const [name, setName] = useState("");
   const [locationId, setLocationId] = useState("");
+  const [memberRole, setMemberRole] = useState<"member" | "admin">("member");
   const [adding, setAdding] = useState(false);
+
+  // Managers (admins) can only be added once the shop runs more than one
+  // location; a single-branch shop is managed by the owner directly.
+  const canAddManager = locations.length > 1;
   const [notice, setNotice] = useState<string | null>(null);
   const [credential, setCredential] = useState<NewCredential | null>(null);
   const [copied, setCopied] = useState(false);
@@ -98,10 +103,16 @@ export function TeamSection() {
       const res = await fetch("/api/team", {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
-        body: JSON.stringify({ email, name: name || undefined, locationId: locationId || undefined }),
+        body: JSON.stringify({
+          email,
+          name: name || undefined,
+          role: memberRole,
+          // A manager is never location-locked, so only send a restriction for a cashier.
+          locationId: memberRole === "member" && locationId ? locationId : undefined,
+        }),
       });
       const json = await res.json();
-      if (!res.ok) throw new Error(json.error || "Could not add cashier");
+      if (!res.ok) throw new Error(json.error || "Could not add team member");
       if (json.tempPassword) {
         setCredential({ email: json.email, name: json.name, tempPassword: json.tempPassword });
       } else {
@@ -110,9 +121,10 @@ export function TeamSection() {
       setEmail("");
       setName("");
       setLocationId("");
+      setMemberRole("member");
       await reload();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not add cashier");
+      setError(e instanceof Error ? e.message : "Could not add team member");
     } finally {
       setAdding(false);
     }
@@ -148,7 +160,7 @@ export function TeamSection() {
         </span>
       </div>
       <p className="text-sm text-gray-500 mb-4">
-        Give your cashiers their own login. Each person counts as one seat on your plan.
+        Give your team their own login. Each person counts as one seat on your plan.
       </p>
 
       {error && (
@@ -256,7 +268,22 @@ export function TeamSection() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
           </div>
-          {locations.length > 1 && (
+          {canAddManager && (
+            <div>
+              <select
+                value={memberRole}
+                onChange={(e) => setMemberRole(e.target.value as "member" | "admin")}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+              >
+                <option value="member">Cashier</option>
+                <option value="admin">Manager (full access, all branches)</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1">
+                A manager can see and run every branch. A cashier is limited to the POS.
+              </p>
+            </div>
+          )}
+          {memberRole === "member" && locations.length > 1 && (
             <div>
               <select
                 value={locationId}
@@ -277,7 +304,7 @@ export function TeamSection() {
           )}
           <Button type="submit" loading={adding}>
             <UserPlus className="w-4 h-4 mr-1.5" />
-            Add cashier
+            {memberRole === "admin" ? "Add manager" : "Add cashier"}
           </Button>
         </form>
       )}
