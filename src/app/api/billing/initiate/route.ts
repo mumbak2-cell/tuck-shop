@@ -95,11 +95,15 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Paystack is not configured on the server" }, { status: 503 });
   }
 
-  // If a recurring Paystack Plan is configured for this (tier, cycle), pass it
-  // so Paystack sets up an auto-renewing Subscription and takes the amount from
-  // the Plan (any `amount` we pass is ignored). If not configured yet, fall
-  // back to a single one-time charge of the computed amount — so this endpoint
-  // keeps working before the Plans exist in the Paystack dashboard.
+  // If a recurring Paystack Plan is configured for this (tier, cycle), pass its
+  // code so Paystack sets up an auto-renewing Subscription. If not configured
+  // yet, this stays a single one-time charge — so the endpoint keeps working
+  // before the Plans exist in the Paystack dashboard.
+  //
+  // `amount` is ALWAYS sent: transaction/initialize requires it even when a
+  // `plan` is supplied — omitting it returns "Invalid amount". Our per-cycle
+  // amount equals the Plan's amount, so Paystack accepts the pair and bills the
+  // Plan's amount on the recurring schedule.
   const recurringPlan = paystackPlanCode(planCode, cycle);
 
   const psRes = await fetch("https://api.paystack.co/transaction/initialize", {
@@ -110,6 +114,8 @@ export async function POST(req: Request) {
     },
     body: JSON.stringify({
       email: userEmail,
+      amount: amountMinor,
+      currency: BILLING_CURRENCY,
       reference,
       callback_url: callbackUrl,
       metadata: {
@@ -117,9 +123,7 @@ export async function POST(req: Request) {
         plan_code: planCode,
         cycle,
       },
-      ...(recurringPlan
-        ? { plan: recurringPlan }
-        : { amount: amountMinor, currency: BILLING_CURRENCY }),
+      ...(recurringPlan ? { plan: recurringPlan } : {}),
     }),
   });
   const psJson = await psRes.json();
