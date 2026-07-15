@@ -24,6 +24,7 @@ interface MemberRow {
   user_id: string;
   role: "owner" | "admin" | "member";
   created_at: string;
+  assigned_location_id: string | null;
 }
 
 /** Map user ids to emails via the paginated admin API. */
@@ -74,7 +75,7 @@ export async function GET(req: Request) {
   const admin = getSupabaseAdmin();
   const { data: membersData, error } = await admin
     .from("org_members")
-    .select("id, user_id, role, created_at")
+    .select("id, user_id, role, created_at, assigned_location_id")
     .eq("org_id", auth.orgId!)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -82,6 +83,15 @@ export async function GET(req: Request) {
   const members = (membersData as MemberRow[] | null) || [];
   const emails = await emailsFor(admin, members.map((m) => m.user_id));
   const { maxUsers, memberCount } = await planLimitAndCount(admin, auth.orgId!);
+
+  // Location names for the "assigned to <branch>" label on each cashier.
+  const { data: locRows } = await admin
+    .from("locations")
+    .select("id, name")
+    .eq("org_id", auth.orgId!);
+  const locationNames = new Map<string, string>(
+    ((locRows as { id: string; name: string }[] | null) || []).map((l) => [l.id, l.name])
+  );
 
   return NextResponse.json({
     members: members.map((m) => ({
@@ -91,6 +101,8 @@ export async function GET(req: Request) {
       isSelf: m.user_id === auth.userId,
       isOwner: m.role === "owner",
       joinedAt: m.created_at,
+      assignedLocationId: m.assigned_location_id,
+      assignedLocationName: m.assigned_location_id ? locationNames.get(m.assigned_location_id) ?? null : null,
     })),
     seats: { used: memberCount, max: maxUsers },
   });
@@ -99,6 +111,29 @@ export async function GET(req: Request) {
 interface InviteBody {
   email?: string;
   name?: string;
+  locationId?: string;
+}
+
+/** Validate that a location id belongs to the org. Returns the id when valid,
+ *  null when the caller passed nothing, or throws a user-facing message when
+ *  the id is present but does not belong to this org. Cashiers are hard-locked
+ *  to a single location, so assigning a foreign one must be rejected. */
+async function resolveAssignedLocation(
+  admin: SupabaseClient,
+  orgId: string,
+  locationId: string | undefined
+): Promise<string | null> {
+  const id = (locationId || "").trim();
+  if (!id) return null;
+  const { data, error } = await admin
+    .from("locations")
+    .select("id")
+    .eq("org_id", orgId)
+    .eq("id", id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!data) throw new Error("That location does not belong to your shop");
+  return id;
 }
 
 export async function POST(req: Request) {
@@ -119,6 +154,18 @@ export async function POST(req: Request) {
   }
 
   const admin = getSupabaseAdmin();
+
+  // Optional hard-lock to one location. Cashiers pinned here see and sell only
+  // at their assigned location (org-context pins them; RLS scopes their rows).
+  let assignedLocationId: string | null;
+  try {
+    assignedLocationId = await resolveAssignedLocation(admin, auth.orgId!, body.locationId);
+  } catch (e) {
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Invalid location" },
+      { status: 400 }
+    );
+  }
 
   // Seat check first — cheapest rejection, and avoids creating an auth user we
   // then can't attach. null max = unlimited.
@@ -170,7 +217,7 @@ export async function POST(req: Request) {
     // Unattached existing login — safe to make this org their only membership.
     const { error: linkErr } = await admin
       .from("org_members")
-      .insert({ org_id: auth.orgId!, user_id: existingId, role: "member" });
+      .insert({ org_id: auth.orgId!, user_id: existingId, role: "member", assigned_location_id: assignedLocationId });
     if (linkErr) {
       // 23505 = unique_violation on (org_id, user_id): a concurrent add of the
       // same person raced us here. That's the "already on your team" outcome,
@@ -202,7 +249,7 @@ export async function POST(req: Request) {
 
   const { error: memberErr } = await admin
     .from("org_members")
-    .insert({ org_id: auth.orgId!, user_id: created.user.id, role: "member" });
+    .insert({ org_id: auth.orgId!, user_id: created.user.id, role: "member", assigned_location_id: assignedLocationId });
   if (memberErr) {
     // Roll back the orphaned auth user so a retry isn't blocked by "email exists".
     await admin.auth.admin.deleteUser(created.user.id);

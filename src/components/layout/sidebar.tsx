@@ -63,7 +63,7 @@ const navItems: NavItem[] = [
   { href: "/products", label: "Products", icon: Package, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"], foodOnly: true, group: "shop" },
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"], group: "shop" },
-  { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin"], group: "shop" },
+  { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin", "cashier"], group: "shop" },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"], group: "shop" },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"], group: "shop" },
   { href: "/promotions", label: "Promotions", icon: Percent, roles: ["admin"], retailOnly: true, group: "shop" },
