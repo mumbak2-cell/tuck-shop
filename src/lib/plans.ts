@@ -5,6 +5,10 @@
 
 export type PlanCode = "starter" | "growth" | "pro";
 
+/** Billing cycle the operator chooses at checkout. Maps to Paystack Plan
+ *  intervals monthly / quarterly / annually (see lib/paystack-plans.ts). */
+export type BillingCycle = "monthly" | "quarterly" | "annual";
+
 export interface PlanLimits {
   /** Maximum locations the org can create. null = unlimited. */
   maxLocations: number | null;
@@ -34,10 +38,11 @@ export interface Plan {
   highlight?: boolean;
   features: string[];
   limits: PlanLimits;
-  /** Provider-side plan code, set up in Paystack / Flutterwave dashboards
-   * for recurring subscription billing. Optional - if absent, fall back
-   * to a one-time charge of monthlyMinor. */
-  paystackPlanCode?: string;
+  /** Paystack recurring Plan codes are resolved server-side per (tier, cycle)
+   * from environment variables — see lib/paystack-plans.ts. They are not held
+   * here because test-mode and live-mode codes differ per deployment, and they
+   * must never reach the client bundle. When no code is configured for a
+   * (tier, cycle), checkout falls back to a one-time charge. */
   flutterwavePaymentPlanId?: number;
   /** Per-currency pricing. Currencies not listed here are unsupported
    * for that plan; the upgrade flow shows a "contact us" message. */

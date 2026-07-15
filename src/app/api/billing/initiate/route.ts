@@ -9,7 +9,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { PLANS, BILLING_CURRENCY, type PlanCode } from "@/lib/plans";
+import { PLANS, BILLING_CURRENCY } from "@/lib/plans";
+import { paystackPlanCode } from "@/lib/paystack-plans";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -94,6 +95,13 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "Paystack is not configured on the server" }, { status: 503 });
   }
 
+  // If a recurring Paystack Plan is configured for this (tier, cycle), pass it
+  // so Paystack sets up an auto-renewing Subscription and takes the amount from
+  // the Plan (any `amount` we pass is ignored). If not configured yet, fall
+  // back to a single one-time charge of the computed amount — so this endpoint
+  // keeps working before the Plans exist in the Paystack dashboard.
+  const recurringPlan = paystackPlanCode(planCode, cycle);
+
   const psRes = await fetch("https://api.paystack.co/transaction/initialize", {
     method: "POST",
     headers: {
@@ -102,8 +110,6 @@ export async function POST(req: Request) {
     },
     body: JSON.stringify({
       email: userEmail,
-      amount: amountMinor,
-      currency: BILLING_CURRENCY,
       reference,
       callback_url: callbackUrl,
       metadata: {
@@ -111,6 +117,9 @@ export async function POST(req: Request) {
         plan_code: planCode,
         cycle,
       },
+      ...(recurringPlan
+        ? { plan: recurringPlan }
+        : { amount: amountMinor, currency: BILLING_CURRENCY }),
     }),
   });
   const psJson = await psRes.json();
