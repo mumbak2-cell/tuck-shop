@@ -74,7 +74,8 @@ export default function ExpensesPage() {
   }
 
   async function loadCashierReport() {
-    if (role !== "owner") {
+    // Owner or manager (admin) may see who spent what; cashiers may not.
+    if (role !== "owner" && role !== "admin") {
       setCashierReport([]);
       return;
     }
@@ -242,8 +243,8 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      {/* Owner-only: per-cashier breakdown for the selected period/branch */}
-      {role === "owner" && (
+      {/* Owner/manager: per-cashier breakdown for the selected period/branch */}
+      {(role === "owner" || role === "admin") && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
             <Users className="w-4 h-4 text-green-600" />

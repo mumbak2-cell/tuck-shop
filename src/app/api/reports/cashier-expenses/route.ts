@@ -1,14 +1,14 @@
 // GET /api/reports/cashier-expenses?from=YYYY-MM-DD&to=YYYY-MM-DD&locationId=<uuid>
 //
-// Owner-only. Aggregates the org's expenses by the person who recorded them
-// (expenses.recorded_by_user_id, added in migration 046) and resolves each id
-// to an email/name via the admin API — auth.users isn't readable client-side,
-// so this must run server-side with the service-role client. The owner check
-// is the authorisation gate.
+// Owner or manager only. Aggregates the org's expenses by the person who
+// recorded them (expenses.recorded_by_user_id, added in migration 046) and
+// resolves each id to an email/name via the admin API — auth.users isn't
+// readable client-side, so this must run server-side with the service-role
+// client. The owner/manager check is the authorisation gate.
 
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { requireOrgOwner } from "@/lib/org-owner";
+import { requireOrgManager } from "@/lib/org-owner";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -71,7 +71,7 @@ async function fetchExpenses(
 }
 
 export async function GET(req: Request) {
-  const auth = await requireOrgOwner(req);
+  const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const url = new URL(req.url);
