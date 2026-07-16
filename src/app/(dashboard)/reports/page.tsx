@@ -1,22 +1,32 @@
 "use client";
 // Free reporting page — no API calls, no LLM, no per-question cost.
 //
-// Every query below runs client-side through `db` (the anon Supabase client),
-// so RLS scopes reads to the user's org automatically, and the location filter
-// scopes them to a branch. Cashiers (role="member") are pinned to their
-// assigned location by org-context and by LocationFilter, so their reports are
-// automatically limited to their own shop; revenue figures are gated behind a
-// manager check so they never see branch- or org-wide takings.
+// Every query runs client-side through `db` (the anon Supabase client), so RLS
+// scopes reads to the user's org automatically, and the location filter scopes
+// them to a branch. Cashiers (role="member") are pinned to their assigned
+// location by org-context and by LocationFilter, so their reports are limited
+// to their own shop; revenue/profit figures are gated behind a manager check
+// so they never see branch- or org-wide takings.
 //
-// Revenue reads the snapshotted `sales.total_amount` (captured at sale time via
-// submit_sale_batch) — never recomputed from products.selling_price — per the
-// sales-snapshot invariant in CLAUDE.md.
+// Revenue reads the snapshotted `sales.total_amount` and cost reads
+// `sales.cost_price` (both captured at sale time via submit_sale_batch) —
+// never recomputed from products.selling_price — per the sales-snapshot
+// invariant in CLAUDE.md.
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
-import { Button } from "@/components/ui/button";
-import { BarChart3, TrendingUp, TrendingDown, PackageX, Trophy, Download } from "lucide-react";
+import {
+  BarChart3,
+  TrendingDown,
+  PackageX,
+  Trophy,
+  Download,
+  Store,
+  ChevronDown,
+  ArrowUpRight,
+  ArrowDownRight,
+} from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 
@@ -49,6 +59,12 @@ interface MoverRow {
   sold: number;
 }
 
+interface BranchRow {
+  locationId: string;
+  name: string;
+  revenue: number;
+}
+
 export default function ReportsPage() {
   const { role, assignedLocationId, currentLocationId, currentLocationName, locations } = useOrg();
   const isManager = role === "owner" || role === "admin"; // cashiers are role "member"
@@ -67,12 +83,16 @@ export default function ReportsPage() {
   const [customTo, setCustomTo] = useState(() => new Date().toISOString().split("T")[0]);
   const [loading, setLoading] = useState(true);
 
-  const [salesTotal, setSalesTotal] = useState(0);
+  const [revenue, setRevenue] = useState(0);
+  const [cogs, setCogs] = useState(0);
   const [txnCount, setTxnCount] = useState(0);
+  const [prevRevenue, setPrevRevenue] = useState(0);
+  const [prevTxn, setPrevTxn] = useState(0);
   const [topSellers, setTopSellers] = useState<SellerRow[]>([]);
   const [slowestMovers, setSlowestMovers] = useState<MoverRow[]>([]);
   const [revenueByDay, setRevenueByDay] = useState<DayRevenue[]>([]);
   const [allProductSales, setAllProductSales] = useState<SellerRow[]>([]); // full breakdown for CSV
+  const [branchPerf, setBranchPerf] = useState<BranchRow[]>([]);
   const [lowStock, setLowStock] = useState<StockRow[]>([]);
 
   useEffect(() => {
@@ -122,24 +142,29 @@ export default function ReportsPage() {
       stockList.filter((r) => r.quantity <= LOW_STOCK_THRESHOLD).sort((a, b) => a.quantity - b.quantity)
     );
 
-    // --- Sales (managers only) — revenue, top/slowest movers, daily trend.
+    // --- Sales (managers only) — revenue, profit, trend, movers, branch mix.
     if (!isManager) {
-      setSalesTotal(0);
+      setRevenue(0);
+      setCogs(0);
       setTxnCount(0);
+      setPrevRevenue(0);
+      setPrevTxn(0);
       setTopSellers([]);
       setSlowestMovers([]);
       setRevenueByDay([]);
       setAllProductSales([]);
+      setBranchPerf([]);
       setLoading(false);
       return;
     }
 
     const { from, to } = getDateRange();
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sales = await fetchAllPaged<any>(() => {
       let q = db
         .from("sales")
-        .select("sale_date, product_id, quantity, total_amount, products(name)")
+        .select("sale_date, product_id, quantity, total_amount, cost_price, location_id, products(name)")
         .gte("sale_date", from)
         .lte("sale_date", to)
         .eq("voided", false);
@@ -149,12 +174,16 @@ export default function ReportsPage() {
 
     const byProduct = new Map<string, SellerRow>();
     const dayMap = new Map<string, number>();
-    let total = 0;
+    const locMap = new Map<string, number>();
+    let totalRevenue = 0;
+    let totalCogs = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sales as any[]).forEach((s: any) => {
-      const revenue = Number(s.total_amount) || 0;
-      total += revenue;
-      dayMap.set(s.sale_date, (dayMap.get(s.sale_date) ?? 0) + revenue);
+      const rev = Number(s.total_amount) || 0;
+      totalRevenue += rev;
+      totalCogs += (Number(s.cost_price) || 0) * (Number(s.quantity) || 0);
+      dayMap.set(s.sale_date, (dayMap.get(s.sale_date) ?? 0) + rev);
+      if (s.location_id) locMap.set(s.location_id, (locMap.get(s.location_id) ?? 0) + rev);
       const cur = byProduct.get(s.product_id) ?? {
         productId: s.product_id,
         name: s.products?.name || "—",
@@ -162,20 +191,19 @@ export default function ReportsPage() {
         revenue: 0,
       };
       cur.qty += Number(s.quantity) || 0;
-      cur.revenue += revenue;
+      cur.revenue += rev;
       byProduct.set(s.product_id, cur);
     });
 
     const sorted = [...byProduct.values()].sort((a, b) => b.revenue - a.revenue);
-    setSalesTotal(total);
+    setRevenue(totalRevenue);
+    setCogs(totalCogs);
     setTxnCount(sales.length);
     setTopSellers(sorted.slice(0, 10));
     setAllProductSales(sorted);
-
-    // Daily revenue across every day in the range (gaps show as zero).
     setRevenueByDay(enumerateDays(from, to).map((date) => ({ date, revenue: dayMap.get(date) ?? 0 })));
 
-    // Slowest movers: in-stock products that sold the fewest units (catches dead stock).
+    // Slowest movers: in-stock products that sold the fewest units (dead stock first).
     setSlowestMovers(
       stockList
         .filter((s) => s.quantity > 0)
@@ -183,6 +211,38 @@ export default function ReportsPage() {
         .sort((a, b) => a.sold - b.sold || b.stock - a.stock)
         .slice(0, 10)
     );
+
+    // Branch performance — only meaningful when viewing all branches of a chain.
+    if (locations.length > 1 && !isFiltered) {
+      setBranchPerf(
+        [...locMap.entries()]
+          .map(([locationId, rev]) => ({
+            locationId,
+            name: locations.find((l) => l.id === locationId)?.name || "—",
+            revenue: rev,
+          }))
+          .sort((a, b) => b.revenue - a.revenue)
+      );
+    } else {
+      setBranchPerf([]);
+    }
+
+    // Previous equal-length window (momentum indicator).
+    const prev = prevRange(from, to);
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const prevSales = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("sales")
+        .select("total_amount")
+        .gte("sale_date", prev.from)
+        .lte("sale_date", prev.to)
+        .eq("voided", false);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    });
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    setPrevRevenue((prevSales as any[]).reduce((sum: number, s: any) => sum + (Number(s.total_amount) || 0), 0));
+    setPrevTxn(prevSales.length);
 
     setLoading(false);
   }
@@ -228,6 +288,16 @@ export default function ReportsPage() {
   const scopeLabel = isFiltered ? filteredLocName : currentLocationName || "your shop";
   const maxDayRevenue = revenueByDay.reduce((m, d) => Math.max(m, d.revenue), 0);
 
+  // Derived exec metrics.
+  const grossProfit = revenue - cogs;
+  const margin = revenue > 0 ? (grossProfit / revenue) * 100 : 0;
+  const avgSale = txnCount > 0 ? revenue / txnCount : 0;
+  const top5Revenue = topSellers.slice(0, 5).reduce((s, p) => s + p.revenue, 0);
+  const top5Share = revenue > 0 ? (top5Revenue / revenue) * 100 : 0;
+  const productsSold = allProductSales.length;
+  const zeroSellers = slowestMovers.filter((m) => m.sold === 0).length;
+  const outOfStock = lowStock.filter((r) => r.quantity <= 0).length;
+
   return (
     <div>
       <div className="mb-6 flex items-start justify-between flex-wrap gap-3">
@@ -239,17 +309,9 @@ export default function ReportsPage() {
               <span className="ml-1 text-base font-normal text-gray-500">· {filteredLocName}</span>
             )}
           </h1>
-          <p className="text-sm text-gray-500 mt-1">Sales, top sellers, and low stock at a glance</p>
+          <p className="text-sm text-gray-500 mt-1">Organisation sales overview</p>
         </div>
-        <div className="flex items-center gap-3">
-          <LocationFilter value={locFilter} onChange={setLocFilter} />
-          {isManager && (
-            <Button variant="secondary" onClick={exportSales} disabled={allProductSales.length === 0}>
-              <Download className="w-4 h-4 mr-2" />
-              Export CSV
-            </Button>
-          )}
-        </div>
+        <LocationFilter value={locFilter} onChange={setLocFilter} />
       </div>
 
       {/* Period selector */}
@@ -294,21 +356,27 @@ export default function ReportsPage() {
         <div className="text-center py-12 text-gray-400">Loading…</div>
       ) : (
         <div className="space-y-6">
-          {/* Sales summary — managers only */}
+          {/* Exec KPI band — managers only */}
           {isManager && (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
-                <div className="flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-green-600" />
-                  <p className="text-sm text-gray-500">Sales in period</p>
-                </div>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{formatZAR(salesTotal)}</p>
+            <>
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                <Kpi label="Revenue" value={formatZAR(revenue)} caption="vs previous period">
+                  <Delta current={revenue} previous={prevRevenue} />
+                </Kpi>
+                <Kpi label="Gross profit" value={formatZAR(grossProfit)} caption={`${margin.toFixed(1)}% margin`} />
+                <Kpi label="Transactions" value={String(txnCount)} caption="vs previous period">
+                  <Delta current={txnCount} previous={prevTxn} />
+                </Kpi>
+                <Kpi label="Avg sale" value={formatZAR(avgSale)} caption={`${productsSold} products sold`} />
               </div>
-              <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
-                <p className="text-sm text-gray-500">Transactions</p>
-                <p className="text-2xl font-bold text-gray-900 mt-1">{txnCount}</p>
-              </div>
-            </div>
+
+              {revenue > 0 && (
+                <p className="text-xs text-gray-500 -mt-2">
+                  Top 5 products drive{" "}
+                  <span className="font-semibold text-gray-700">{top5Share.toFixed(0)}%</span> of revenue at {scopeLabel}.
+                </p>
+              )}
+            </>
           )}
 
           {/* Revenue per day mini chart — managers only */}
@@ -349,14 +417,43 @@ export default function ReportsPage() {
             </div>
           )}
 
-          {/* Top sellers — managers only */}
-          {isManager && (
+          {/* Branch performance — managers, chain-wide view only */}
+          {isManager && branchPerf.length > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl p-5">
-              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
-                <Trophy className="w-4 h-4 text-green-600" />
-                Top sellers
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-3">
+                <Store className="w-4 h-4 text-green-600" />
+                Revenue by branch
               </h2>
-              <p className="text-xs text-gray-500 mb-3">Best-selling products by revenue at {scopeLabel} for the selected period.</p>
+              <div className="space-y-2.5">
+                {branchPerf.map((b) => {
+                  const share = revenue > 0 ? (b.revenue / revenue) * 100 : 0;
+                  return (
+                    <div key={b.locationId}>
+                      <div className="flex items-center justify-between text-sm mb-1">
+                        <span className="font-medium text-gray-900 truncate">{b.name}</span>
+                        <span className="text-gray-600 shrink-0 ml-3">
+                          {formatZAR(b.revenue)} <span className="text-gray-400">· {share.toFixed(0)}%</span>
+                        </span>
+                      </div>
+                      <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
+                        <div className="h-full bg-green-500 rounded-full" style={{ width: `${share}%` }} />
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Top sellers — managers only, collapsed by default */}
+          {isManager && (
+            <CollapsibleCard
+              icon={Trophy}
+              iconColor="text-green-600"
+              title="Top sellers"
+              summary={topSellers.length === 0 ? "No sales" : `${productsSold} products · ${formatZAR(top5Revenue)} from top 5`}
+              action={<CsvButton onClick={exportSales} disabled={allProductSales.length === 0} />}
+            >
               {topSellers.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">No sales recorded in this period.</p>
               ) : (
@@ -375,19 +472,18 @@ export default function ReportsPage() {
                   ))}
                 </div>
               )}
-            </div>
+            </CollapsibleCard>
           )}
 
-          {/* Slowest movers — managers only */}
+          {/* Slowest movers — managers only, collapsed by default */}
           {isManager && (
-            <div className="bg-white border border-gray-200 rounded-xl p-5">
-              <div className="flex items-center justify-between mb-1">
-                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                  <TrendingDown className="w-4 h-4 text-amber-600" />
-                  Slowest movers
-                </h2>
-                <CsvButton onClick={exportSlowest} disabled={slowestMovers.length === 0} />
-              </div>
+            <CollapsibleCard
+              icon={TrendingDown}
+              iconColor="text-amber-600"
+              title="Slowest movers"
+              summary={slowestMovers.length === 0 ? "No stock" : `${slowestMovers.length} shown · ${zeroSellers} not selling`}
+              action={<CsvButton onClick={exportSlowest} disabled={slowestMovers.length === 0} />}
+            >
               <p className="text-xs text-gray-500 mb-3">In-stock products that sold the fewest units at {scopeLabel} this period — watch for dead stock.</p>
               {slowestMovers.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">No stocked products to show.</p>
@@ -404,18 +500,22 @@ export default function ReportsPage() {
                   ))}
                 </div>
               )}
-            </div>
+            </CollapsibleCard>
           )}
 
-          {/* Low stock — everyone (cashiers see their own branch) */}
-          <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <div className="flex items-center justify-between mb-1">
-              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
-                <PackageX className="w-4 h-4 text-amber-600" />
-                Low stock
-              </h2>
-              <CsvButton onClick={exportLowStock} disabled={lowStock.length === 0} />
-            </div>
+          {/* Low stock — everyone, collapsed by default */}
+          <CollapsibleCard
+            icon={PackageX}
+            iconColor="text-amber-600"
+            title="Low stock"
+            summary={
+              lowStock.length === 0
+                ? "All good"
+                : `${lowStock.length} low${outOfStock > 0 ? ` · ${outOfStock} out` : ""}`
+            }
+            summaryTone={outOfStock > 0 ? "warn" : "muted"}
+            action={<CsvButton onClick={exportLowStock} disabled={lowStock.length === 0} />}
+          >
             <p className="text-xs text-gray-500 mb-3">
               Products at or below {LOW_STOCK_THRESHOLD} units at {scopeLabel}.
             </p>
@@ -437,12 +537,110 @@ export default function ReportsPage() {
                 ))}
               </div>
             )}
-          </div>
+          </CollapsibleCard>
         </div>
       )}
     </div>
   );
 }
+
+// ---------------------------------------------------------------------------
+
+function Kpi({
+  label,
+  value,
+  caption,
+  children,
+}: {
+  label: string;
+  value: string;
+  caption?: string;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl px-5 py-4">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
+      <div className="flex items-center gap-2 mt-1">
+        {children}
+        {caption && <span className="text-xs text-gray-400">{caption}</span>}
+      </div>
+    </div>
+  );
+}
+
+// Period-over-period change indicator.
+function Delta({ current, previous }: { current: number; previous: number }) {
+  if (previous <= 0) {
+    return <span className="text-xs text-gray-400">no prior data</span>;
+  }
+  const pct = ((current - previous) / previous) * 100;
+  const up = pct >= 0;
+  return (
+    <span className={`inline-flex items-center gap-0.5 text-xs font-semibold ${up ? "text-green-600" : "text-red-600"}`}>
+      {up ? <ArrowUpRight className="w-3.5 h-3.5" /> : <ArrowDownRight className="w-3.5 h-3.5" />}
+      {Math.abs(pct).toFixed(0)}%
+    </span>
+  );
+}
+
+// Collapsible card: summary in the header, details on click. Collapsed by default.
+function CollapsibleCard({
+  icon: Icon,
+  iconColor,
+  title,
+  summary,
+  summaryTone = "muted",
+  action,
+  children,
+}: {
+  icon: React.ElementType;
+  iconColor: string;
+  title: string;
+  summary: string;
+  summaryTone?: "muted" | "warn";
+  action?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="bg-white border border-gray-200 rounded-xl">
+      <div className="flex items-center justify-between px-5 py-4 gap-3">
+        <button
+          onClick={() => setOpen((o) => !o)}
+          aria-expanded={open}
+          className="flex items-center gap-2 min-w-0 flex-1 text-left"
+        >
+          <Icon className={`w-4 h-4 shrink-0 ${iconColor}`} />
+          <span className="text-sm font-semibold text-gray-900">{title}</span>
+          <ChevronDown className={`w-4 h-4 text-gray-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
+        </button>
+        <div className="flex items-center gap-3 shrink-0">
+          <span className={`text-sm font-medium ${summaryTone === "warn" ? "text-amber-600" : "text-gray-500"}`}>
+            {summary}
+          </span>
+          {action}
+        </div>
+      </div>
+      {open && <div className="px-5 pb-4 pt-1 border-t border-gray-100">{children}</div>}
+    </div>
+  );
+}
+
+function CsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+    >
+      <Download className="w-3.5 h-3.5" />
+      Export
+    </button>
+  );
+}
+
+// ---------------------------------------------------------------------------
 
 // Local-date formatter (avoids the UTC shift that toISOString would introduce).
 function fmtLocalDate(d: Date): string {
@@ -463,6 +661,18 @@ function enumerateDays(from: string, to: string): string[] {
   return days;
 }
 
+// The equal-length window immediately before [from, to] — for momentum deltas.
+function prevRange(from: string, to: string): { from: string; to: string } {
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  const lenDays = Math.round((end.getTime() - start.getTime()) / 86400000) + 1;
+  const prevEnd = new Date(start);
+  prevEnd.setDate(prevEnd.getDate() - 1);
+  const prevStart = new Date(prevEnd);
+  prevStart.setDate(prevStart.getDate() - (lenDays - 1));
+  return { from: fmtLocalDate(prevStart), to: fmtLocalDate(prevEnd) };
+}
+
 // Build a CSV from a header + rows and trigger a client-side download.
 // Prepends a UTF-8 BOM so Excel opens it with the correct encoding.
 function downloadCsv(filename: string, header: string[], rows: string[][]) {
@@ -481,20 +691,6 @@ function downloadCsv(filename: string, header: string[], rows: string[][]) {
 // RFC-4180 CSV field escaping.
 function csvEscape(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
-}
-
-// Small inline "Export" link used in card headers.
-function CsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed"
-    >
-      <Download className="w-3.5 h-3.5" />
-      Export
-    </button>
-  );
 }
 
 // Filename-safe slug for the export filename.
