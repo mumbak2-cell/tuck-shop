@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { db } from "@/lib/supabase";
+import { db, supabase } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
@@ -8,17 +8,22 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
-import { Receipt, Plus, Trash2, Filter, CloudOff } from "lucide-react";
+import { Receipt, Plus, Trash2, Filter, CloudOff, Users } from "lucide-react";
 import { EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
 import { insertOrQueue } from "@/lib/offline-ops";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName, orgId } = useOrg();
+  const { currentLocationId, currentLocationName, orgId, role } = useOrg();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
   const [queuedNote, setQueuedNote] = useState<string | null>(null);
+
+  // Owner-only: per-cashier expense breakdown for the selected dates/branch.
+  interface CashierRow { userId: string | null; name: string; email: string | null; total: number; count: number }
+  const [cashierReport, setCashierReport] = useState<CashierRow[]>([]);
+  const [reportLoading, setReportLoading] = useState(false);
 
   // Filters
   const [filterCategory, setFilterCategory] = useState<string>("all");
@@ -41,6 +46,11 @@ export default function ExpensesPage() {
     loadExpenses();
   }, [filterCategory, filterFrom, filterTo, currentLocationId]);
 
+  // Owner-only per-cashier report. loadCashierReport no-ops for non-owners.
+  useEffect(() => {
+    loadCashierReport();
+  }, [role, filterFrom, filterTo, currentLocationId]);
+
   async function loadExpenses() {
     setLoading(true);
     let query = db
@@ -61,6 +71,33 @@ export default function ExpensesPage() {
     const { data } = await query;
     setExpenses(data || []);
     setLoading(false);
+  }
+
+  async function loadCashierReport() {
+    if (role !== "owner") {
+      setCashierReport([]);
+      return;
+    }
+    setReportLoading(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const t = sess.session?.access_token;
+      if (!t) {
+        setReportLoading(false);
+        return;
+      }
+      const params = new URLSearchParams({ from: filterFrom, to: filterTo });
+      if (currentLocationId) params.set("locationId", currentLocationId);
+      const res = await fetch(`/api/reports/cashier-expenses?${params.toString()}`, {
+        headers: { Authorization: `Bearer ${t}` },
+      });
+      const json = await res.json();
+      if (res.ok) setCashierReport(json.cashiers || []);
+    } catch {
+      // Non-critical — leave the report empty on failure.
+    } finally {
+      setReportLoading(false);
+    }
   }
 
   async function handleSave() {
@@ -204,6 +241,41 @@ export default function ExpensesPage() {
           </select>
         </div>
       </div>
+
+      {/* Owner-only: per-cashier breakdown for the selected period/branch */}
+      {role === "owner" && (
+        <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
+          <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
+            <Users className="w-4 h-4 text-green-600" />
+            Expenses by cashier
+          </h2>
+          <p className="text-xs text-gray-500 mb-3">
+            Who recorded expenses at {currentLocationName || "this shop"} in the selected dates.
+          </p>
+          {reportLoading ? (
+            <p className="text-sm text-gray-400 py-2">Loading…</p>
+          ) : cashierReport.length === 0 ? (
+            <p className="text-sm text-gray-400 py-2">No expenses recorded in this period.</p>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {cashierReport.map((c) => (
+                <div key={c.userId ?? "unattributed"} className="flex items-center justify-between py-2.5">
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium text-gray-900 truncate">{c.name}</p>
+                    {c.email && <p className="text-xs text-gray-500 truncate">{c.email}</p>}
+                  </div>
+                  <div className="text-right shrink-0 ml-3">
+                    <p className="text-sm font-semibold text-gray-900">{formatZAR(c.total)}</p>
+                    <p className="text-xs text-gray-500">
+                      {c.count} {c.count === 1 ? "entry" : "entries"}
+                    </p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Expenses list */}
       {loading ? (
