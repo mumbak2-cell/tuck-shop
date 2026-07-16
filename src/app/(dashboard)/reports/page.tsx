@@ -15,7 +15,8 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
-import { BarChart3, TrendingUp, PackageX, Trophy } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { BarChart3, TrendingUp, TrendingDown, PackageX, Trophy, Download } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 
@@ -34,6 +35,18 @@ interface StockRow {
   productId: string;
   name: string;
   quantity: number;
+}
+
+interface DayRevenue {
+  date: string;
+  revenue: number;
+}
+
+interface MoverRow {
+  productId: string;
+  name: string;
+  stock: number;
+  sold: number;
 }
 
 export default function ReportsPage() {
@@ -57,6 +70,9 @@ export default function ReportsPage() {
   const [salesTotal, setSalesTotal] = useState(0);
   const [txnCount, setTxnCount] = useState(0);
   const [topSellers, setTopSellers] = useState<SellerRow[]>([]);
+  const [slowestMovers, setSlowestMovers] = useState<MoverRow[]>([]);
+  const [revenueByDay, setRevenueByDay] = useState<DayRevenue[]>([]);
+  const [allProductSales, setAllProductSales] = useState<SellerRow[]>([]); // full breakdown for CSV
   const [lowStock, setLowStock] = useState<StockRow[]>([]);
 
   useEffect(() => {
@@ -82,26 +98,48 @@ export default function ReportsPage() {
 
   async function loadReports() {
     setLoading(true);
-    await Promise.all([loadSales(), loadLowStock()]);
-    setLoading(false);
-  }
 
-  async function loadSales() {
-    // Cashiers don't see revenue; skip the sales query entirely for them.
+    // --- Stock (everyone) — aggregated per product across the scoped branch(es).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const stockRows = await fetchAllPaged<any>(() => {
+      let q = db.from("product_stock").select("product_id, quantity, products(name)");
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    });
+    const stockByProduct = new Map<string, StockRow>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (stockRows as any[]).forEach((r: any) => {
+      const cur = stockByProduct.get(r.product_id) ?? {
+        productId: r.product_id,
+        name: r.products?.name || "—",
+        quantity: 0,
+      };
+      cur.quantity += Number(r.quantity) || 0;
+      stockByProduct.set(r.product_id, cur);
+    });
+    const stockList = [...stockByProduct.values()];
+    setLowStock(
+      stockList.filter((r) => r.quantity <= LOW_STOCK_THRESHOLD).sort((a, b) => a.quantity - b.quantity)
+    );
+
+    // --- Sales (managers only) — revenue, top/slowest movers, daily trend.
     if (!isManager) {
       setSalesTotal(0);
       setTxnCount(0);
       setTopSellers([]);
+      setSlowestMovers([]);
+      setRevenueByDay([]);
+      setAllProductSales([]);
+      setLoading(false);
       return;
     }
-    const { from, to } = getDateRange();
 
-    // fetchAllPaged pages past PostgREST's 1000-row cap, like profit-loss.
+    const { from, to } = getDateRange();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const sales = await fetchAllPaged<any>(() => {
       let q = db
         .from("sales")
-        .select("product_id, quantity, total_amount, products(name)")
+        .select("sale_date, product_id, quantity, total_amount, products(name)")
         .gte("sale_date", from)
         .lte("sale_date", to)
         .eq("voided", false);
@@ -109,13 +147,14 @@ export default function ReportsPage() {
       return q;
     });
 
-    // Aggregate in the browser — no backend, no cost.
     const byProduct = new Map<string, SellerRow>();
+    const dayMap = new Map<string, number>();
     let total = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sales as any[]).forEach((s: any) => {
       const revenue = Number(s.total_amount) || 0;
       total += revenue;
+      dayMap.set(s.sale_date, (dayMap.get(s.sale_date) ?? 0) + revenue);
       const cur = byProduct.get(s.product_id) ?? {
         productId: s.product_id,
         name: s.products?.name || "—",
@@ -127,37 +166,43 @@ export default function ReportsPage() {
       byProduct.set(s.product_id, cur);
     });
 
+    const sorted = [...byProduct.values()].sort((a, b) => b.revenue - a.revenue);
     setSalesTotal(total);
     setTxnCount(sales.length);
-    setTopSellers([...byProduct.values()].sort((a, b) => b.revenue - a.revenue).slice(0, 10));
+    setTopSellers(sorted.slice(0, 10));
+    setAllProductSales(sorted);
+
+    // Daily revenue across every day in the range (gaps show as zero).
+    setRevenueByDay(enumerateDays(from, to).map((date) => ({ date, revenue: dayMap.get(date) ?? 0 })));
+
+    // Slowest movers: in-stock products that sold the fewest units (catches dead stock).
+    setSlowestMovers(
+      stockList
+        .filter((s) => s.quantity > 0)
+        .map((s) => ({ productId: s.productId, name: s.name, stock: s.quantity, sold: byProduct.get(s.productId)?.qty ?? 0 }))
+        .sort((a, b) => a.sold - b.sold || b.stock - a.stock)
+        .slice(0, 10)
+    );
+
+    setLoading(false);
   }
 
-  async function loadLowStock() {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const rows = await fetchAllPaged<any>(() => {
-      let q = db.from("product_stock").select("product_id, quantity, products(name)");
-      if (isFiltered) q = q.eq("location_id", effectiveLoc);
-      return q;
-    });
-
-    // Sum quantity per product (across branches when "All locations" is selected).
-    const byProduct = new Map<string, StockRow>();
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (rows as any[]).forEach((r: any) => {
-      const cur = byProduct.get(r.product_id) ?? {
-        productId: r.product_id,
-        name: r.products?.name || "—",
-        quantity: 0,
-      };
-      cur.quantity += Number(r.quantity) || 0;
-      byProduct.set(r.product_id, cur);
-    });
-
-    setLowStock(
-      [...byProduct.values()]
-        .filter((r) => r.quantity <= LOW_STOCK_THRESHOLD)
-        .sort((a, b) => a.quantity - b.quantity)
-    );
+  function exportCsv() {
+    const { from, to } = getDateRange();
+    const header = ["Product", "Units Sold", "Revenue"];
+    const rows = allProductSales.map((s) => [s.name, String(s.qty), s.revenue.toFixed(2)]);
+    // Prepend a UTF-8 BOM so Excel opens it with correct encoding.
+    const csv = "﻿" + [header, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const locPart = isFiltered && filteredLocName ? `-${slug(filteredLocName)}` : "";
+    a.download = `tilify-sales-${from}_to_${to}${locPart}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
   }
 
   const periods: { key: Period; label: string }[] = [
@@ -168,6 +213,7 @@ export default function ReportsPage() {
   ];
 
   const scopeLabel = isFiltered ? filteredLocName : currentLocationName || "your shop";
+  const maxDayRevenue = revenueByDay.reduce((m, d) => Math.max(m, d.revenue), 0);
 
   return (
     <div>
@@ -182,7 +228,15 @@ export default function ReportsPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Sales, top sellers, and low stock at a glance</p>
         </div>
-        <LocationFilter value={locFilter} onChange={setLocFilter} />
+        <div className="flex items-center gap-3">
+          <LocationFilter value={locFilter} onChange={setLocFilter} />
+          {isManager && (
+            <Button variant="secondary" onClick={exportCsv} disabled={allProductSales.length === 0}>
+              <Download className="w-4 h-4 mr-2" />
+              Export CSV
+            </Button>
+          )}
+        </div>
       </div>
 
       {/* Period selector */}
@@ -244,6 +298,44 @@ export default function ReportsPage() {
             </div>
           )}
 
+          {/* Revenue per day mini chart — managers only */}
+          {isManager && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-3">
+                <BarChart3 className="w-4 h-4 text-green-600" />
+                Revenue per day
+              </h2>
+              {maxDayRevenue === 0 ? (
+                <p className="text-sm text-gray-400 py-2">No sales in this period.</p>
+              ) : (
+                <>
+                  <div className="flex items-end gap-0.5 h-28">
+                    {revenueByDay.map((d) => {
+                      const pct = d.revenue > 0 ? Math.max(2, Math.round((d.revenue / maxDayRevenue) * 100)) : 0;
+                      return (
+                        <div
+                          key={d.date}
+                          className="flex-1 h-full flex items-end"
+                          title={`${d.date}: ${formatZAR(d.revenue)}`}
+                        >
+                          <div
+                            className="w-full bg-green-500 hover:bg-green-600 rounded-t transition-colors"
+                            style={{ height: `${pct}%` }}
+                          />
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-400 mt-1.5">
+                    <span>{revenueByDay[0]?.date}</span>
+                    <span>Peak {formatZAR(maxDayRevenue)}</span>
+                    <span>{revenueByDay[revenueByDay.length - 1]?.date}</span>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           {/* Top sellers — managers only */}
           {isManager && (
             <div className="bg-white border border-gray-200 rounded-xl p-5">
@@ -266,6 +358,32 @@ export default function ReportsPage() {
                         </div>
                       </div>
                       <p className="text-sm font-semibold text-gray-900 shrink-0 ml-3">{formatZAR(s.revenue)}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Slowest movers — managers only */}
+          {isManager && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
+                <TrendingDown className="w-4 h-4 text-amber-600" />
+                Slowest movers
+              </h2>
+              <p className="text-xs text-gray-500 mb-3">In-stock products that sold the fewest units at {scopeLabel} this period — watch for dead stock.</p>
+              {slowestMovers.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">No stocked products to show.</p>
+              ) : (
+                <div className="divide-y divide-gray-100">
+                  {slowestMovers.map((m) => (
+                    <div key={m.productId} className="flex items-center justify-between py-2.5">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-gray-900 truncate">{m.name}</p>
+                        <p className="text-xs text-gray-500">{m.sold} sold</p>
+                      </div>
+                      <span className="text-sm text-gray-500 shrink-0 ml-3">{m.stock} in stock</span>
                     </div>
                   ))}
                 </div>
@@ -305,4 +423,33 @@ export default function ReportsPage() {
       )}
     </div>
   );
+}
+
+// Local-date formatter (avoids the UTC shift that toISOString would introduce).
+function fmtLocalDate(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+// Every day from `from` to `to` inclusive, as YYYY-MM-DD strings.
+function enumerateDays(from: string, to: string): string[] {
+  const days: string[] = [];
+  const d = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  let guard = 0;
+  while (d <= end && guard < 1000) {
+    days.push(fmtLocalDate(d));
+    d.setDate(d.getDate() + 1);
+    guard += 1;
+  }
+  return days;
+}
+
+// RFC-4180 CSV field escaping.
+function csvEscape(v: string): string {
+  return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+// Filename-safe slug for the export filename.
+function slug(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "branch";
 }
