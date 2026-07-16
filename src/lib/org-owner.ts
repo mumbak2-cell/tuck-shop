@@ -61,3 +61,50 @@ export async function requireOrgOwner(req: Request): Promise<OrgOwnerAuth> {
     orgId: row.org_id as string,
   };
 }
+
+/**
+ * Like requireOrgOwner, but also admits a Manager (org_members.admin). Use for
+ * oversight surfaces an owner delegates to a manager — e.g. the per-cashier
+ * expense report — while keeping team management (add/remove staff) owner-only.
+ */
+export async function requireOrgManager(req: Request): Promise<OrgOwnerAuth> {
+  const authHeader = req.headers.get("authorization") || "";
+  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (!accessToken) {
+    return { ok: false, error: "Not authenticated", status: 401 };
+  }
+
+  const userClient = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
+  );
+  const { data: userData, error: userErr } = await userClient.auth.getUser(accessToken);
+  if (userErr || !userData.user) {
+    return { ok: false, error: "Not authenticated", status: 401 };
+  }
+
+  // One membership per user; admit only owner or admin (manager).
+  const admin = getSupabaseAdmin();
+  const { data: row } = await admin
+    .from("org_members")
+    .select("org_id, role")
+    .eq("user_id", userData.user.id)
+    .in("role", ["owner", "admin"])
+    .maybeSingle();
+
+  if (!row) {
+    return {
+      ok: false,
+      error: "Only an owner or manager can view this",
+      status: 403,
+    };
+  }
+
+  return {
+    ok: true,
+    userId: userData.user.id,
+    email: userData.user.email,
+    orgId: row.org_id as string,
+  };
+}
