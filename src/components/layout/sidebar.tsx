@@ -28,6 +28,7 @@ import {
   FileText,
   ArrowRightLeft,
   Percent,
+  TrendingUp,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
@@ -65,6 +66,7 @@ const navItems: NavItem[] = [
   { href: "/customers", label: "Customers", icon: Users, roles: ["admin"], group: "shop" },
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin", "cashier"], group: "shop" },
   { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"], group: "shop" },
+  { href: "/reports", label: "Reports", icon: TrendingUp, roles: ["admin", "cashier"], group: "shop" },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"], group: "shop" },
   { href: "/promotions", label: "Promotions", icon: Percent, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/revenue-assurance", label: "Revenue Assurance", icon: ShieldCheck, roles: ["admin"], retailOnly: true, group: "shop" },
