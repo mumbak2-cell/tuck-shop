@@ -187,22 +187,35 @@ export default function ReportsPage() {
     setLoading(false);
   }
 
-  function exportCsv() {
+  function locSuffix() {
+    return isFiltered && filteredLocName ? `-${slug(filteredLocName)}` : "";
+  }
+
+  function exportSales() {
     const { from, to } = getDateRange();
-    const header = ["Product", "Units Sold", "Revenue"];
-    const rows = allProductSales.map((s) => [s.name, String(s.qty), s.revenue.toFixed(2)]);
-    // Prepend a UTF-8 BOM so Excel opens it with correct encoding.
-    const csv = "﻿" + [header, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    const locPart = isFiltered && filteredLocName ? `-${slug(filteredLocName)}` : "";
-    a.download = `tilify-sales-${from}_to_${to}${locPart}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    downloadCsv(
+      `tilify-sales-${from}_to_${to}${locSuffix()}.csv`,
+      ["Product", "Units Sold", "Revenue"],
+      allProductSales.map((s) => [s.name, String(s.qty), s.revenue.toFixed(2)])
+    );
+  }
+
+  function exportSlowest() {
+    const { from, to } = getDateRange();
+    downloadCsv(
+      `tilify-slowest-movers-${from}_to_${to}${locSuffix()}.csv`,
+      ["Product", "Units Sold", "Current Stock"],
+      slowestMovers.map((m) => [m.name, String(m.sold), String(m.stock)])
+    );
+  }
+
+  function exportLowStock() {
+    const today = new Date().toISOString().split("T")[0];
+    downloadCsv(
+      `tilify-low-stock-${today}${locSuffix()}.csv`,
+      ["Product", "Quantity"],
+      lowStock.map((r) => [r.name, String(r.quantity)])
+    );
   }
 
   const periods: { key: Period; label: string }[] = [
@@ -231,7 +244,7 @@ export default function ReportsPage() {
         <div className="flex items-center gap-3">
           <LocationFilter value={locFilter} onChange={setLocFilter} />
           {isManager && (
-            <Button variant="secondary" onClick={exportCsv} disabled={allProductSales.length === 0}>
+            <Button variant="secondary" onClick={exportSales} disabled={allProductSales.length === 0}>
               <Download className="w-4 h-4 mr-2" />
               Export CSV
             </Button>
@@ -368,10 +381,13 @@ export default function ReportsPage() {
           {/* Slowest movers — managers only */}
           {isManager && (
             <div className="bg-white border border-gray-200 rounded-xl p-5">
-              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
-                <TrendingDown className="w-4 h-4 text-amber-600" />
-                Slowest movers
-              </h2>
+              <div className="flex items-center justify-between mb-1">
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <TrendingDown className="w-4 h-4 text-amber-600" />
+                  Slowest movers
+                </h2>
+                <CsvButton onClick={exportSlowest} disabled={slowestMovers.length === 0} />
+              </div>
               <p className="text-xs text-gray-500 mb-3">In-stock products that sold the fewest units at {scopeLabel} this period — watch for dead stock.</p>
               {slowestMovers.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">No stocked products to show.</p>
@@ -393,10 +409,13 @@ export default function ReportsPage() {
 
           {/* Low stock — everyone (cashiers see their own branch) */}
           <div className="bg-white border border-gray-200 rounded-xl p-5">
-            <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
-              <PackageX className="w-4 h-4 text-amber-600" />
-              Low stock
-            </h2>
+            <div className="flex items-center justify-between mb-1">
+              <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                <PackageX className="w-4 h-4 text-amber-600" />
+                Low stock
+              </h2>
+              <CsvButton onClick={exportLowStock} disabled={lowStock.length === 0} />
+            </div>
             <p className="text-xs text-gray-500 mb-3">
               Products at or below {LOW_STOCK_THRESHOLD} units at {scopeLabel}.
             </p>
@@ -444,9 +463,38 @@ function enumerateDays(from: string, to: string): string[] {
   return days;
 }
 
+// Build a CSV from a header + rows and trigger a client-side download.
+// Prepends a UTF-8 BOM so Excel opens it with the correct encoding.
+function downloadCsv(filename: string, header: string[], rows: string[][]) {
+  const csv = "﻿" + [header, ...rows].map((r) => r.map(csvEscape).join(",")).join("\r\n");
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // RFC-4180 CSV field escaping.
 function csvEscape(v: string): string {
   return /[",\r\n]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v;
+}
+
+// Small inline "Export" link used in card headers.
+function CsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+    >
+      <Download className="w-3.5 h-3.5" />
+      Export
+    </button>
+  );
 }
 
 // Filename-safe slug for the export filename.
