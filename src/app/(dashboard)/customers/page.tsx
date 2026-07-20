@@ -35,6 +35,7 @@ export default function CustomersPage() {
   const [paymentCustomer, setPaymentCustomer] = useState<Customer | null>(null);
   const [showHistory, setShowHistory] = useState(false);
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
+  const [statementCustomer, setStatementCustomer] = useState<Customer | null>(null);
 
   const { currentLocationId, currentLocationName, currency } = useOrg();
 
@@ -81,7 +82,7 @@ export default function CustomersPage() {
     setShowHistory(true);
   }
 
-  async function sendStatement(customer: Customer) {
+  async function sendStatement(customer: Customer, mode: "summary" | "detailed") {
     if (!customer.phone) return;
 
     // Open the WhatsApp window immediately (synchronous with user click)
@@ -91,6 +92,72 @@ export default function CustomersPage() {
 
     const today = new Date().toLocaleDateString("en-ZA");
     let msg = `*Statement*\nDate: ${today}\nCustomer: ${customer.name}\n\n`;
+
+    // Purchases since the last recorded payment (all purchases if none yet).
+    // The balance line below stays authoritative either way.
+    const { data: lastPay } = await db
+      .from("customer_payments")
+      .select("payment_date")
+      .eq("customer_id", customer.id)
+      .order("payment_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    const sinceDate = (lastPay as { payment_date: string } | null)?.payment_date ?? null;
+
+    let salesQuery = db
+      .from("sales")
+      .select("sale_date, quantity, unit_price, total_amount, products(name)")
+      .eq("payment_method", "credit")
+      .eq("voided", false)
+      .eq("customer_id", customer.id)
+      .order("sale_date", { ascending: true })
+      .order("created_at", { ascending: true });
+    if (sinceDate) salesQuery = salesQuery.gte("sale_date", sinceDate);
+    const { data: salesData } = await salesQuery;
+    const lines = ((salesData || []) as {
+      sale_date: string;
+      quantity: number;
+      unit_price: number;
+      total_amount: number;
+      products: { name: string } | null;
+    }[]);
+
+    if (lines.length > 0) {
+      const heading = sinceDate
+        ? `*Purchases since ${formatDate(sinceDate)}:*`
+        : `*Purchases:*`;
+      msg += `${heading}\n`;
+
+      if (mode === "summary") {
+        // One line per product, quantities and amounts added up.
+        const byProduct = new Map<string, { quantity: number; total: number }>();
+        for (const l of lines) {
+          const name = l.products?.name || "Product";
+          const agg = byProduct.get(name) || { quantity: 0, total: 0 };
+          agg.quantity += l.quantity;
+          agg.total += l.total_amount;
+          byProduct.set(name, agg);
+        }
+        for (const [name, agg] of byProduct) {
+          msg += `${agg.quantity} x ${name} — ${formatZAR(agg.total)}\n`;
+        }
+      } else {
+        // Every purchase, grouped under its date.
+        let lastDate = "";
+        for (const l of lines) {
+          if (l.sale_date !== lastDate) {
+            msg += `${formatDate(l.sale_date)}\n`;
+            lastDate = l.sale_date;
+          }
+          const name = l.products?.name || "Product";
+          msg += `  ${l.quantity} x ${name} @ ${formatZAR(l.unit_price)} = ${formatZAR(l.total_amount)}\n`;
+        }
+      }
+
+      const purchasesTotal = lines.reduce((sum, l) => sum + l.total_amount, 0);
+      msg += `Total purchases: ${formatZAR(purchasesTotal)}\n\n`;
+    }
+
     msg += `*Outstanding Balance: ${formatZAR(customer.balance)}*\n`;
 
     // Check for iKhokha link
@@ -215,7 +282,7 @@ export default function CustomersPage() {
                 <div className="flex items-center gap-2">
                   {customer.phone && customer.balance > 0 && (
                     <button
-                      onClick={() => sendStatement(customer)}
+                      onClick={() => setStatementCustomer(customer)}
                       className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg touch-manipulation"
                       title="WhatsApp Statement"
                     >
@@ -269,6 +336,41 @@ export default function CustomersPage() {
           customer={paymentCustomer}
           onSaved={fetchCustomers}
         />
+      )}
+
+      {/* Statement detail chooser */}
+      {statementCustomer && (
+        <Modal
+          open={!!statementCustomer}
+          onClose={() => setStatementCustomer(null)}
+          title="WhatsApp Statement"
+        >
+          <p className="text-sm text-gray-500 mb-4">
+            How much detail should {statementCustomer.name}&apos;s statement include?
+          </p>
+          <div className="flex flex-col gap-2">
+            <Button
+              onClick={() => {
+                sendStatement(statementCustomer, "summary");
+                setStatementCustomer(null);
+              }}
+              variant="secondary"
+              className="w-full"
+            >
+              Summary — items grouped together
+            </Button>
+            <Button
+              onClick={() => {
+                sendStatement(statementCustomer, "detailed");
+                setStatementCustomer(null);
+              }}
+              variant="secondary"
+              className="w-full"
+            >
+              Detailed — every purchase, line by line
+            </Button>
+          </div>
+        </Modal>
       )}
 
       {/* History Modal */}
