@@ -81,6 +81,9 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [whatsAppPhone, setWhatsAppPhone] = useState("");
   const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
   const [zraFiscal, setZraFiscal] = useState<ZraFiscalData | null>(null);
+  // Per-branch receipts toggle (location_settings, key receipts_enabled).
+  // Absence of a row = enabled; cached locally so the offline POS honours it.
+  const [receiptsEnabled, setReceiptsEnabled] = useState(true);
 
   useEffect(() => {
     if (open) {
@@ -96,6 +99,29 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setShowWhatsAppInput(false);
       setWhatsAppPhone("");
       setZraFiscal(null);
+
+      const receiptsCacheKey = "tilify_receipts_enabled_" + (currentLocationId ?? "");
+      try {
+        setReceiptsEnabled(window.localStorage.getItem(receiptsCacheKey) !== "false");
+      } catch {
+        setReceiptsEnabled(true);
+      }
+      if (navigator.onLine && currentLocationId) {
+        db.from("location_settings")
+          .select("value")
+          .eq("location_id", currentLocationId)
+          .eq("key", "receipts_enabled")
+          .maybeSingle()
+          .then(({ data }: { data: { value: string } | null }) => {
+            const enabled = data?.value !== "false";
+            setReceiptsEnabled(enabled);
+            try {
+              window.localStorage.setItem(receiptsCacheKey, enabled ? "true" : "false");
+            } catch {
+              // ignore — cache is best-effort
+            }
+          });
+      }
 
       const cachedMethods = orgId
         ? (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? [])
@@ -603,34 +629,38 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
           {/* Action buttons */}
           <div className="flex flex-col gap-2 mt-6 w-full max-w-xs">
-            <Button onClick={handlePrintReceipt} variant="secondary" className="w-full">
-              <Printer className="w-4 h-4 mr-2" />
-              Print Receipt
-            </Button>
-            <Button onClick={() => sendWhatsAppReceipt(creditCustomer?.phone ?? undefined)} variant="secondary" className="w-full">
-              <MessageCircle className="w-4 h-4 mr-2" />
-              WhatsApp Receipt
-            </Button>
-
-            {showWhatsAppInput && (
-              <div className="flex gap-2">
-                <input
-                  type="tel"
-                  inputMode="tel"
-                  value={whatsAppPhone}
-                  onChange={(e) => setWhatsAppPhone(e.target.value)}
-                  placeholder="Phone number"
-                  className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-                  autoFocus
-                />
-                <Button
-                  onClick={() => whatsAppPhone.trim() && sendWhatsAppReceipt(whatsAppPhone.trim())}
-                  disabled={!whatsAppPhone.trim()}
-                  size="sm"
-                >
-                  Send
+            {receiptsEnabled && (
+              <>
+                <Button onClick={handlePrintReceipt} variant="secondary" className="w-full">
+                  <Printer className="w-4 h-4 mr-2" />
+                  Print Receipt
                 </Button>
-              </div>
+                <Button onClick={() => sendWhatsAppReceipt(creditCustomer?.phone ?? undefined)} variant="secondary" className="w-full">
+                  <MessageCircle className="w-4 h-4 mr-2" />
+                  WhatsApp Receipt
+                </Button>
+
+                {showWhatsAppInput && (
+                  <div className="flex gap-2">
+                    <input
+                      type="tel"
+                      inputMode="tel"
+                      value={whatsAppPhone}
+                      onChange={(e) => setWhatsAppPhone(e.target.value)}
+                      placeholder="Phone number"
+                      className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                      autoFocus
+                    />
+                    <Button
+                      onClick={() => whatsAppPhone.trim() && sendWhatsAppReceipt(whatsAppPhone.trim())}
+                      disabled={!whatsAppPhone.trim()}
+                      size="sm"
+                    >
+                      Send
+                    </Button>
+                  </div>
+                )}
+              </>
             )}
 
             <Button onClick={onComplete} className="w-full">
@@ -639,7 +669,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         </div>
 
-        {receiptData && (
+        {receiptsEnabled && receiptData && (
           <div style={{ position: "absolute", left: "-9999px", top: 0 }}>
             <div ref={receiptRef} className="receipt-print-container">
               <Receipt data={receiptData} />

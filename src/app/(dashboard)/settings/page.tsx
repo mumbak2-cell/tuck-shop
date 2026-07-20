@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -22,6 +22,8 @@ export default function SettingsPage() {
   const [wmsEnabled, setWmsEnabled] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
+  // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
+  const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
   const {
     locations,
     orgId,
@@ -49,6 +51,22 @@ export default function SettingsPage() {
   useEffect(() => {
     if (effectivePinLocationId) loadPins(effectivePinLocationId);
   }, [effectivePinLocationId]);
+
+  // Load the per-branch receipts toggle for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, value")
+      .eq("key", "receipts_enabled")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = true));
+        (data || []).forEach((row) => {
+          map[row.location_id] = row.value !== "false";
+        });
+        setReceiptsByLocation(map);
+      });
+  }, [locations]);
 
   async function loadSettings() {
     const { data } = await db.from("app_settings").select("*");
@@ -133,6 +151,25 @@ export default function SettingsPage() {
       if (pinErr) {
         setSaving(false);
         alert("Failed to save PINs: " + (pinErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Receipts toggle — one row per branch, same keying as PINs.
+    if (locations.length > 0) {
+      const receiptRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "receipts_enabled",
+        value: (receiptsByLocation[l.id] ?? true) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: rcptErr } = await db
+        .from("location_settings")
+        .upsert(receiptRows, { onConflict: "location_id,key" });
+      if (rcptErr) {
+        setSaving(false);
+        alert("Failed to save receipt settings: " + (rcptErr.message || "Unknown error"));
         return;
       }
     }
@@ -308,6 +345,36 @@ export default function SettingsPage() {
               />
               <p className="text-xs text-gray-500 mt-1">Limited access: POS, stock count, daily sales only</p>
             </div>
+          </div>
+        </div>
+
+        {/* Receipts — per branch */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Printer className="w-5 h-5 text-gray-600" />
+            Receipts
+            {locations.length > 1 && (
+              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
+            )}
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Untick a branch that doesn&apos;t issue receipts — the Print and WhatsApp receipt
+            buttons will no longer appear after a sale at that branch.
+          </p>
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={receiptsByLocation[l.id] ?? true}
+                  onChange={(e) =>
+                    setReceiptsByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
           </div>
         </div>
 
