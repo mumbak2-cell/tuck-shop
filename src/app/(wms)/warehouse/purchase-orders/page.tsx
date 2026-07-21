@@ -10,6 +10,7 @@ import { TruncatedText } from "@/components/ui/truncate";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
+import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import {
   FileText,
   Plus,
@@ -497,11 +498,7 @@ export default function WmsPurchaseOrdersPage() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Supplier *</label>
-              <Input
-                value={poSupplier}
-                onChange={(e: any) => setPoSupplier(e.target.value)}
-                placeholder="Supplier name"
-              />
+              <SupplierSelect value={poSupplier} onChange={setPoSupplier} required />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Expected Date</label>

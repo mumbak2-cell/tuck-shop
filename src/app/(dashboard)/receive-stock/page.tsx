@@ -9,6 +9,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
 import { PackagePlus, Plus, Trash2, Search, Save, History } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
+import { SupplierSelect } from "@/components/suppliers/supplier-select";
 
 interface ReceiptLine {
   id: string;
@@ -265,13 +266,7 @@ export default function ReceiveStockPage() {
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Supplier (optional)</label>
-              <input
-                type="text"
-                value={supplier}
-                onChange={(e) => setSupplier(e.target.value)}
-                placeholder="e.g. Makro, Metro Cash & Carry"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-              />
+              <SupplierSelect value={supplier} onChange={setSupplier} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>

@@ -35,7 +35,20 @@ read it before running anything that writes to the database.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **049**.
+number, never reuse a prefix. Latest applied: **050**.
+
+## Suppliers (master list)
+
+`suppliers` (migration **050**) — org-scoped list (name, phone, email, notes, active),
+`UNIQUE(org_id, lower(trim(name)))` so one supplier can't exist in several spellings.
+RLS mirrors `products` (read: org; writes: writable-org). Managed at `/suppliers`;
+`SupplierSelect` (with inline "add new") feeds Receive Stock and WMS Purchase Orders.
+
+**The four tables that record a supplier (`stock_receipts`, `purchases`,
+`wms_purchase_orders`, `wms_receipts`) still store the supplier NAME in their existing
+`supplier` TEXT column — deliberately not FKs**, since they hold historical rows read by
+several reports. The list is the source of the dropdown, not a join. Trade-off: renaming
+a supplier does not rewrite past deliveries.
 
 ## Multi-location model
 
