@@ -35,7 +35,7 @@ read it before running anything that writes to the database.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **046**.
+number, never reuse a prefix. Latest applied: **048**.
 
 ## Multi-location model
 
