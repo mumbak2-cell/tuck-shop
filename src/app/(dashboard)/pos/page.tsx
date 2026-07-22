@@ -289,7 +289,7 @@ export default function POSPage() {
   }
 
   return (
-    <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-6rem)]">
+    <div className="flex flex-col md:flex-row gap-4 h-[calc(100dvh-6rem)]">
       {/* Product grid */}
       <div className="flex-1 min-w-0 overflow-y-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
@@ -329,7 +329,7 @@ export default function POSPage() {
         <div className="md:hidden fixed inset-0 z-40 flex flex-col">
           <div
             className="flex-shrink-0 bg-black/30"
-            style={{ height: "15vh" }}
+            style={{ height: "15dvh" }}
             onClick={() => setMobileCartOpen(false)}
           />
           <div className="flex-1 bg-white rounded-t-2xl shadow-xl overflow-y-auto">

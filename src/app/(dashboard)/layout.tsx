@@ -126,7 +126,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-screen">
+    <div className="flex h-dvh">
       <Sidebar />
       <main className="flex-1 overflow-y-auto flex flex-col">
         <TrialBanner />
