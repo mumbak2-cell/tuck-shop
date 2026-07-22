@@ -130,6 +130,25 @@ export function TeamSection() {
     }
   }
 
+  /** Reassign a cashier's branch. A cashier with no branch can't see any stock,
+   *  so the owner needs to be able to correct it without re-adding the person. */
+  async function changeLocation(m: Member, locationId: string) {
+    if (!locationId) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ locationId }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not change branch");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change branch");
+    }
+  }
+
   async function handleRemove(m: Member) {
     if (!confirm(`Remove ${m.email} from your shop? They will lose access on their next sign-in. Their login itself is not deleted.`)) return;
     setError(null);
@@ -217,11 +236,28 @@ export function TeamSection() {
                   {m.isSelf && <span className="text-gray-400 font-normal"> (you)</span>}
                 </p>
                 {m.role === "member" && (
-                  <p className="text-xs text-gray-500 truncate">
-                    {m.assignedLocationName
-                      ? `Assigned to ${m.assignedLocationName}`
-                      : "All locations"}
-                  </p>
+                  locations.length > 0 ? (
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <select
+                        value={m.assignedLocationId ?? ""}
+                        onChange={(e) => void changeLocation(m, e.target.value)}
+                        className={`text-xs border rounded px-1.5 py-0.5 bg-white ${
+                          m.assignedLocationId ? "border-gray-200 text-gray-600" : "border-red-300 text-red-700"
+                        }`}
+                      >
+                        <option value="">No branch — cannot sell</option>
+                        {locations.map((l) => (
+                          <option key={l.id} value={l.id}>
+                            {l.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-gray-500 truncate">
+                      {m.assignedLocationName || "No branch"}
+                    </p>
+                  )
                 )}
               </div>
               <div className="flex items-center gap-3 shrink-0">
@@ -283,26 +319,31 @@ export function TeamSection() {
               </p>
             </div>
           )}
-          {memberRole === "member" && locations.length > 1 && (
+          {memberRole === "member" && locations.length > 0 && (
             <div>
               <select
+                required
                 value={locationId}
                 onChange={(e) => setLocationId(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
               >
-                <option value="">All locations (no restriction)</option>
+                <option value="">Which branch does this cashier work at? *</option>
                 {locations.map((l) => (
                   <option key={l.id} value={l.id}>
-                    Restrict to {l.name}
+                    {l.name}
                   </option>
                 ))}
               </select>
               <p className="text-xs text-gray-500 mt-1">
-                A restricted cashier can only see and sell at the chosen branch.
+                Required. A cashier sells only at their branch — without one they can&apos;t see any stock.
               </p>
             </div>
           )}
-          <Button type="submit" loading={adding}>
+          <Button
+            type="submit"
+            loading={adding}
+            disabled={memberRole === "member" && locations.length > 0 && !locationId}
+          >
             <UserPlus className="w-4 h-4 mr-1.5" />
             {memberRole === "admin" ? "Add manager" : "Add cashier"}
           </Button>

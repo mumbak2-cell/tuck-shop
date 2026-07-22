@@ -227,7 +227,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   }
 
   async function handlePay() {
-    if (!selectedMethod) return;
+    // Never fail silently — a dead button with no message is impossible for a
+    // cashier to diagnose mid-queue.
+    if (!selectedMethod) {
+      setError("Choose how the customer is paying first.");
+      return;
+    }
     if (selectedKind === "credit" && !selectedCustomer) {
       setError("Please select a customer for credit sale.");
       return;
