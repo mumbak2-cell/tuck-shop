@@ -9,6 +9,7 @@ import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 import { DailyDigestSection } from "@/components/settings/daily-digest-section";
 import { TeamSection } from "@/components/settings/team-section";
+import { PaymentMethodsSection } from "@/components/settings/payment-methods-section";
 import { PricingModal } from "@/components/billing/pricing-modal";
 import { getPlan } from "@/lib/plans";
 
@@ -491,7 +492,10 @@ export default function SettingsPage() {
           </div>
         </div>
 
-        {/* Team management - owner-only, renders null for cashiers */}
+        {/* Payment methods - owner/manager, renders null for cashiers */}
+        <PaymentMethodsSection />
+
+        {/* Team management - owner/manager, renders null for cashiers */}
         <TeamSection />
 
         {/* Daily Email Digest - self-contained section reading from report_subscriptions */}

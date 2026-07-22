@@ -8,7 +8,7 @@
 
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { requireOrgOwner } from "@/lib/org-owner";
+import { requireOrgOwner, requireOrgManager } from "@/lib/org-owner";
 import { getPlan, type PlanCode } from "@/lib/plans";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
@@ -69,7 +69,9 @@ async function planLimitAndCount(admin: SupabaseClient, orgId: string) {
 }
 
 export async function GET(req: Request) {
-  const auth = await requireOrgOwner(req);
+  // Managers may view the team (and change a cashier's branch via PATCH);
+  // adding and removing staff below stays owner-only.
+  const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const admin = getSupabaseAdmin();

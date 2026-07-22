@@ -1,7 +1,9 @@
 "use client";
-// Team management, owner-only. Lists org members, shows seat usage against the
-// plan, and lets the owner add a cashier (creating their login with a one-time
-// temporary password) or remove one. Renders nothing for non-owners.
+// Team management. Lists org members and shows seat usage against the plan.
+// Owners can add a cashier/manager (creating their login with a one-time
+// temporary password) or remove one. Managers can view the team and change a
+// cashier's branch — day-to-day floor management — but not add or remove
+// staff. Renders nothing for cashiers.
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
@@ -61,7 +63,7 @@ export function TeamSection() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    if (role !== "owner") return;
+    if (role !== "owner" && role !== "admin") return;
     let cancelled = false;
     (async () => {
       try {
@@ -80,8 +82,10 @@ export function TeamSection() {
     return () => { cancelled = true; };
   }, [role]);
 
-  // The whole section is owner-only. Cashiers manage nothing here.
-  if (role !== "owner") return null;
+  // Owners and managers only — cashiers manage nothing here.
+  if (role !== "owner" && role !== "admin") return null;
+  // Adding and removing staff stays with the owner.
+  const canManageStaff = role === "owner";
 
   async function reload() {
     const res = await fetch("/api/team", { headers: { Authorization: `Bearer ${await token()}` } });
@@ -264,7 +268,7 @@ export function TeamSection() {
                 <Badge color={m.isOwner ? "green" : m.role === "admin" ? "blue" : "gray"}>
                   {ROLE_LABEL[m.role]}
                 </Badge>
-                {!m.isOwner && !m.isSelf && (
+                {!m.isOwner && !m.isSelf && canManageStaff && (
                   <button
                     type="button"
                     onClick={() => handleRemove(m)}
@@ -280,8 +284,8 @@ export function TeamSection() {
         )}
       </div>
 
-      {/* Add form */}
-      {atLimit ? (
+      {/* Add form — owner only */}
+      {!canManageStaff ? null : atLimit ? (
         <p className="text-sm text-amber-700">
           You have used all {seats.max} seats on your plan. Upgrade to add more cashiers.
         </p>
