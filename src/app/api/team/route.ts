@@ -183,9 +183,13 @@ export async function POST(req: Request) {
     }
   }
 
-  // Optional hard-lock to one location. Cashiers pinned here see and sell only
-  // at their assigned location (org-context pins them; RLS scopes their rows).
-  // Managers are never pinned — they need every branch.
+  // Hard-lock to one location. Cashiers see and sell only at their assigned
+  // branch (org-context pins them; RLS scopes their rows). Managers are never
+  // pinned — they need every branch.
+  //
+  // A cashier MUST get a branch: current_user_location_ids() matches on
+  // assigned_location_id, so leaving it null gives them no accessible location
+  // at all, which silently breaks their POS (stock reads return nothing).
   let assignedLocationId: string | null = null;
   if (desiredRole === "member") {
     try {
@@ -193,6 +197,12 @@ export async function POST(req: Request) {
     } catch (e) {
       return NextResponse.json(
         { error: e instanceof Error ? e.message : "Invalid location" },
+        { status: 400 }
+      );
+    }
+    if (!assignedLocationId && (await locationCount(admin, auth.orgId!)) > 0) {
+      return NextResponse.json(
+        { error: "Pick the branch this cashier works at — a cashier must be tied to one branch." },
         { status: 400 }
       );
     }
