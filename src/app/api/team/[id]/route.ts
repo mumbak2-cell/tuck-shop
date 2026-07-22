@@ -9,7 +9,7 @@
 
 import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
-import { requireOrgOwner } from "@/lib/org-owner";
+import { requireOrgOwner, requireOrgManager } from "@/lib/org-owner";
 
 export const runtime = "nodejs";
 
@@ -20,7 +20,8 @@ export const runtime = "nodejs";
  * owner's way to correct it without deleting and re-adding the person.
  */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const auth = await requireOrgOwner(req);
+  // Owner or manager — reassigning a branch is day-to-day floor management.
+  const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id } = await ctx.params;
