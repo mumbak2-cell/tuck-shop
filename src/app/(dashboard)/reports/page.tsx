@@ -26,7 +26,9 @@ import {
   ChevronDown,
   ArrowUpRight,
   ArrowDownRight,
+  Banknote,
 } from "lucide-react";
+import { paymentBucket } from "@/lib/payment-buckets";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 
@@ -65,6 +67,16 @@ interface BranchRow {
   revenue: number;
 }
 
+// One day of money actually received. Credit SALES are deliberately absent:
+// a sale on account is a receivable, not intake, and counting it would
+// overstate the till. It arrives later as a repayment instead.
+interface IntakeRow {
+  date: string;
+  cash: number;
+  electronic: number;
+  repayments: number;
+}
+
 export default function ReportsPage() {
   const { role, assignedLocationId, currentLocationId, currentLocationName, locations } = useOrg();
   const isManager = role === "owner" || role === "admin"; // cashiers are role "member"
@@ -93,6 +105,9 @@ export default function ReportsPage() {
   const [revenueByDay, setRevenueByDay] = useState<DayRevenue[]>([]);
   const [allProductSales, setAllProductSales] = useState<SellerRow[]>([]); // full breakdown for CSV
   const [branchPerf, setBranchPerf] = useState<BranchRow[]>([]);
+  const [intakeByDay, setIntakeByDay] = useState<IntakeRow[]>([]);
+  const [creditSales, setCreditSales] = useState(0);
+  const [repaymentsFailed, setRepaymentsFailed] = useState(false);
   const [lowStock, setLowStock] = useState<StockRow[]>([]);
 
   useEffect(() => {
@@ -118,6 +133,7 @@ export default function ReportsPage() {
 
   async function loadReports() {
     setLoading(true);
+    setRepaymentsFailed(false);
 
     // --- Stock (everyone) — aggregated per product across the scoped branch(es).
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -154,6 +170,8 @@ export default function ReportsPage() {
       setRevenueByDay([]);
       setAllProductSales([]);
       setBranchPerf([]);
+      setIntakeByDay([]);
+      setCreditSales(0);
       setLoading(false);
       return;
     }
@@ -164,7 +182,7 @@ export default function ReportsPage() {
     const sales = await fetchAllPaged<any>(() => {
       let q = db
         .from("sales")
-        .select("sale_date, product_id, quantity, total_amount, cost_price, location_id, products(name)")
+        .select("sale_date, product_id, quantity, total_amount, cost_price, location_id, payment_method, products(name)")
         .gte("sale_date", from)
         .lte("sale_date", to)
         .eq("voided", false);
@@ -175,8 +193,11 @@ export default function ReportsPage() {
     const byProduct = new Map<string, SellerRow>();
     const dayMap = new Map<string, number>();
     const locMap = new Map<string, number>();
+    const cashByDay = new Map<string, number>();
+    const electronicByDay = new Map<string, number>();
     let totalRevenue = 0;
     let totalCogs = 0;
+    let totalCreditSales = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (sales as any[]).forEach((s: any) => {
       const rev = Number(s.total_amount) || 0;
@@ -184,6 +205,18 @@ export default function ReportsPage() {
       totalCogs += (Number(s.cost_price) || 0) * (Number(s.quantity) || 0);
       dayMap.set(s.sale_date, (dayMap.get(s.sale_date) ?? 0) + rev);
       if (s.location_id) locMap.set(s.location_id, (locMap.get(s.location_id) ?? 0) + rev);
+
+      // Split the day's takings by how the customer actually paid. `sales` holds
+      // one row per line item, each carrying its own total_amount, so summing
+      // rows is the sale total — no double counting.
+      const bucket = paymentBucket(s.payment_method);
+      if (bucket === "cash") {
+        cashByDay.set(s.sale_date, (cashByDay.get(s.sale_date) ?? 0) + rev);
+      } else if (bucket === "card") {
+        electronicByDay.set(s.sale_date, (electronicByDay.get(s.sale_date) ?? 0) + rev);
+      } else {
+        totalCreditSales += rev;
+      }
       const cur = byProduct.get(s.product_id) ?? {
         productId: s.product_id,
         name: s.products?.name || "—",
@@ -227,6 +260,43 @@ export default function ReportsPage() {
       setBranchPerf([]);
     }
 
+    // Credit repayments — money through the door that never appears in `sales`.
+    // Without these a cash-intake figure won't reconcile with the till on any
+    // day a customer settles their account. customer_payments records no
+    // payment method, so these are reported as their own line rather than
+    // folded into cash, which would be a guess.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const repayments = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("customer_payments")
+        .select("payment_date, amount")
+        .gte("payment_date", from)
+        .lte("payment_date", to);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    }).catch(() => {
+      // Keep the page usable, but never let a failed read masquerade as
+      // "no repayments" — an understated intake figure is worse than a gap.
+      setRepaymentsFailed(true);
+      return [];
+    });
+
+    const repaymentByDay = new Map<string, number>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (repayments as any[]).forEach((p: any) => {
+      repaymentByDay.set(p.payment_date, (repaymentByDay.get(p.payment_date) ?? 0) + (Number(p.amount) || 0));
+    });
+
+    setCreditSales(totalCreditSales);
+    setIntakeByDay(
+      enumerateDays(from, to).map((date) => ({
+        date,
+        cash: cashByDay.get(date) ?? 0,
+        electronic: electronicByDay.get(date) ?? 0,
+        repayments: repaymentByDay.get(date) ?? 0,
+      }))
+    );
+
     // Previous equal-length window (momentum indicator).
     const prev = prevRange(from, to);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -269,6 +339,21 @@ export default function ReportsPage() {
     );
   }
 
+  function exportIntake() {
+    const { from, to } = getDateRange();
+    downloadCsv(
+      `tilify-cash-intake-${from}_to_${to}${locSuffix()}.csv`,
+      ["Date", "Cash", "Card / Electronic", "Credit Repayments", "Total Received"],
+      intakeByDay.map((d) => [
+        d.date,
+        d.cash.toFixed(2),
+        d.electronic.toFixed(2),
+        d.repayments.toFixed(2),
+        (d.cash + d.electronic + d.repayments).toFixed(2),
+      ])
+    );
+  }
+
   function exportLowStock() {
     const today = new Date().toISOString().split("T")[0];
     downloadCsv(
@@ -295,6 +380,10 @@ export default function ReportsPage() {
   const top5Revenue = topSellers.slice(0, 5).reduce((s, p) => s + p.revenue, 0);
   const top5Share = revenue > 0 ? (top5Revenue / revenue) * 100 : 0;
   const productsSold = allProductSales.length;
+  const totalCashIn = intakeByDay.reduce((s, d) => s + d.cash, 0);
+  const totalElectronicIn = intakeByDay.reduce((s, d) => s + d.electronic, 0);
+  const totalRepaymentsIn = intakeByDay.reduce((s, d) => s + d.repayments, 0);
+  const totalReceived = totalCashIn + totalElectronicIn + totalRepaymentsIn;
   const zeroSellers = slowestMovers.filter((m) => m.sold === 0).length;
   const outOfStock = lowStock.filter((r) => r.quantity <= 0).length;
 
@@ -414,6 +503,83 @@ export default function ReportsPage() {
                   </div>
                 </>
               )}
+            </div>
+          )}
+
+          {/* Cash intake — managers only. Money actually received, day by day. */}
+          {isManager && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <Banknote className="w-4 h-4 text-green-600" />
+                  Cash intake
+                </h2>
+                <CsvButton onClick={exportIntake} disabled={intakeByDay.length === 0} />
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                What actually came in at {scopeLabel}, by how it was paid.
+              </p>
+
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+                <IntakeTile label="Cash" value={formatZAR(totalCashIn)} tone="green" />
+                <IntakeTile label="Card / electronic" value={formatZAR(totalElectronicIn)} tone="blue" />
+                <IntakeTile label="Credit repayments" value={formatZAR(totalRepaymentsIn)} tone="amber" />
+                <IntakeTile label="Total received" value={formatZAR(totalReceived)} tone="gray" />
+              </div>
+
+              {totalReceived === 0 ? (
+                <p className="text-sm text-gray-400 py-2">Nothing received in this period.</p>
+              ) : (
+                <div className="overflow-x-auto -mx-5 px-5">
+                  <table className="w-full text-sm min-w-[30rem]">
+                    <thead>
+                      <tr className="text-xs text-gray-500 border-b border-gray-100">
+                        <th className="text-left font-medium py-2">Date</th>
+                        <th className="text-right font-medium py-2">Cash</th>
+                        <th className="text-right font-medium py-2">Card / electronic</th>
+                        <th className="text-right font-medium py-2">Repayments</th>
+                        <th className="text-right font-medium py-2">Total in</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {intakeByDay
+                        .filter((d) => d.cash + d.electronic + d.repayments > 0)
+                        .map((d) => (
+                          <tr key={d.date}>
+                            <td className="py-2 text-gray-700">{d.date}</td>
+                            <td className="py-2 text-right font-semibold text-green-700">{formatZAR(d.cash)}</td>
+                            <td className="py-2 text-right text-gray-600">{formatZAR(d.electronic)}</td>
+                            <td className="py-2 text-right text-gray-600">{formatZAR(d.repayments)}</td>
+                            <td className="py-2 text-right font-medium text-gray-900">
+                              {formatZAR(d.cash + d.electronic + d.repayments)}
+                            </td>
+                          </tr>
+                        ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
+              <div className="mt-4 pt-3 border-t border-gray-100 space-y-1">
+                {repaymentsFailed && (
+                  <p className="text-xs text-amber-700">
+                    Credit repayments could not be read, so they are missing from these figures.
+                    Cash and card totals above are unaffected.
+                  </p>
+                )}
+                {creditSales > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Excludes {formatZAR(creditSales)} of sales on account — that money has not come in
+                    yet. It appears here as a repayment on the day the customer settles.
+                  </p>
+                )}
+                {totalRepaymentsIn > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Repayments are listed separately because the app does not record whether a
+                    customer settled in cash or electronically.
+                  </p>
+                )}
+              </div>
             </div>
           )}
 
@@ -565,6 +731,31 @@ function Kpi({
         {children}
         {caption && <span className="text-xs text-gray-400">{caption}</span>}
       </div>
+    </div>
+  );
+}
+
+// Compact figure for the cash-intake band. Smaller than Kpi, which carries a
+// caption and delta this section has no use for.
+function IntakeTile({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone: "green" | "blue" | "amber" | "gray";
+}) {
+  const toneClass = {
+    green: "text-green-700",
+    blue: "text-blue-700",
+    amber: "text-amber-700",
+    gray: "text-gray-900",
+  }[tone];
+  return (
+    <div className="bg-gray-50 rounded-lg px-3 py-2.5">
+      <p className="text-xs text-gray-500">{label}</p>
+      <p className={`text-lg font-bold mt-0.5 ${toneClass}`}>{value}</p>
     </div>
   );
 }
