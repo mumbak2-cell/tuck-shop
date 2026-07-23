@@ -31,15 +31,21 @@ interface ExistingSession {
   countedBy: string;
   countedAt: string;
   productCount: number;
+  confirmedBy: string | null;
+  confirmedAt: string | null;
 }
 
 export default function StockCountPage() {
   const { name: userName } = useAuth();
   const { markStockCountDone } = useShift();
-  const { currentLocationId, currentLocationName, locations } = useOrg();
+  const { currentLocationId, currentLocationName, locations, role } = useOrg();
+  // Cashiers ("member") record a count but never apply it to stock levels —
+  // otherwise a count could quietly erase the very variance it exists to expose.
+  const canApplyToStock = role === "owner" || role === "admin";
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [confirming, setConfirming] = useState(false);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [savedCount, setSavedCount] = useState(0);
@@ -84,7 +90,7 @@ export default function StockCountPage() {
     // Find today's existing count sessions FOR THIS LOCATION
     const { data: todayCounts } = await db
       .from("stock_counts")
-      .select("session_id, session_label, counted_by, counted_at")
+      .select("session_id, session_label, counted_by, counted_at, confirmed_by, confirmed_at")
       .eq("count_date", today)
       .eq("location_id", currentLocationId)
       .order("counted_at", { ascending: false });
@@ -99,6 +105,8 @@ export default function StockCountPage() {
           countedBy: c.counted_by || "Unknown",
           countedAt: c.counted_at || "",
           productCount: 0,
+          confirmedBy: c.confirmed_by || null,
+          confirmedAt: c.confirmed_at || null,
         });
       }
       const s = sessionMap.get(c.session_id)!;
@@ -214,6 +222,10 @@ export default function StockCountPage() {
         counted_at: now, // always update timestamp so RA shows accurate time
         updated_at: now,
         update_count: existing ? (existing.update_count || 1) + 1 : 1,
+        // A manager's save writes product_stock below, so it is applied the
+        // moment it is saved. A cashier's is left unconfirmed for review.
+        confirmed_by: canApplyToStock ? userName : null,
+        confirmed_at: canApplyToStock ? now : null,
       };
     });
 
@@ -248,19 +260,21 @@ export default function StockCountPage() {
       // Set product_stock at this location to the counted quantity.
       // The trigger on product_stock auto-syncs products.opening_stock to
       // the org-wide sum, so legacy callers still see a sane total.
-      for (const r of toSave) {
-        const counted = parseInt(r.closingCount) || 0;
-        await db
-          .from("product_stock")
-          .upsert(
-            {
-              product_id: r.product.id,
-              location_id: currentLocationId,
-              quantity: counted,
-              last_updated: now,
-            },
-            { onConflict: "product_id,location_id" }
-          );
+      if (canApplyToStock) {
+        for (const r of toSave) {
+          const counted = parseInt(r.closingCount) || 0;
+          await db
+            .from("product_stock")
+            .upsert(
+              {
+                product_id: r.product.id,
+                location_id: currentLocationId,
+                quantity: counted,
+                last_updated: now,
+              },
+              { onConflict: "product_id,location_id" }
+            );
+        }
       }
 
       setRows((prev) =>
@@ -274,6 +288,64 @@ export default function StockCountPage() {
       await markStockCountDone();
     }
     setSaving(false);
+  }
+
+  // Apply a count somebody else took to this branch's stock levels. Reads the
+  // saved rows back from the database rather than trusting what is on screen,
+  // so a stray keystroke in an input can't slip into the applied figures.
+  async function confirmSession() {
+    if (!currentLocationId || !sessionId) return;
+
+    setConfirming(true);
+    const now = new Date().toISOString();
+
+    const counted = await fetchAllPaged<{ product_id: string; closing_units: number }>(() =>
+      db
+        .from("stock_counts")
+        .select("product_id, closing_units")
+        .eq("session_id", sessionId)
+        .eq("location_id", currentLocationId)
+    );
+
+    if (counted.length === 0) {
+      alert("Nothing to confirm — this count has no saved rows yet.");
+      setConfirming(false);
+      return;
+    }
+
+    const { error } = await db.from("product_stock").upsert(
+      counted.map((c) => ({
+        product_id: c.product_id,
+        location_id: currentLocationId,
+        quantity: Number(c.closing_units) || 0,
+        last_updated: now,
+      })),
+      { onConflict: "product_id,location_id" }
+    );
+
+    if (error) {
+      alert("Error applying count: " + error.message);
+      setConfirming(false);
+      return;
+    }
+
+    // Stamp the session only after the stock write succeeds, so a failure
+    // halfway leaves the count pending rather than marked done.
+    const { error: stampError } = await db
+      .from("stock_counts")
+      .update({ confirmed_by: userName, confirmed_at: now })
+      .eq("session_id", sessionId)
+      .eq("location_id", currentLocationId);
+
+    if (stampError) {
+      alert(
+        "Stock levels were updated, but marking the count as confirmed failed: " +
+          stampError.message
+      );
+    }
+
+    setConfirming(false);
+    fetchProducts(sessionId);
   }
 
   // Get unique categories from loaded products
@@ -291,6 +363,12 @@ export default function StockCountPage() {
   const unsavedCount = rows.filter(
     (r) => r.closingCount !== "" && !r.saved
   ).length;
+
+  const activeSession = todaySessions.find((s) => s.sessionId === sessionId) ?? null;
+  // Only a saved-but-unapplied session can be confirmed. A manager's own save
+  // stamps itself, so anything pending here was recorded by a cashier.
+  const canConfirmSession =
+    canApplyToStock && activeSession !== null && activeSession.confirmedAt === null;
 
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
@@ -324,6 +402,57 @@ export default function StockCountPage() {
           Save ({unsavedCount})
         </Button>
       </div>
+
+      {canConfirmSession && activeSession && (
+        <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-6">
+          <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-amber-900">
+              Count waiting to be applied
+            </p>
+            <p className="text-sm text-amber-800 mt-1">
+              {activeSession.countedBy} counted {activeSession.productCount} product
+              {activeSession.productCount !== 1 ? "s" : ""} in &ldquo;{activeSession.label}&rdquo;.
+              Stock levels still show the old figures until you confirm. Check the
+              variance column below first — confirming replaces the recorded stock at{" "}
+              {currentLocationName || "this branch"} with the counted figures.
+            </p>
+            <Button
+              onClick={confirmSession}
+              loading={confirming}
+              className="mt-3"
+              size="sm"
+            >
+              <Check className="w-4 h-4 mr-2" />
+              Confirm and apply to stock
+            </Button>
+          </div>
+        </div>
+      )}
+
+      {activeSession?.confirmedAt && (
+        <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-6">
+          <Check className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-green-800">
+            Applied to stock by {activeSession.confirmedBy || "a manager"} on{" "}
+            {new Date(activeSession.confirmedAt).toLocaleString("en-ZA", {
+              day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
+            })}
+            .
+          </p>
+        </div>
+      )}
+
+      {!canApplyToStock && (
+        <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-6">
+          <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
+          <p className="text-sm text-blue-800">
+            Your count is recorded for the manager to review. It does not change the
+            stock levels in the system, so any difference stays visible on the Revenue
+            Assurance report.
+          </p>
+        </div>
+      )}
 
       {/* Session controls */}
       <div className="flex items-center gap-3 mb-6">
@@ -375,6 +504,7 @@ export default function StockCountPage() {
                 <span className="text-gray-400 ml-2">
                   {timeStr} · {s.countedBy} · {s.productCount} products
                 </span>
+                {!s.confirmedAt && <span className="ml-2"><Badge color="amber">Pending</Badge></span>}
                 {isActive && <span className="ml-2"><Badge color="green">Current</Badge></span>}
               </button>
             );
