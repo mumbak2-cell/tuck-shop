@@ -27,6 +27,7 @@ import {
   ArrowUpRight,
   ArrowDownRight,
   Banknote,
+  Wallet,
 } from "lucide-react";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
@@ -70,6 +71,14 @@ interface BranchRow {
 // One day of money actually received. Credit SALES are deliberately absent:
 // a sale on account is a receivable, not intake, and counting it would
 // overstate the till. It arrives later as a repayment instead.
+// Money leaving the business. Deliberately cash-basis, unlike Profit & Loss:
+// a delivery is money out the day it is paid for, whether or not the stock has
+// sold. Stock bought on account is excluded until settled.
+interface SpendRow {
+  label: string;
+  amount: number;
+}
+
 interface IntakeRow {
   date: string;
   cash: number;
@@ -108,6 +117,11 @@ export default function ReportsPage() {
   const [intakeByDay, setIntakeByDay] = useState<IntakeRow[]>([]);
   const [creditSales, setCreditSales] = useState(0);
   const [repaymentsFailed, setRepaymentsFailed] = useState(false);
+  const [stockCashOut, setStockCashOut] = useState(0);
+  const [stockOnAccount, setStockOnAccount] = useState(0);
+  const [stockElectronic, setStockElectronic] = useState(0);
+  const [expenseSpend, setExpenseSpend] = useState<SpendRow[]>([]);
+  const [stockPurchaseExpenses, setStockPurchaseExpenses] = useState(0);
   const [lowStock, setLowStock] = useState<StockRow[]>([]);
 
   useEffect(() => {
@@ -172,6 +186,11 @@ export default function ReportsPage() {
       setBranchPerf([]);
       setIntakeByDay([]);
       setCreditSales(0);
+      setStockCashOut(0);
+      setStockOnAccount(0);
+      setStockElectronic(0);
+      setExpenseSpend([]);
+      setStockPurchaseExpenses(0);
       setLoading(false);
       return;
     }
@@ -297,6 +316,67 @@ export default function ReportsPage() {
       }))
     );
 
+    // --- Cash spent: stock deliveries + operating expenses ---
+    //
+    // stock_receipts has no location_id, so these figures are org-wide even
+    // when a branch filter is on. Labelled as such in the UI rather than
+    // silently reporting one branch's expenses against every branch's stock.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const receipts = await fetchAllPaged<any>(() =>
+      db
+        .from("stock_receipts")
+        .select("total_cost, paid_by")
+        .gte("receipt_date", from)
+        .lte("receipt_date", to)
+    ).catch(() => []);
+
+    let cashStock = 0, accountStock = 0, electronicStock = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (receipts as any[]).forEach((r: any) => {
+      const amt = Number(r.total_cost) || 0;
+      // Rows written before migration 054 have no paid_by; the migration
+      // backfills them to 'cash', so an unread value here means the migration
+      // has not run yet. Treat it as cash to match that backfill.
+      if (r.paid_by === "account") accountStock += amt;
+      else if (r.paid_by === "electronic") electronicStock += amt;
+      else cashStock += amt;
+    });
+    setStockCashOut(cashStock);
+    setStockOnAccount(accountStock);
+    setStockElectronic(electronicStock);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const spendExpenses = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("expenses")
+        .select("category, amount")
+        .gte("expense_date", from)
+        .lte("expense_date", to);
+      if (isFiltered) q = q.eq("location_id", effectiveLoc);
+      return q;
+    }).catch(() => []);
+
+    // "Stock Purchases" is held out of the total. Receive Stock writes that
+    // expense automatically alongside the stock_receipts row (the checkbox
+    // defaults to on), so counting both would double every delivery.
+    const spendByCategory = new Map<string, number>();
+    let stockPurchaseTotal = 0;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (spendExpenses as any[]).forEach((e: any) => {
+      const amt = Number(e.amount) || 0;
+      if (e.category === "Stock Purchases") {
+        stockPurchaseTotal += amt;
+        return;
+      }
+      spendByCategory.set(e.category, (spendByCategory.get(e.category) ?? 0) + amt);
+    });
+    setStockPurchaseExpenses(stockPurchaseTotal);
+    setExpenseSpend(
+      [...spendByCategory.entries()]
+        .map(([label, amount]) => ({ label, amount }))
+        .sort((a, b) => b.amount - a.amount)
+    );
+
     // Previous equal-length window (momentum indicator).
     const prev = prevRange(from, to);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -354,6 +434,22 @@ export default function ReportsPage() {
     );
   }
 
+  function exportSpend() {
+    const { from, to } = getDateRange();
+    downloadCsv(
+      `tilify-cash-spent-${from}_to_${to}${locSuffix()}.csv`,
+      ["Item", "Amount", "Counted in total"],
+      [
+        ["Stock deliveries — cash", stockCashOut.toFixed(2), "yes"],
+        ["Stock deliveries — EFT / card", stockElectronic.toFixed(2), "yes"],
+        ...expenseSpend.map((r) => [r.label, r.amount.toFixed(2), "yes"]),
+        ["Stock deliveries — on account (unpaid)", stockOnAccount.toFixed(2), "no"],
+        ["\"Stock Purchases\" expenses (duplicates)", stockPurchaseExpenses.toFixed(2), "no"],
+        ["TOTAL CASH SPENT", totalSpent.toFixed(2), ""],
+      ]
+    );
+  }
+
   function exportLowStock() {
     const today = new Date().toISOString().split("T")[0];
     downloadCsv(
@@ -384,6 +480,11 @@ export default function ReportsPage() {
   const totalElectronicIn = intakeByDay.reduce((s, d) => s + d.electronic, 0);
   const totalRepaymentsIn = intakeByDay.reduce((s, d) => s + d.repayments, 0);
   const totalReceived = totalCashIn + totalElectronicIn + totalRepaymentsIn;
+  const totalOperatingSpend = expenseSpend.reduce((s, r) => s + r.amount, 0);
+  // Cash basis: what actually left. Stock on account is excluded — it has not
+  // been paid yet — and "Stock Purchases" expenses are excluded as duplicates
+  // of the stock_receipts rows.
+  const totalSpent = stockCashOut + stockElectronic + totalOperatingSpend;
   const zeroSellers = slowestMovers.filter((m) => m.sold === 0).length;
   const outOfStock = lowStock.filter((r) => r.quantity <= 0).length;
 
@@ -577,6 +678,74 @@ export default function ReportsPage() {
                   <p className="text-xs text-gray-500">
                     Repayments are listed separately because the app does not record whether a
                     customer settled in cash or electronically.
+                  </p>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Cash spent — managers only. Money out, on a cash basis. */}
+          {isManager && (
+            <div className="bg-white border border-gray-200 rounded-xl p-5">
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2">
+                  <Wallet className="w-4 h-4 text-red-500" />
+                  Cash spent
+                </h2>
+                <CsvButton onClick={exportSpend} disabled={totalSpent === 0 && stockOnAccount === 0} />
+              </div>
+              <p className="text-xs text-gray-500 mb-4">
+                What actually went out — stock you paid for, plus running costs.
+              </p>
+
+              <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                <IntakeTile label="Stock — cash" value={formatZAR(stockCashOut)} tone="amber" />
+                <IntakeTile label="Stock — EFT / card" value={formatZAR(stockElectronic)} tone="blue" />
+                <IntakeTile label="Running costs" value={formatZAR(totalOperatingSpend)} tone="gray" />
+              </div>
+
+              <div className="flex items-baseline justify-between border-t border-gray-100 pt-3 mb-4">
+                <span className="text-sm font-semibold text-gray-900">Total cash spent</span>
+                <span className="text-xl font-bold text-red-600">{formatZAR(totalSpent)}</span>
+              </div>
+
+              {expenseSpend.length > 0 && (
+                <div className="space-y-2 mb-4">
+                  <p className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+                    Running costs by category
+                  </p>
+                  {expenseSpend.map((r) => (
+                    <div key={r.label} className="flex justify-between text-sm">
+                      <span className="text-gray-600">{r.label}</span>
+                      <span className="font-medium text-gray-900">{formatZAR(r.amount)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {totalSpent === 0 && stockOnAccount === 0 && (
+                <p className="text-sm text-gray-400 py-2">Nothing spent in this period.</p>
+              )}
+
+              <div className="border-t border-gray-100 pt-3 space-y-1.5">
+                {stockOnAccount > 0 && (
+                  <p className="text-xs text-gray-500">
+                    Excludes {formatZAR(stockOnAccount)} of stock taken on account — not paid for
+                    yet, so it is not money out. It counts on the day you settle with the supplier.
+                  </p>
+                )}
+                {stockPurchaseExpenses > 0 && (
+                  <p className="text-xs text-amber-700">
+                    Also excludes {formatZAR(stockPurchaseExpenses)} logged as
+                    &quot;Stock Purchases&quot; expenses. Receive Stock records that automatically
+                    alongside the delivery, so counting both would double every delivery. Untick
+                    that box on Receive Stock if you want the expense row to stop being created.
+                  </p>
+                )}
+                {isFiltered && (
+                  <p className="text-xs text-gray-500">
+                    Stock deliveries are not recorded per branch, so those figures cover the whole
+                    business. Running costs are filtered to {filteredLocName}.
                   </p>
                 )}
               </div>
