@@ -20,7 +20,7 @@ export default function IngredientsPage() {
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
-    name: "", unit: "", purchase_size: "", purchase_price: "",
+    name: "", unit: "", purchase_size: "", purchase_price: "", purchase_qty: "",
     current_stock: "0", reorder_level: "0",
   });
 
@@ -37,7 +37,7 @@ export default function IngredientsPage() {
 
   function openNew() {
     setEditing(null);
-    setForm({ name: "", unit: "", purchase_size: "", purchase_price: "", current_stock: "0", reorder_level: "0" });
+    setForm({ name: "", unit: "", purchase_size: "", purchase_price: "", purchase_qty: "", current_stock: "0", reorder_level: "0" });
     setShowForm(true);
   }
 
@@ -45,7 +45,9 @@ export default function IngredientsPage() {
     setEditing(ing);
     setForm({
       name: ing.name, unit: ing.unit, purchase_size: ing.purchase_size || "",
-      purchase_price: ing.purchase_price.toString(), current_stock: ing.current_stock.toString(),
+      purchase_price: ing.purchase_price.toString(),
+      purchase_qty: ing.purchase_qty != null ? ing.purchase_qty.toString() : "",
+      current_stock: ing.current_stock.toString(),
       reorder_level: ing.reorder_level.toString(),
     });
     setShowForm(true);
@@ -59,6 +61,9 @@ export default function IngredientsPage() {
       name: form.name.trim(), unit: form.unit.trim(),
       purchase_size: form.purchase_size.trim() || null,
       purchase_price: parseFloat(form.purchase_price),
+      // Blank stays NULL: a guessed pack size yields a confidently wrong recipe
+      // cost, which feeds COGS. Better uncosted than wrongly costed.
+      purchase_qty: form.purchase_qty.trim() ? parseFloat(form.purchase_qty) : null,
       current_stock: parseFloat(form.current_stock) || 0,
       reorder_level: parseFloat(form.reorder_level) || 0,
     };
@@ -99,15 +104,16 @@ export default function IngredientsPage() {
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Unit</th>
                 <th className="text-left px-4 py-3 font-medium text-gray-500">Purchase Size</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Price</th>
+                <th className="text-right px-4 py-3 font-medium text-gray-500">Cost / unit</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Stock</th>
                 <th className="text-right px-4 py-3 font-medium text-gray-500">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100">
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">Loading...</td></tr>
               ) : ingredients.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-gray-400">No ingredients found</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-gray-400">No ingredients found</td></tr>
               ) : (
                 ingredients.map((ing) => (
                   <tr key={ing.id} className="hover:bg-gray-50">
@@ -115,6 +121,16 @@ export default function IngredientsPage() {
                     <td className="px-4 py-3 text-gray-600">{ing.unit}</td>
                     <td className="px-4 py-3 text-gray-600">{ing.purchase_size || "—"}</td>
                     <td className="px-4 py-3 text-right">{formatZAR(ing.purchase_price)}</td>
+                    <td className="px-4 py-3 text-right">
+                      {ing.purchase_qty && ing.purchase_qty > 0 ? (
+                        <span className="text-gray-900">
+                          {formatZAR(ing.purchase_price / ing.purchase_qty)}
+                          <span className="text-gray-400"> /{ing.unit}</span>
+                        </span>
+                      ) : (
+                        <span className="text-amber-600 text-xs">Set pack qty</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-right">{ing.current_stock}</td>
                     <td className="px-4 py-3 text-right">
                       <button onClick={() => openEdit(ing)} className="text-green-600 hover:underline text-xs">Edit</button>
@@ -135,7 +151,27 @@ export default function IngredientsPage() {
             <Input label="Unit *" value={form.unit} onChange={(e) => setForm({...form, unit: e.target.value})} placeholder="kg, g, ml, each" />
             <Input label="Purchase Size" value={form.purchase_size} onChange={(e) => setForm({...form, purchase_size: e.target.value})} placeholder="e.g. 2.5kg bag" />
           </div>
-          <Input label="Purchase Price (R) *" type="number" step="0.01" value={form.purchase_price} onChange={(e) => setForm({...form, purchase_price: e.target.value})} />
+          <div className="grid grid-cols-2 gap-4">
+            <Input label="Purchase Price (R) *" type="number" step="0.01" value={form.purchase_price} onChange={(e) => setForm({...form, purchase_price: e.target.value})} />
+            <Input
+              label={`Pack quantity${form.unit ? ` (${form.unit})` : ""}`}
+              type="number"
+              step="0.0001"
+              value={form.purchase_qty}
+              onChange={(e) => setForm({...form, purchase_qty: e.target.value})}
+              placeholder="e.g. 2.5"
+            />
+          </div>
+          <p className="text-xs text-gray-500 -mt-2">
+            How many {form.unit || "units"} that price buys. R50 for a 2.5kg bag with unit
+            &ldquo;kg&rdquo; is <strong>2.5</strong>. Recipes using this ingredient stay uncosted
+            until it is set.
+            {form.purchase_price && form.purchase_qty && parseFloat(form.purchase_qty) > 0 && (
+              <span className="block mt-1 text-green-700 font-medium">
+                Works out to {formatZAR(parseFloat(form.purchase_price) / parseFloat(form.purchase_qty))} per {form.unit || "unit"}.
+              </span>
+            )}
+          </p>
           <div className="grid grid-cols-2 gap-4">
             <Input label="Current Stock" type="number" step="0.01" value={form.current_stock} onChange={(e) => setForm({...form, current_stock: e.target.value})} />
             <Input label="Reorder Level" type="number" step="0.01" value={form.reorder_level} onChange={(e) => setForm({...form, reorder_level: e.target.value})} />
