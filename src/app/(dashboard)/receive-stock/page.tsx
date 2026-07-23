@@ -46,6 +46,9 @@ export default function ReceiveStockPage() {
   const [tab, setTab] = useState<"new" | "history">("new");
   const [history, setHistory] = useState<PastReceipt[]>([]);
   const [createExpense, setCreateExpense] = useState(true);
+  // How the delivery was paid for. Drives the cash-spent report: stock bought
+  // on account leaves the bank later, so it must not count as cash out today.
+  const [paidBy, setPaidBy] = useState<"cash" | "account" | "electronic">("cash");
 
   useEffect(() => {
     loadData();
@@ -123,6 +126,7 @@ export default function ReceiveStockPage() {
           notes: notes || null,
           total_cost: totalCost,
           recorded_by: name,
+          paid_by: paidBy,
         })
         .select()
         .single();
@@ -444,20 +448,51 @@ export default function ReceiveStockPage() {
 
           {/* Options */}
           {lines.length > 0 && (
-            <div className="flex items-center justify-between">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={createExpense}
-                  onChange={(e) => setCreateExpense(e.target.checked)}
-                  className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                />
-                Also record as "Stock Purchases" expense
-              </label>
-              <Button onClick={handleSave} loading={saving} disabled={lines.length === 0}>
-                <Save className="w-4 h-4 mr-2" />
-                Save Receipt — {formatZAR(totalCost)}
-              </Button>
+            <div className="space-y-4">
+              <div>
+                <p className="text-sm font-medium text-gray-700 mb-2">How was this paid?</p>
+                <div className="flex flex-wrap gap-2">
+                  {([
+                    { key: "cash", label: "Cash" },
+                    { key: "account", label: "On account" },
+                    { key: "electronic", label: "EFT / card" },
+                  ] as const).map((opt) => (
+                    <button
+                      key={opt.key}
+                      type="button"
+                      onClick={() => setPaidBy(opt.key)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        paidBy === opt.key
+                          ? "border-green-500 bg-green-50 text-green-700"
+                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-2">
+                  {paidBy === "account"
+                    ? "Counted as cash spent on the day you pay the supplier, not today."
+                    : "Counted as money out today on the Cash spent report."}
+                </p>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 flex-wrap">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={createExpense}
+                    onChange={(e) => setCreateExpense(e.target.checked)}
+                    className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                  />
+                  Also record as &quot;Stock Purchases&quot; expense
+                </label>
+                <Button onClick={handleSave} loading={saving} disabled={lines.length === 0}>
+                  <Save className="w-4 h-4 mr-2" />
+                  Save Receipt — {formatZAR(totalCost)}
+                </Button>
+              </div>
             </div>
           )}
 
