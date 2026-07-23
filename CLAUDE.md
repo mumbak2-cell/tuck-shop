@@ -123,6 +123,14 @@ a supplier does not rewrite past deliveries.
 
 ## Recipe costing (prepared food)
 
+**The whole area is gated behind the `prepares_food` app setting.** It hides the
+Ingredients page (`foodOnly` in `sidebar.tsx`), the "prepared food item" checkbox on
+the product form, and therefore the Recipe section — which only renders once that box
+is ticked. If Ingredients or recipes appear to be "missing", check this setting before
+the code: until PR #51 it was writable only during first-time setup, so shops created
+without it had no way to switch it on. It now lives in Settings → Prepared Food, and
+`handleSave` calls `refreshOrg()` so the sidebar updates without a reload.
+
 Before migration **055**, every prepared item sold at **zero cost**:
 `products.cost_per_unit` was generated as `package_price / qty_in_pack`, a prepared
 item has neither, so it computed to NULL and the POS fell back to `?? 0`. Nothing
