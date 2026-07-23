@@ -33,6 +33,11 @@ export default function ProfitLossPage() {
   const [cogs, setCogs] = useState(0);
   const [operatingExpenses, setOperatingExpenses] = useState(0);
   const [directorWithdrawals, setDirectorWithdrawals] = useState(0);
+  // Buying stock is not an expense — it converts cash into inventory, and only
+  // becomes a cost when the item sells, which COGS above already captures from
+  // the sale-time snapshot. Counting it here as well charged the same stock
+  // twice and understated profit. Held separate so the figure stays visible.
+  const [stockPurchases, setStockPurchases] = useState(0);
   const [expenseBreakdown, setExpenseBreakdown] = useState<{ category: string; total: number }[]>([]);
 
   useEffect(() => {
@@ -103,11 +108,14 @@ export default function ProfitLossPage() {
       return q;
     });
 
-    let opex = 0, dirW = 0;
+    let opex = 0, dirW = 0, stockBought = 0;
     const catTotals: Record<string, number> = {};
     (expenses as any[]).forEach((e: any) => {
       if (e.category === "Director Withdrawal") {
         dirW += e.amount;
+      } else if (e.category === "Stock Purchases") {
+        // Inventory, not an expense — see the note on the state declaration.
+        stockBought += e.amount;
       } else {
         opex += e.amount;
       }
@@ -115,6 +123,7 @@ export default function ProfitLossPage() {
     });
     setOperatingExpenses(opex);
     setDirectorWithdrawals(dirW);
+    setStockPurchases(stockBought);
     setExpenseBreakdown(
       Object.entries(catTotals)
         .map(([category, total]) => ({ category, total }))
@@ -229,7 +238,7 @@ export default function ProfitLossPage() {
             </div>
             <div className="divide-y divide-gray-100">
               {expenseBreakdown
-                .filter((e) => e.category !== "Director Withdrawal")
+                .filter((e) => e.category !== "Director Withdrawal" && e.category !== "Stock Purchases")
                 .map((e) => (
                   <PnLRow key={e.category} label={e.category} amount={e.total} negative />
                 ))}
@@ -239,6 +248,33 @@ export default function ProfitLossPage() {
               <PnLRow label="Total Operating Expenses" amount={operatingExpenses} bold negative />
             </div>
           </div>
+
+          {/* Stock bought — shown, but never subtracted. Buying stock moves cash
+              into inventory; it becomes a cost via COGS when the item sells. */}
+          {stockPurchases > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-700">Stock Bought (not a cost yet)</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <PnLRow label="Stock Purchases" amount={stockPurchases} />
+                <div className="px-5 py-3 text-xs text-gray-500">
+                  Not subtracted from profit. Buying stock turns cash into inventory — it becomes
+                  a cost through Cost of Goods Sold above, on the day the item actually sells.
+                  Subtracting it here as well would charge the same stock twice.
+                  {" "}See Reports → Cash spent for money out.
+                </div>
+                {cogs === 0 && (
+                  <div className="px-5 py-3 text-xs text-amber-700 bg-amber-50">
+                    <strong>Check your product costs.</strong> Stock was bought in this period but
+                    Cost of Goods Sold is zero, so nothing is being charged against these sales.
+                    That usually means products are missing a cost price, which makes the profit
+                    above look higher than it is.
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Director Withdrawals */}
           {directorWithdrawals > 0 && (
