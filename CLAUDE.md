@@ -15,6 +15,24 @@ read it before running anything that writes to the database.
 - `next build` / `next dev` can be unreliable in constrained sandboxes (SIGBUS); rely on
   `tsc` + `eslint` locally and let Vercel build the PR.
 
+## Local dev server — check this BEFORE debugging "my changes aren't showing"
+
+**This project is `C:\26June\Dev\tilify`.** A stale duplicate checkout exists at
+`C:\26June\Dev\Dev\tilify` (note the doubled `Dev\Dev`, alongside the TripPulse folder).
+It sits on an old `main` from around PR #13 and is **not** this project. A dev server
+started from there serves months-old code, so edits never appear — and it has been found
+hung, with `localhost:3000` timing out entirely.
+
+- Start the server from the `tilify-dev` entry in `.claude/launch.json` (via `preview_start`),
+  never by running `next dev` from whatever directory happens to be current.
+- If localhost hangs, or edits don't show up, **verify what is actually serving the port
+  before touching the code**:
+  `netstat -ano | grep :3000`, then check that PID's command line — the path must be
+  `C:\26June\Dev\tilify`, not `...\Dev\Dev\tilify`. Kill the stale process and restart from
+  the correct folder.
+- Symptom seen in practice: code typechecks clean, the branch has the new commits, yet the
+  browser shows old UI or nothing at all. That is this problem, not a code bug.
+
 ## Load-bearing invariants (don't break these)
 
 - **One org per user.** `create_organization_for_user` rejects a second membership, and
