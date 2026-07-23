@@ -60,7 +60,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **055**.
+number, never reuse a prefix. Latest applied: **056**.
 
 ## Billing (Paystack subscriptions)
 
@@ -144,10 +144,18 @@ reached COGS while the ingredients were logged as expenses.
   rows silently, which would understate cost, so `recalc_recipe_cost` counts missing
   inputs explicitly and bails.
 
-**Open decision:** ingredient purchases are currently logged as operating expenses.
-Once recipes are in use their cost also flows into COGS — which recreates the
-double-count migration-era PR #48 removed for stock. Settle the categorisation before
-recipes are used widely.
+**Inventory is not an operating expense.** `INVENTORY_EXPENSE_CATEGORIES` in
+`src/types/database.ts` lists the categories that buy stock rather than consume it —
+`Stock Purchases` and `Ingredient Purchases` (migration **056**). Profit & Loss holds
+both out of operating expenses, because their cost reaches the books through COGS when
+the item sells; counting them in both places charges the same goods twice (PR #48 for
+stock, #52 for ingredients).
+
+**Cash spent deliberately excludes only `Stock Purchases`, not both.** Receive Stock
+writes that expense automatically beside its `stock_receipts` row, so it is a duplicate;
+a hand-typed ingredient has no such row and the money really did leave the till. P&L is
+accrual, Cash spent is cash basis — **do not "unify" the two lists.** Both call sites
+carry this warning.
 
 ## Multi-location model
 
