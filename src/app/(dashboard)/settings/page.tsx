@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -21,6 +21,10 @@ export default function SettingsPage() {
   const [businessPhone, setBusinessPhone] = useState("");
   const [currency, setCurrency] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
   const [wmsEnabled, setWmsEnabled] = useState(false);
+  // Was previously only settable during first-time setup, which left any shop
+  // that started without it unable to reach Ingredients, the "prepared item"
+  // flag, or recipe costing at all — with no way to turn it on.
+  const [preparesFood, setPreparesFood] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
@@ -80,6 +84,7 @@ export default function SettingsPage() {
     setCurrency((map.currency as CurrencyCode) || DEFAULT_CURRENCY.code);
     setWmsEnabled(map.wms_enabled === "true");
     setWmsOnly(map.wms_only === "true");
+    setPreparesFood(map.prepares_food === "true");
     setStockMode(map.stock_mode === "central" ? "central" : "per_location");
     setLoading(false);
   }
@@ -110,6 +115,7 @@ export default function SettingsPage() {
       { key: "currency", value: currency || DEFAULT_CURRENCY.code },
       { key: "wms_enabled", value: wmsEnabled ? "true" : "false" },
       { key: "wms_only", value: wmsOnly ? "true" : "false" },
+      { key: "prepares_food", value: preparesFood ? "true" : "false" },
       { key: "stock_mode", value: stockMode },
     ];
 
@@ -402,6 +408,44 @@ export default function SettingsPage() {
               to every WhatsApp credit invoice and statement you send. Leave blank if you do not have one.
             </p>
           </div>
+        </div>
+
+        {/* Prepared food — gates Ingredients, the "prepared item" flag on products,
+            and recipe costing. Only settable at first-time setup before this. */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <ChefHat className="w-5 h-5 text-gray-600" />
+            Prepared Food
+          </h2>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={preparesFood}
+              onChange={(e) => setPreparesFood(e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                We prepare food or make items from ingredients
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Turns on the <strong>Ingredients</strong> page, the &ldquo;prepared item&rdquo;
+                option on products, and recipe costing — so a prepared item&apos;s cost comes from
+                what it is made of instead of being recorded as zero.
+              </p>
+            </div>
+          </label>
+          {preparesFood && (
+            <p className="text-xs text-gray-500 mt-3 pl-7">
+              Next: set a <strong>pack quantity</strong> on each ingredient, then open a prepared
+              product and add its recipe.
+            </p>
+          )}
+          {!preparesFood && (
+            <p className="text-xs text-gray-400 mt-3 pl-7">
+              Leave this off if you only resell items you buy in.
+            </p>
+          )}
         </div>
 
         {/* Stock Mode — always visible so single-shop orgs can pre-pick before adding a second location */}
