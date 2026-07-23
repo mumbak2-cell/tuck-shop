@@ -211,9 +211,19 @@ export const EXPENSE_CATEGORIES = [
   "Consumables",
   "Wages",
   "Stock Purchases",
+  "Ingredient Purchases",
   "Director Withdrawal",
   "Other",
 ] as const;
+
+// Buying inventory is not an operating expense — it converts cash into stock
+// and becomes a cost through COGS when the item sells. Profit & Loss holds
+// these out of operating expenses to avoid charging the same goods twice.
+// Cash-spent reporting deliberately does the opposite: the money did leave.
+export const INVENTORY_EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+  "Stock Purchases",
+  "Ingredient Purchases",
+];
 
 export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
 

@@ -9,7 +9,7 @@ import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
 import { Receipt, Plus, Trash2, Filter, CloudOff, Users } from "lucide-react";
-import { EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
+import { EXPENSE_CATEGORIES, INVENTORY_EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
 import { insertOrQueue } from "@/lib/offline-ops";
 
 export default function ExpensesPage() {
@@ -168,6 +168,7 @@ export default function ExpensesPage() {
     Consumables: "gray",
     Wages: "green",
     "Stock Purchases": "cyan",
+    "Ingredient Purchases": "cyan",
     "Director Withdrawal": "red",
     Other: "gray",
   };
@@ -346,6 +347,12 @@ export default function ExpensesPage() {
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
+            {INVENTORY_EXPENSE_CATEGORIES.includes(formCategory) && (
+              <p className="text-xs text-gray-500 mt-1.5">
+                Counts as money out on the Cash spent report, but not against profit — buying
+                inventory becomes a cost through Cost of Goods Sold when the item sells.
+              </p>
+            )}
           </div>
 
           {formCategory === "Director Withdrawal" && (
