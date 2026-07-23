@@ -29,6 +29,13 @@ read it before running anything that writes to the database.
 - **Sales snapshot price.** `sales.unit_price` and `sales.cost_price` are captured at
   sale time (via `submit_sale_batch`), so reporting must read those, never recompute
   revenue from `products.selling_price`.
+- **PostgREST `.upsert({ onConflict })` cannot target a PARTIAL unique index.** It can't
+  emit the index's `WHERE` predicate, so Postgres raises `42P10` — and if the error is
+  destructured away (`const { data } = await …`), the write silently no-ops.
+  `invoice_events(provider, provider_reference) WHERE provider_reference IS NOT NULL`
+  (migration 037) is one such index: log with a plain INSERT and treat the `23505`
+  unique-violation as the duplicate signal. This exact bug left the Paystack webhook
+  inert in production for weeks — every delivery "succeeded" while reconciling nothing.
 
 ## Migrations
 
@@ -36,6 +43,52 @@ Applied by hand (SQL Editor or the Management API query endpoint), **then** reco
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
 number, never reuse a prefix. Latest applied: **051**.
+
+## Billing (Paystack subscriptions)
+
+All Tilify subscriptions bill in **ZAR via Paystack**, whatever the operator's POS
+currency (`BILLING_CURRENCY` in `src/lib/plans.ts`; `providerForCurrency()` always
+returns paystack — the MWK price block was deleted as dead code). Three tiers × three
+cycles, in minor units: Starter R299 / R849 / R2,990, Growth R599 / R1,699 / R5,990,
+Pro R999 / R2,799 / R9,990 (monthly / quarterly / annual — quarterly ~6% off, annual two
+months free).
+
+**Recurring Plan codes live in env, never in source.** `src/lib/paystack-plans.ts`
+resolves one per (tier, cycle) from `PAYSTACK_PLAN_<TIER>_<CYCLE>` — nine variables,
+`STARTER|GROWTH|PRO` × `MONTHLY|QUARTERLY|ANNUAL`. Test-mode and live-mode codes are
+**different strings**, so they belong to the deployment, and `plans.ts` is imported
+client-side so codes must never be put there. A missing code degrades that cycle to a
+one-time charge instead of failing.
+
+Paystack behaviours that cost a full debugging session — don't "simplify" these away:
+
+- `transaction/initialize` **requires `amount` even when `plan` is supplied** (omitting it
+  returns "Invalid amount"). Send both; Paystack overrides the amount with the Plan's.
+- A valid `plan` code *always* creates a Subscription. If a charge succeeds but no
+  subscription appears, the code is wrong or from the other mode — not a webhook bug.
+- Re-checking out the same plan for an already-subscribed customer creates **no** new
+  subscription and emits no `subscription.create`.
+- Cancelling emits **`subscription.not_renew`**, not `subscription.disable`; our handler
+  treats it as a no-op, so the org keeps access until `current_period_end`.
+
+**Webhook org resolution** (`src/app/api/billing/webhook/paystack/route.ts`,
+`resolveOrgId`): only `charge.success` carries `metadata.org_id`. Subscription-lifecycle
+events carry none **and can arrive before** the charge that stores the customer code, so
+resolution falls through metadata → `billing_customer_id` → `billing_subscription_id` →
+**customer email** (`auth.users` → `org_members`, deterministic under one-org-per-user).
+Drop the email fallback and subscription events are silently lost with `org_id` NULL.
+
+Access is gated by `current_user_writable_org_ids()` as redefined in migration 035:
+active **with a future `current_period_end`**, or trialing with a future `trial_ends_at`.
+
+**Known gap:** `PricingModal` is only reachable from `TrialBanner`, which renders solely
+when `subscription_status = 'trialing'`. An active paying customer has **no way to
+upgrade, downgrade, or change cycle** in the app — worth a "manage plan" entry in
+Settings.
+
+**Temporary:** `src/app/api/billing/plan-check/route.ts` is a token-gated diagnostic
+(plan-code validity + key mode) kept for the live cutover. **Delete it once live billing
+is verified.**
 
 ## Suppliers (master list)
 
