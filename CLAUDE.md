@@ -60,7 +60,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **054**.
+number, never reuse a prefix. Latest applied: **055**.
 
 ## Billing (Paystack subscriptions)
 
@@ -120,6 +120,34 @@ RLS mirrors `products` (read: org; writes: writable-org). Managed at `/suppliers
 `supplier` TEXT column — deliberately not FKs**, since they hold historical rows read by
 several reports. The list is the source of the dropdown, not a join. Trade-off: renaming
 a supplier does not rewrite past deliveries.
+
+## Recipe costing (prepared food)
+
+Before migration **055**, every prepared item sold at **zero cost**:
+`products.cost_per_unit` was generated as `package_price / qty_in_pack`, a prepared
+item has neither, so it computed to NULL and the POS fell back to `?? 0`. Nothing
+reached COGS while the ingredients were logged as expenses.
+
+- **`cost_per_unit` is still generated, but now
+  `COALESCE(recipe_cost_per_unit, package_price / qty_in_pack)`.** Every reader (POS
+  cart, dashboard, products list) is unchanged — don't "simplify" the COALESCE away.
+- **`products.recipe_cost_per_unit` is trigger-maintained. Never write it from the
+  app.** `recalc_recipe_cost(product_id)` fires from `recipes`, from
+  `ingredients.purchase_price`/`purchase_qty`, and from `products.units_per_batch`.
+  Recalculating only on save would leave costs stale the moment a price changed.
+- **The two inputs that make a recipe costable are nullable on purpose.**
+  `ingredients.purchase_qty` (how many `unit`s `purchase_price` buys — `purchase_size`
+  is free text like "2.5kg bag" and must never be parsed) and
+  `products.units_per_batch` (batch yield). NULL = not costed yet, behaving exactly as
+  pre-055. A guessed pack size produces a confidently wrong cost that feeds profit.
+- **An incomplete recipe must return NULL, not a partial sum.** SQL `SUM()` skips NULL
+  rows silently, which would understate cost, so `recalc_recipe_cost` counts missing
+  inputs explicitly and bails.
+
+**Open decision:** ingredient purchases are currently logged as operating expenses.
+Once recipes are in use their cost also flows into COGS — which recreates the
+double-count migration-era PR #48 removed for stock. Settle the categorisation before
+recipes are used widely.
 
 ## Multi-location model
 
