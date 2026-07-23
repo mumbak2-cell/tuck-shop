@@ -7,6 +7,7 @@ import { FileBarChart } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket } from "@/lib/payment-buckets";
+import { INVENTORY_EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/database";
 
 type Period = "today" | "week" | "month" | "custom";
 
@@ -113,8 +114,10 @@ export default function ProfitLossPage() {
     (expenses as any[]).forEach((e: any) => {
       if (e.category === "Director Withdrawal") {
         dirW += e.amount;
-      } else if (e.category === "Stock Purchases") {
+      } else if (INVENTORY_EXPENSE_CATEGORIES.includes(e.category)) {
         // Inventory, not an expense — see the note on the state declaration.
+        // Covers ingredients too since migration 055 gave prepared items a real
+        // cost: leaving them in opex would charge them again through COGS.
         stockBought += e.amount;
       } else {
         opex += e.amount;
@@ -238,7 +241,7 @@ export default function ProfitLossPage() {
             </div>
             <div className="divide-y divide-gray-100">
               {expenseBreakdown
-                .filter((e) => e.category !== "Director Withdrawal" && e.category !== "Stock Purchases")
+                .filter((e) => e.category !== "Director Withdrawal" && !INVENTORY_EXPENSE_CATEGORIES.includes(e.category as ExpenseCategory))
                 .map((e) => (
                   <PnLRow key={e.category} label={e.category} amount={e.total} negative />
                 ))}
@@ -254,22 +257,28 @@ export default function ProfitLossPage() {
           {stockPurchases > 0 && (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
-                <h2 className="font-semibold text-gray-700">Stock Bought (not a cost yet)</h2>
+                <h2 className="font-semibold text-gray-700">Inventory Bought (not a cost yet)</h2>
               </div>
               <div className="divide-y divide-gray-100">
-                <PnLRow label="Stock Purchases" amount={stockPurchases} />
+                {expenseBreakdown
+                  .filter((e) => INVENTORY_EXPENSE_CATEGORIES.includes(e.category as ExpenseCategory))
+                  .map((e) => (
+                    <PnLRow key={e.category} label={e.category} amount={e.total} />
+                  ))}
                 <div className="px-5 py-3 text-xs text-gray-500">
-                  Not subtracted from profit. Buying stock turns cash into inventory — it becomes
-                  a cost through Cost of Goods Sold above, on the day the item actually sells.
-                  Subtracting it here as well would charge the same stock twice.
+                  Not subtracted from profit. Buying stock or ingredients turns cash into
+                  inventory — it becomes a cost through Cost of Goods Sold above, on the day the
+                  finished item actually sells. Subtracting it here as well would charge the same
+                  goods twice.
                   {" "}See Reports → Cash spent for money out.
                 </div>
                 {cogs === 0 && (
                   <div className="px-5 py-3 text-xs text-amber-700 bg-amber-50">
-                    <strong>Check your product costs.</strong> Stock was bought in this period but
-                    Cost of Goods Sold is zero, so nothing is being charged against these sales.
-                    That usually means products are missing a cost price, which makes the profit
-                    above look higher than it is.
+                    <strong>Check your product costs.</strong> Inventory was bought in this period
+                    but Cost of Goods Sold is zero, so nothing is being charged against these
+                    sales. That usually means products are missing a cost price — or, for prepared
+                    food, that a recipe has not been set up yet. Either way the profit above looks
+                    higher than it is.
                   </div>
                 )}
               </div>

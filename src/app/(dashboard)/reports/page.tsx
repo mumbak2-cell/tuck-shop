@@ -359,6 +359,11 @@ export default function ReportsPage() {
     // "Stock Purchases" is held out of the total. Receive Stock writes that
     // expense automatically alongside the stock_receipts row (the checkbox
     // defaults to on), so counting both would double every delivery.
+    //
+    // "Ingredient Purchases" is deliberately NOT excluded here, even though
+    // Profit & Loss excludes both. This report is cash basis: an ingredient
+    // typed into Expenses has no stock_receipts row to duplicate, and the money
+    // genuinely left the till that day. Do not "unify" these two lists.
     const spendByCategory = new Map<string, number>();
     let stockPurchaseTotal = 0;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
