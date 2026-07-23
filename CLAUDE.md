@@ -60,7 +60,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **053**.
+number, never reuse a prefix. Latest applied: **054**.
 
 ## Billing (Paystack subscriptions)
 
