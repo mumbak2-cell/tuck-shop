@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { formatMoney, getActiveSymbol } from "@/lib/format";
 import { useOrg } from "@/lib/org-context";
+import { RecipeEditor, RecipeLine } from "@/components/products/recipe-editor";
 
 interface Props {
   product?: Product | null;
@@ -40,11 +41,34 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     is_sellable: (product as unknown as { is_sellable?: boolean })?.is_sellable !== false,
     opening_stock: product?.opening_stock?.toString() || "0",
     reorder_level: product?.reorder_level?.toString() || "0",
+    units_per_batch: product?.units_per_batch?.toString() || "",
   });
+
+  // Recipe lines for a prepared item. Held here rather than written directly so
+  // a new product (which has no id until insert) can be saved in one go.
+  const [recipeLines, setRecipeLines] = useState<RecipeLine[]>([]);
 
   // Per-branch price override inputs, keyed by location_id. Empty string =
   // "no override, use the base price". Loaded from existing rows when editing.
   const [branchPrices, setBranchPrices] = useState<Record<string, string>>({});
+
+  // Existing recipe for a prepared item being edited.
+  useEffect(() => {
+    if (!product?.id) return;
+    (async () => {
+      const { data } = await db
+        .from("recipes")
+        .select("ingredient_id, quantity_per_batch, unit")
+        .eq("product_id", product.id);
+      setRecipeLines(
+        ((data as { ingredient_id: string; quantity_per_batch: number; unit: string }[]) || []).map((r) => ({
+          ingredientId: r.ingredient_id,
+          quantity: r.quantity_per_batch.toString(),
+          unit: r.unit || "",
+        }))
+      );
+    })();
+  }, [product?.id]);
 
   // Load categories from the org's categories table (RLS scopes automatically)
   useEffect(() => {
@@ -97,6 +121,10 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       qty_in_pack: form.qty_in_pack ? parseInt(form.qty_in_pack) : null,
       selling_price: parseFloat(form.selling_price),
       is_prepared: form.is_prepared,
+      // Only meaningful for a prepared item; clearing the flag clears the yield
+      // so a stale batch size can't keep costing a bought-in product.
+      units_per_batch:
+        form.is_prepared && form.units_per_batch ? parseInt(form.units_per_batch) : null,
       is_sellable: form.is_sellable,
       opening_stock: parseInt(form.opening_stock) || 0,
       reorder_level: parseInt(form.reorder_level) || 0,
@@ -194,6 +222,37 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           );
         })
       );
+    }
+
+    // Reconcile the recipe. Replace-in-full rather than diffing: a recipe is a
+    // handful of rows, and the delete+insert keeps the stored cost consistent
+    // with what was on screen. The migration-055 trigger recalculates the
+    // product's cost from these rows, so nothing here writes a cost directly.
+    if (targetProductId && form.is_prepared) {
+      const validLines = recipeLines.filter(
+        (l) => l.ingredientId && l.quantity.trim() !== "" && Number.isFinite(parseFloat(l.quantity))
+      );
+      await db.from("recipes").delete().eq("product_id", targetProductId);
+      if (validLines.length > 0) {
+        const { error: recipeErr } = await db.from("recipes").insert(
+          validLines.map((l) => ({
+            product_id: targetProductId,
+            ingredient_id: l.ingredientId,
+            quantity_per_batch: parseFloat(l.quantity),
+            unit: l.unit || "",
+          }))
+        );
+        if (recipeErr) {
+          // The product saved; only the recipe failed. Say so rather than
+          // closing silently and leaving the item costed at zero.
+          setError("Product saved, but the recipe could not be saved: " + recipeErr.message);
+          setLoading(false);
+          return;
+        }
+      }
+    } else if (targetProductId && product?.is_prepared && !form.is_prepared) {
+      // No longer prepared — drop the recipe so it can't cost a bought-in item.
+      await db.from("recipes").delete().eq("product_id", targetProductId);
     }
 
     setLoading(false);
@@ -303,6 +362,35 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           <span className={`font-medium ${margin < 10 ? "text-red-600" : margin < 30 ? "text-amber-600" : "text-green-600"}`}>
             {margin.toFixed(1)}%
           </span>
+        </div>
+      )}
+
+      {/* Recipe — the cost source for a prepared item. Without it the POS
+          records zero cost for every sale and the item shows infinite margin. */}
+      {form.is_prepared && (
+        <div className="rounded-lg border border-gray-200 p-4 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-gray-900">Recipe</p>
+            <p className="text-xs text-gray-500">
+              What one batch uses. This is where a prepared item&apos;s cost comes from — without
+              it the item sells at zero cost and its profit looks larger than it is.
+            </p>
+          </div>
+
+          <Input
+            label="Units this batch makes *"
+            type="number"
+            min="1"
+            placeholder="e.g. 24"
+            value={form.units_per_batch}
+            onChange={(e) => update("units_per_batch", e.target.value)}
+          />
+
+          <RecipeEditor
+            lines={recipeLines}
+            onChange={setRecipeLines}
+            unitsPerBatch={form.units_per_batch}
+          />
         </div>
       )}
 

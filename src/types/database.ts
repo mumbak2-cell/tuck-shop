@@ -83,6 +83,11 @@ export interface Product {
   package_price: number | null;
   qty_in_pack: number | null;
   cost_per_unit: number | null;
+  // Prepared items: how many units one batch of the recipe yields, and the
+  // resulting per-unit cost. recipe_cost_per_unit is maintained by a database
+  // trigger (migration 055) — never write it from the app.
+  units_per_batch: number | null;
+  recipe_cost_per_unit: number | null;
   selling_price: number;
   is_prepared: boolean;
   opening_stock: number;
@@ -97,6 +102,9 @@ export interface Ingredient {
   unit: string;
   purchase_size: string | null;
   purchase_price: number;
+  // How many `unit`s purchase_price buys — R50 for a 2.5kg bag with unit=kg
+  // is 2.5. NULL means recipes using this ingredient cannot be costed.
+  purchase_qty: number | null;
   current_stock: number;
   reorder_level: number;
   created_at: string;
