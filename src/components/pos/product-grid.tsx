@@ -36,6 +36,11 @@ interface CategoryRow {
 
 const ALL_TAB = "__all__";
 
+/** At or below this many units left, the tile warns the cashier. The grid only
+ *  shows items with stock above zero, so the badge covers 5 down to 1 — at zero
+ *  the item leaves the grid entirely, which is its own (existing) signal. */
+const LOW_STOCK_AT = 5;
+
 export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
@@ -219,11 +224,16 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                   const salePrice = hasDiscount
                     ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
                     : product.selling_price;
+                  // The POS page overwrites opening_stock with the current
+                  // location's quantity before handing products here, so this
+                  // is the branch figure rather than the org-wide total.
+                  const unitsLeft = product.opening_stock ?? 0;
+                  const isLow = unitsLeft > 0 && unitsLeft <= LOW_STOCK_AT;
                   return (
                     <button
                       key={product.id}
                       onClick={() => onAddToCart(product)}
-                      aria-label={`Add ${product.name} to cart, ${formatMoney(hasDiscount ? salePrice : product.selling_price)}`}
+                      aria-label={`Add ${product.name} to cart, ${formatMoney(hasDiscount ? salePrice : product.selling_price)}${isLow ? `, only ${unitsLeft} left` : ""}`}
                       role="listitem"
                       className={`flex flex-col items-center justify-center p-3 border rounded-xl hover:shadow-md active:scale-95 transition-all min-h-[90px] touch-manipulation ${
                         hasDiscount
@@ -251,6 +261,14 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                       )}
                       {product.is_prepared && (
                         <span className="text-[10px] text-blue-600 mt-0.5">Prepared</span>
+                      )}
+                      {/* Sits below the price rather than over the tile: the price
+                          is what the cashier actually reads, and a corner badge on
+                          a 90px target competes with it. */}
+                      {isLow && (
+                        <span className="mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800">
+                          {unitsLeft} left
+                        </span>
                       )}
                     </button>
                   );
