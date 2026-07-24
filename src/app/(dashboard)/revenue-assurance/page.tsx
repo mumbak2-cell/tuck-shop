@@ -37,6 +37,9 @@ interface AssuranceRow {
   unitsSold: number;
   recordedSales: number;
   unrecordedUnits: number;
+  /** Rung up beyond what stock movement can account for — the reverse of
+   *  unrecordedUnits. Exactly one of the two is ever non-zero. */
+  oversoldUnits: number;
   expectedRevenue: number;
   recordedRevenue: number;
   missingRevenue: number;
@@ -295,16 +298,30 @@ export default function RevenueAssurancePage() {
       const replenished = replenishMap.get(productId) || 0;
       const recordedSales = salesQtyMap.get(productId) || 0;
       const recordedRevenue = salesRevMap.get(productId) || 0;
-      const unitsSold = Math.max(openingStock + replenished - closingStock, 0);
+      // Movement is kept signed on purpose. Clamping it — as both this and the
+      // discrepancy below used to — reported only one direction: units that left
+      // the shelf without being rung up. The reverse, more rung up than movement
+      // can account for, collapsed to 0 and rendered as a green tick. That is
+      // precisely what selling past available stock produces: the POS warns but
+      // deliberately does not block (see pos/cart.tsx), and
+      // deduct_stock_at_location floors the quantity at zero, so the shortfall
+      // left no trace and the page reported the row as reconciled.
+      const movement = openingStock + replenished - closingStock;
+      const unitsSold = Math.max(movement, 0);
       const expectedRevenue = unitsSold * prod.selling_price;
-      const unrecordedUnits = Math.max(unitsSold - recordedSales, 0);
+      const discrepancy = movement - recordedSales;
+      const unrecordedUnits = Math.max(discrepancy, 0);
+      const oversoldUnits = Math.max(-discrepancy, 0);
+      // Only the unrecorded direction is missing money. An oversell means more
+      // was banked than stock explains — a stock-integrity problem, not a
+      // revenue loss — so it deliberately gets no rand figure.
       const missingRevenue = unrecordedUnits * prod.selling_price;
 
       assuranceRows.push({
         productId, inventoryId: prod.inventory_id, name: prod.name,
         category: prod.category, sellingPrice: prod.selling_price,
         openingStock, replenished, closingStock, unitsSold,
-        recordedSales, unrecordedUnits, expectedRevenue, recordedRevenue, missingRevenue,
+        recordedSales, unrecordedUnits, oversoldUnits, expectedRevenue, recordedRevenue, missingRevenue,
       });
     }
 
@@ -397,12 +414,23 @@ export default function RevenueAssurancePage() {
     setSaving(false);
   }
 
-  const filtered = filterMode === "discrepancies" ? rows.filter((r) => r.unrecordedUnits > 0) : rows;
+  const filtered = filterMode === "discrepancies"
+    ? rows.filter((r) => r.unrecordedUnits > 0 || r.oversoldUnits > 0)
+    : rows;
   const totalExpectedRevenue = rows.reduce((sum, r) => sum + r.expectedRevenue, 0);
   const totalRecordedRevenue = rows.reduce((sum, r) => sum + r.recordedRevenue, 0);
   const totalMissingRevenue = rows.reduce((sum, r) => sum + r.missingRevenue, 0);
   const totalUnitsSold = rows.reduce((sum, r) => sum + r.unitsSold, 0);
   const totalUnrecorded = rows.reduce((sum, r) => sum + r.unrecordedUnits, 0);
+  const totalOversold = rows.reduce((sum, r) => sum + r.oversoldUnits, 0);
+  // Green is a claim that the period reconciles. An oversell carries no rand
+  // value, so keying the card off missing revenue alone would show all-clear
+  // over stock that demonstrably does not add up.
+  const assuranceTone: "bad" | "warn" | "good" =
+    totalMissingRevenue > 0 ? "bad" : totalOversold > 0 ? "warn" : "good";
+  const toneCard = { bad: "bg-red-50 border-red-200", warn: "bg-amber-50 border-amber-200", good: "bg-green-50 border-green-200" }[assuranceTone];
+  const toneLabel = { bad: "text-red-600", warn: "text-amber-600", good: "text-green-600" }[assuranceTone];
+  const toneValue = { bad: "text-red-700", warn: "text-amber-700", good: "text-green-700" }[assuranceTone];
 
   if (loadingOptions) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
@@ -517,10 +545,11 @@ export default function RevenueAssurancePage() {
                   <p className="text-xs text-gray-500">Recorded in POS</p>
                   <p className="text-xl font-bold text-gray-900 tabular-nums">{formatZAR(totalRecordedRevenue)}</p>
                 </div>
-                <div className={`border rounded-xl px-5 py-4 ${totalMissingRevenue > 0 ? "bg-red-50 border-red-200" : "bg-green-50 border-green-200"}`}>
-                  <p className={`text-xs ${totalMissingRevenue > 0 ? "text-red-600" : "text-green-600"}`}>Unrecorded</p>
-                  <p className={`text-xl font-bold tabular-nums ${totalMissingRevenue > 0 ? "text-red-700" : "text-green-700"}`}>{formatZAR(totalMissingRevenue)}</p>
+                <div className={`border rounded-xl px-5 py-4 ${toneCard}`}>
+                  <p className={`text-xs ${toneLabel}`}>Unrecorded</p>
+                  <p className={`text-xl font-bold tabular-nums ${toneValue}`}>{formatZAR(totalMissingRevenue)}</p>
                   {totalUnrecorded > 0 && <p className="text-xs text-red-500 mt-0.5">{totalUnrecorded} units not in POS</p>}
+                  {totalOversold > 0 && <p className="text-xs text-amber-600 mt-0.5">{totalOversold} units sold beyond stock</p>}
                 </div>
               </div>
 
@@ -540,6 +569,24 @@ export default function RevenueAssurancePage() {
                 </div>
               )}
 
+              {/* The reverse direction. Not a revenue loss, so it gets its own
+                  banner rather than being folded into the one above — the money
+                  is present; it is the stock figure that cannot be trusted. */}
+              {totalOversold > 0 && (
+                <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-6">
+                  <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
+                  <div className="text-sm text-amber-800">
+                    <p className="font-semibold">Sold more than stock on hand allowed</p>
+                    <p className="mt-1">
+                      <strong>{totalOversold} units</strong> were rung up beyond what stock movement
+                      accounts for. The takings are real — the stock figure was understated, usually
+                      a delivery that was never recorded or an inaccurate count. Check recent
+                      deliveries for these items before trusting their stock levels.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Detail table */}
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
@@ -552,7 +599,7 @@ export default function RevenueAssurancePage() {
                         <th className="text-right px-3 py-3 font-medium text-gray-500">Closing</th>
                         <th className="text-right px-3 py-3 font-medium text-gray-500">Units Sold</th>
                         <th className="text-right px-3 py-3 font-medium text-gray-500">POS Recorded</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Unrecorded</th>
+                        <th className="text-right px-3 py-3 font-medium text-gray-500">Discrepancy</th>
                         <th className="text-right px-3 py-3 font-medium text-gray-500">Missing Rev.</th>
                         <th className="px-3 py-3 font-medium text-gray-500 text-center">Actions</th>
                       </tr>
@@ -561,7 +608,7 @@ export default function RevenueAssurancePage() {
                       {filtered.length === 0 ? (
                         <tr>
                           <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
-                            {filterMode === "discrepancies" ? "No discrepancies — all stock movement matches POS records." : "No data."}
+                            {filterMode === "discrepancies" ? "No discrepancies — stock movement matches POS records in both directions." : "No data."}
                           </td>
                         </tr>
                       ) : (
@@ -573,7 +620,7 @@ export default function RevenueAssurancePage() {
                             <tr key={r.productId} className="group">
                               <td colSpan={9} className="p-0">
                                 {/* Main row */}
-                                <div className={`flex items-center ${r.unrecordedUnits > 0 ? "bg-red-50/50" : ""}`}>
+                                <div className={`flex items-center ${r.unrecordedUnits > 0 ? "bg-red-50/50" : r.oversoldUnits > 0 ? "bg-amber-50/50" : ""}`}>
                                   <div className="flex-1 min-w-0 px-4 py-3">
                                     <div className="flex items-baseline gap-2 min-w-0">
                                       <span className="font-medium text-gray-900 min-w-0 max-w-[16rem]">
@@ -596,8 +643,15 @@ export default function RevenueAssurancePage() {
                                   <div className="text-right px-3 py-3 text-gray-600 w-16 tabular-nums">{r.closingStock}</div>
                                   <div className="text-right px-3 py-3 font-medium text-gray-900 w-20 tabular-nums">{r.unitsSold}</div>
                                   <div className="text-right px-3 py-3 text-gray-600 w-24 tabular-nums">{r.recordedSales}</div>
-                                  <div className={`text-right px-3 py-3 font-semibold w-24 tabular-nums ${r.unrecordedUnits > 0 ? "text-red-600" : "text-green-600"}`}>
-                                    {r.unrecordedUnits > 0 ? r.unrecordedUnits : "✓"}
+                                  {/* The tick is a positive claim that the row reconciles, so it
+                                      must not show when stock is short — only when both
+                                      directions are genuinely zero. */}
+                                  <div className={`text-right px-3 py-3 font-semibold w-24 tabular-nums ${r.unrecordedUnits > 0 ? "text-red-600" : r.oversoldUnits > 0 ? "text-amber-600" : "text-green-600"}`}>
+                                    {r.unrecordedUnits > 0
+                                      ? r.unrecordedUnits
+                                      : r.oversoldUnits > 0
+                                        ? `${r.oversoldUnits} over`
+                                        : "✓"}
                                   </div>
                                   <div className={`text-right px-3 py-3 font-bold w-28 tabular-nums ${r.missingRevenue > 0 ? "text-red-700" : "text-gray-400"}`}>
                                     {r.missingRevenue > 0 ? formatZAR(r.missingRevenue) : "—"}
@@ -699,7 +753,16 @@ export default function RevenueAssurancePage() {
                           <td className="px-4 py-3 font-semibold text-gray-700" colSpan={4}>Totals</td>
                           <td className="text-right px-3 py-3 font-semibold text-gray-900">{filtered.reduce((s, r) => s + r.unitsSold, 0)}</td>
                           <td className="text-right px-3 py-3 font-semibold text-gray-600">{filtered.reduce((s, r) => s + r.recordedSales, 0)}</td>
-                          <td className="text-right px-3 py-3 font-semibold text-red-600">{filtered.reduce((s, r) => s + r.unrecordedUnits, 0)}</td>
+                          {/* Each direction totalled separately — netting them would let a
+                              shortfall cancel a loss and report both as clean. */}
+                          <td className="text-right px-3 py-3 font-semibold">
+                            <span className="text-red-600">{filtered.reduce((s, r) => s + r.unrecordedUnits, 0)}</span>
+                            {filtered.some((r) => r.oversoldUnits > 0) && (
+                              <span className="text-amber-600">
+                                {" / "}{filtered.reduce((s, r) => s + r.oversoldUnits, 0)} over
+                              </span>
+                            )}
+                          </td>
                           <td className="text-right px-3 py-3 font-bold text-red-700">{formatZAR(filtered.reduce((s, r) => s + r.missingRevenue, 0))}</td>
                           <td />
                         </tr>
@@ -727,13 +790,23 @@ export default function RevenueAssurancePage() {
                   </p>
                   <p>
                     <strong>Units Sold = Opening Stock + Replenished − Closing Stock</strong>.{" "}
-                    The difference between units sold and what the POS recorded is the unrecorded amount.
-                    Use the <strong>comment</strong> button to explain discrepancies and the <strong>write off</strong> button
-                    to create a stock adjustment for breakage, theft, or other losses.
+                    The difference between that and what the POS recorded can run either way.
+                    More movement than sales means units left the shelf without being rung up —
+                    breakage, theft, or a missed sale. More sales than movement (shown as
+                    <strong> &ldquo;over&rdquo;</strong>) means the shop sold more than its stock
+                    figure allowed, so the stock was understated: usually a delivery that was
+                    never recorded, or a miscount. Use the <strong>comment</strong> button to
+                    explain either, and the <strong>write off</strong> button to create a stock
+                    adjustment for losses. Write-off is offered only on the unrecorded direction —
+                    it decreases stock, which on an oversold row would deepen the error rather
+                    than correct it.
                   </p>
                   <div className="flex flex-wrap gap-4 text-xs text-gray-500 pt-1">
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded bg-red-100 border border-red-200" /> Units left shelves without POS record
+                    </span>
+                    <span className="flex items-center gap-1.5">
+                      <span className="w-3 h-3 rounded bg-amber-100 border border-amber-200" /> Sold more than stock on hand allowed
                     </span>
                     <span className="flex items-center gap-1.5">
                       <span className="w-3 h-3 rounded bg-white border border-gray-200" /> Stock movement matches POS
