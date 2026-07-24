@@ -12,6 +12,7 @@ import { Receipt, Plus, Trash2, Filter, CloudOff, Users, Paperclip } from "lucid
 import { EXPENSE_CATEGORIES, INVENTORY_EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
 import { insertOrQueue } from "@/lib/offline-ops";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
+import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
@@ -20,6 +21,7 @@ export default function ExpensesPage() {
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
   const [queuedNote, setQueuedNote] = useState<string | null>(null);
+  const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
 
   // Owner-only: per-cashier expense breakdown for the selected dates/branch.
   interface CashierRow { userId: string | null; name: string; email: string | null; total: number; count: number }
@@ -306,13 +308,23 @@ export default function ExpensesPage() {
                   )}
                 </div>
                 <p className="font-medium text-gray-900 mt-1">{exp.description || exp.category}</p>
-                <p className="text-xs text-gray-500 flex items-center gap-1">
+                <p className="text-xs text-gray-500">
                   {formatDate(exp.expense_date)} · Recorded by {exp.recorded_by || "Unknown"}
-                  {exp.receipt_path && <Paperclip className="w-3 h-3 text-gray-400 ml-1" />}
                 </p>
               </div>
               <div className="flex items-center gap-3">
                 <p className="text-lg font-bold text-gray-900">{formatZAR(exp.amount)}</p>
+                {exp.receipt_path && (
+                  <Tooltip label="View receipt">
+                    <button
+                      onClick={() => setViewingReceipt(exp.receipt_path)}
+                      aria-label="View receipt"
+                      className="p-1.5 text-gray-400 hover:text-green-600 rounded"
+                    >
+                      <Paperclip className="w-4 h-4" />
+                    </button>
+                  </Tooltip>
+                )}
                 <Tooltip label="Delete expense">
                   <button
                     onClick={() => handleDelete(exp.id)}
@@ -411,6 +423,8 @@ export default function ExpensesPage() {
           </div>
         </div>
       </Modal>
+
+      <ReceiptViewer path={viewingReceipt} onClose={() => setViewingReceipt(null)} />
     </div>
   );
 }

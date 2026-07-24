@@ -11,6 +11,7 @@ import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat } 
 import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
+import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 
 interface ReceiptLine {
   id: string;
@@ -53,6 +54,7 @@ export default function ReceiveStockPage() {
   const [paidBy, setPaidBy] = useState<"cash" | "account" | "electronic">("cash");
   const [receiptPath, setReceiptPath] = useState<string | null>(null);
   const [preparedFood, setPreparedFood] = useState(false);
+  const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -552,17 +554,31 @@ export default function ReceiveStockPage() {
               <div key={r.id} className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{r.supplier || "No supplier"}</p>
-                  <p className="text-sm text-gray-500 flex items-center gap-1">
+                  <p className="text-sm text-gray-500">
                     {formatDate(r.receipt_date)} · Recorded by {r.recorded_by || "Unknown"}
-                    {r.receipt_path && <Paperclip className="w-3 h-3 text-gray-400 ml-1" />}
                   </p>
                 </div>
-                <p className="text-lg font-bold text-gray-900">{formatZAR(r.total_cost)}</p>
+                <div className="flex items-center gap-3">
+                  <p className="text-lg font-bold text-gray-900">{formatZAR(r.total_cost)}</p>
+                  {r.receipt_path && (
+                    <Tooltip label="View receipt">
+                      <button
+                        onClick={() => setViewingReceipt(r.receipt_path)}
+                        aria-label="View receipt"
+                        className="p-1.5 text-gray-400 hover:text-green-600 rounded"
+                      >
+                        <Paperclip className="w-4 h-4" />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
               </div>
             ))
           )}
         </div>
       )}
+
+      <ReceiptViewer path={viewingReceipt} onClose={() => setViewingReceipt(null)} />
     </div>
   );
 }
