@@ -15,6 +15,30 @@ read it before running anything that writes to the database.
 - `next build` / `next dev` can be unreliable in constrained sandboxes (SIGBUS); rely on
   `tsc` + `eslint` locally and let Vercel build the PR.
 
+## Deployment
+
+Production is `https://tilify.mkglobal.co.za`, served by the Vercel project
+**`tilify-jimmy`** (account `mumba-kunda-s-projects`). That mapping is recorded only in
+the gitignored `.vercel/repo.json`, so it is invisible from a fresh clone — hence this
+note. A second project, `tuck-shop`, also built this repo and was deleted 2026-07-24;
+it held no custom domain, but it *did* deploy `vercel.json`, so the
+`/api/cron/daily-reports` cron was firing twice each morning until then.
+
+**"It's pushed but the site is unchanged" is usually a missing deploy, not stale cache.**
+Vercel silently produced no build for one commit (`ea26e89`) — no deployment record, no
+commit status, no check run — while every neighbouring commit deployed within a minute.
+Check before touching code, and note that an empty commit re-fires the webhook:
+
+```
+gh api repos/mumbak2-cell/tuck-shop/deployments --jq '.[0:3][] | "\(.sha[0:7])  \(.created_at)  \(.environment)"'
+```
+
+**The Vercel CLI's `--non-interactive` does not suppress every prompt.**
+`vercel project remove` still asked "Are you sure?", took EOF as `N`, deleted nothing —
+and **exited 0**. Never read a zero exit from that CLI as proof the action happened; the
+`--yes` flag does not exist on that subcommand. Pipe the answer (`printf 'y\n' | …`) and
+verify the result independently.
+
 ## Local dev server — check this BEFORE debugging "my changes aren't showing"
 
 **This project is `C:\26June\Dev\tilify`.** A stale duplicate checkout exists at
