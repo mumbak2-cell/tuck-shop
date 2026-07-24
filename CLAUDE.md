@@ -71,6 +71,17 @@ hung, with `localhost:3000` timing out entirely.
 - **Sales snapshot price.** `sales.unit_price` and `sales.cost_price` are captured at
   sale time (via `submit_sale_batch`), so reporting must read those, never recompute
   revenue from `products.selling_price`.
+- **`REVOKE … FROM PUBLIC` does not lock down a function on Supabase.** Supabase's
+  default privileges grant EXECUTE on every new function to `anon`, `authenticated` and
+  `service_role` **by name**. `PUBLIC` is a different grantee, so revoking it leaves all
+  three untouched. Migration 040 revoked `PUBLIC` from twelve SECURITY DEFINER functions
+  and reads as though it closed them; verified 2026-07-24, every one still shows
+  `anon=X`. Closing a function properly means `REVOKE EXECUTE … FROM anon` explicitly.
+  **What actually protects these is the in-function guard, not the grant** — they call
+  `assert_org_writable()`, which resolves the caller through `auth.uid()` and so rejects
+  an anonymous caller before touching data. Never drop that guard on the assumption the
+  grant covers it. Check an ACL with:
+  `SELECT proname, array_to_string(proacl,' ') FROM pg_proc WHERE proname = '…';`
 - **PostgREST `.upsert({ onConflict })` cannot target a PARTIAL unique index.** It can't
   emit the index's `WHERE` predicate, so Postgres raises `42P10` — and if the error is
   destructured away (`const { data } = await …`), the write silently no-ops.
