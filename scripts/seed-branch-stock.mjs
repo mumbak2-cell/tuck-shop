@@ -44,11 +44,14 @@ const flag = (name) => {
 };
 const orgName = flag("org");
 const branchName = flag("branch");
-const qty = Number(flag("qty"));
+// Keep the raw value: Number(null) is 0, so a MISSING --qty would otherwise
+// pass every check below and quietly set the whole branch to zero.
+const qtyRaw = flag("qty");
+const qty = Number(qtyRaw);
 const apply = args.includes("--apply");
 const includeDiscontinued = args.includes("--include-discontinued");
 
-if (!orgName || !branchName || !Number.isInteger(qty) || qty < 0) {
+if (!orgName || !branchName || qtyRaw === null || !Number.isInteger(qty) || qty < 0) {
   console.error('Usage: --org "<shop>" --branch "<branch>" --qty <n> [--apply] [--include-discontinued]');
   process.exit(1);
 }

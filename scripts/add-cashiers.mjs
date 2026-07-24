@@ -134,6 +134,20 @@ async function main() {
   const members = memberRows || [];
 
   const { byEmail, byId } = await loadAuthUsers();
+
+  // The admin API intermittently returns an empty or short page with no error.
+  // Every check below reads from these maps, so a partial list would let the
+  // "already on this team" and one-org-per-user guards pass silently and turn
+  // the promised validate-then-write into per-row failures at write time.
+  // Existing members are the one set we know must be present.
+  const unresolved = members.filter((m) => !byId.has(m.user_id));
+  if (unresolved.length) {
+    throw new Error(
+      `Auth user list came back incomplete: ${byId.size} users returned, but ${unresolved.length} of ` +
+        `${members.length} existing members are missing from it. Re-run — this is transient.`
+    );
+  }
+
   const existingEmails = new Set(members.map((m) => (byId.get(m.user_id) || "").toLowerCase()));
 
   // Current per-branch PINs. login() in auth-context checks the admin PIN
@@ -320,15 +334,27 @@ async function main() {
       continue;
     }
 
-    credentials.push({ email: p.email, name: p.name, branch: p.branch, pin: p.cashierPin, password });
+    credentials.push({
+      email: p.email,
+      name: p.name,
+      branch: p.branch,
+      locationId: p.locationId,
+      pin: p.cashierPin,
+      password,
+    });
     console.log(`  OK      ${p.email} -> ${p.branch}`);
   }
 
   // --- Branch PINs. Separate from the accounts above: the PIN gates the till
   // at that location for everyone who signs in there, so it is set once per
   // branch regardless of how many logins were created for it.
+  //
+  // Built from the accounts that actually succeeded, not from `planned`: a
+  // branch whose every login failed must keep its current PIN. Changing it
+  // anyway would lock that branch's existing staff out of a till in exchange
+  // for an account that does not exist.
   const pinByLocation = new Map();
-  for (const p of planned) if (p.cashierPin) pinByLocation.set(p.locationId, p.cashierPin);
+  for (const c of credentials) if (c.pin) pinByLocation.set(c.locationId, c.pin);
 
   for (const [locationId, pin] of pinByLocation) {
     const { error } = await supabase.from("location_settings").upsert(
