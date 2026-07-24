@@ -8,9 +8,10 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
-import { Receipt, Plus, Trash2, Filter, CloudOff, Users } from "lucide-react";
+import { Receipt, Plus, Trash2, Filter, CloudOff, Users, Paperclip } from "lucide-react";
 import { EXPENSE_CATEGORIES, INVENTORY_EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
 import { insertOrQueue } from "@/lib/offline-ops";
+import { ReceiptUpload } from "@/components/ui/receipt-upload";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
@@ -40,6 +41,7 @@ export default function ExpensesPage() {
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formDirectorName, setFormDirectorName] = useState("");
+  const [formReceiptPath, setFormReceiptPath] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
@@ -121,6 +123,7 @@ export default function ExpensesPage() {
         director_name: formCategory === "Director Withdrawal" ? formDirectorName || null : null,
         recorded_by: name,
         location_id: currentLocationId,
+        receipt_path: formReceiptPath,
       } as { id?: string } & Record<string, unknown>,
     });
 
@@ -152,6 +155,7 @@ export default function ExpensesPage() {
     setFormDescription("");
     setFormAmount("");
     setFormDirectorName("");
+    setFormReceiptPath(null);
   }
 
   const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -302,8 +306,9 @@ export default function ExpensesPage() {
                   )}
                 </div>
                 <p className="font-medium text-gray-900 mt-1">{exp.description || exp.category}</p>
-                <p className="text-xs text-gray-500">
+                <p className="text-xs text-gray-500 flex items-center gap-1">
                   {formatDate(exp.expense_date)} · Recorded by {exp.recorded_by || "Unknown"}
+                  {exp.receipt_path && <Paperclip className="w-3 h-3 text-gray-400 ml-1" />}
                 </p>
               </div>
               <div className="flex items-center gap-3">
@@ -391,6 +396,10 @@ export default function ExpensesPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
           </div>
+
+          {orgId && (
+            <ReceiptUpload orgId={orgId} value={formReceiptPath} onUploaded={setFormReceiptPath} />
+          )}
 
           <div className="flex gap-3 pt-2">
             <Button variant="secondary" onClick={() => { setShowAdd(false); resetForm(); }} className="flex-1">
