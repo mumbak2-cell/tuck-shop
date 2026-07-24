@@ -60,7 +60,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **056**.
+number, never reuse a prefix. Latest applied: **057**.
 
 ## Billing (Paystack subscriptions)
 
@@ -164,6 +164,35 @@ writes that expense automatically beside its `stock_receipts` row, so it is a du
 a hand-typed ingredient has no such row and the money really did leave the till. P&L is
 accrual, Cash spent is cash basis — **do not "unify" the two lists.** Both call sites
 carry this warning.
+
+## Receipt attachments (Supabase Storage)
+
+Migration **057** introduces Tilify's first use of Supabase Storage. A private
+`receipts` bucket stores PDF/image attachments for expenses and stock receipts,
+scoped by org via RLS on `storage.objects` (policies match
+`(storage.foldername(name))[1]` against `current_user_org_ids()`).
+
+- **`expenses.receipt_path`** and **`stock_receipts.receipt_path`** — nullable TEXT
+  columns holding the storage path (`{orgId}/{uuid}.{ext}`). The app stores the
+  path on insert; files are accessed via signed URLs (private bucket).
+- **`ReceiptUpload`** (`src/components/ui/receipt-upload.tsx`) — reusable component
+  used in both the Record Expense modal and the Receive Stock form. Accepts PDF,
+  JPEG, PNG, WebP up to 5 MB. Shows a dashed upload area, switches to a file-name
+  chip after upload, and cleans up storage on removal.
+- **`current_user_org_ids()` returns `SETOF UUID`**, not an array — use it with
+  `IN (SELECT current_user_org_ids())`, never with `unnest()`.
+
+## Prepared-food stock toggle
+
+Receive Stock has a **"Prepared food?"** toggle button. When active:
+
+- `total_cost` is saved as 0 on the receipt (ingredient costs are already captured).
+- The "How was this paid?" section and "Also record as Stock Purchases expense"
+  checkbox are hidden — no expense entry is created.
+- The save button shows "Save Receipt" without a cost amount.
+
+This prevents double-counting: prepared items' costs flow through ingredient
+purchases and COGS via the recipe costing system (see Recipe costing above).
 
 ## Multi-location model
 
