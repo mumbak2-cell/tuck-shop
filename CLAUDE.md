@@ -62,6 +62,24 @@ Applied by hand (SQL Editor or the Management API query endpoint), **then** reco
 History is baselined, so never `db push` without repairing first. One migration per
 number, never reuse a prefix. Latest applied: **057**.
 
+**The SQL Editor runs a whole script as ONE transaction.** If any statement fails,
+*everything before it rolls back* — including `ALTER TABLE`s that appeared to succeed.
+Do not then re-run "just the failing part": the earlier statements are gone. Re-run the
+whole script from the top, which means **migrations must be idempotent**
+(`ADD COLUMN IF NOT EXISTS`, `DROP POLICY IF EXISTS` before `CREATE POLICY`,
+`ON CONFLICT DO NOTHING`). 057 was not, and a rolled-back failure left production with
+its storage policies but neither `receipt_path` column nor the bucket — while
+`migration repair` had already recorded 057 as applied, so the history said otherwise.
+
+**Verify DDL landed before repairing**, and fold the checks into ONE result set — the
+SQL Editor only displays the *last* statement's output, so a multi-query verification
+silently hides the first checks:
+`SELECT 'column: ' || table_name FROM information_schema.columns WHERE … UNION ALL SELECT …`
+
+**A missing column surfaces as a useless error.** PostgREST returns `PGRST204` as a plain
+object, not an `Error`, so `err instanceof Error ? err.message : "Unknown error"` prints
+**"Unknown error"** and hides the cause. Read `.message` off the object in catch blocks.
+
 ## Billing (Paystack subscriptions)
 
 All Tilify subscriptions bill in **ZAR via Paystack**, whatever the operator's POS

@@ -4,10 +4,10 @@
 
 -- 1. Add attachment columns
 ALTER TABLE expenses
-  ADD COLUMN receipt_path TEXT;
+  ADD COLUMN IF NOT EXISTS receipt_path TEXT;
 
 ALTER TABLE stock_receipts
-  ADD COLUMN receipt_path TEXT;
+  ADD COLUMN IF NOT EXISTS receipt_path TEXT;
 
 -- 2. Create the storage bucket (private — signed URLs only)
 INSERT INTO storage.buckets (id, name, public)
@@ -15,6 +15,13 @@ VALUES ('receipts', 'receipts', false)
 ON CONFLICT (id) DO NOTHING;
 
 -- 3. Storage RLS policies
+-- Dropped first so a partial failure can be re-run cleanly: the SQL Editor
+-- runs a script as one transaction, so an error here rolls back the ALTERs
+-- above and the script must be safe to replay from the top.
+DROP POLICY IF EXISTS "Users can upload receipts to their org folder" ON storage.objects;
+DROP POLICY IF EXISTS "Users can read receipts from their org folder" ON storage.objects;
+DROP POLICY IF EXISTS "Users can delete receipts from their org folder" ON storage.objects;
+
 -- Uploads: authenticated users can upload under their org's folder
 CREATE POLICY "Users can upload receipts to their org folder"
 ON storage.objects FOR INSERT TO authenticated
