@@ -245,6 +245,23 @@ export interface StockReceipt {
   created_at: string;
 }
 
+/**
+ * A deduction that asked for more stock than the location held (migration 058).
+ * Written only by `deduct_stock_at_location`; never insert from the app.
+ * `source` separates a till oversell from a write-off that exceeded stock —
+ * they read the same in the data but mean different things.
+ */
+export interface StockOversell {
+  id: string;
+  product_id: string;
+  location_id: string;
+  source: "sale" | "adjustment";
+  requested: number;
+  available: number;
+  shortfall: number;
+  occurred_at: string;
+}
+
 export interface StockReceiptItem {
   id: string;
   receipt_id: string;

@@ -13,6 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncate";
 import { Avatar } from "@/components/ui/timeline";
+import type { StockOversell } from "@/types/database";
 
 interface CountOption {
   key: string;
@@ -45,6 +46,17 @@ interface AssuranceRow {
   missingRevenue: number;
 }
 
+/** A shortfall recorded by deduct_stock_at_location as it happened. */
+interface OversellEvent {
+  id: string;
+  productName: string;
+  source: "sale" | "adjustment";
+  requested: number;
+  available: number;
+  shortfall: number;
+  occurredAt: string;
+}
+
 interface RANote {
   id: string;
   product_id: string;
@@ -68,6 +80,7 @@ export default function RevenueAssurancePage() {
   const [filterMode, setFilterMode] = useState<"all" | "discrepancies">("discrepancies");
 
   const [countOptions, setCountOptions] = useState<CountOption[]>([]);
+  const [oversellEvents, setOversellEvents] = useState<OversellEvent[]>([]);
   const [openingIdx, setOpeningIdx] = useState<number>(-1);
   const [closingIdx, setClosingIdx] = useState<number>(-1);
   const [loadingOptions, setLoadingOptions] = useState(true);
@@ -327,6 +340,41 @@ export default function RevenueAssurancePage() {
 
     assuranceRows.sort((a, b) => b.missingRevenue - a.missingRevenue);
     setRows(assuranceRows);
+
+    // Shortfalls recorded at the moment of the deduction (migration 058), over
+    // the same window as the sales above. Deliberately kept separate from the
+    // inferred column: that one nets every movement between two counts and can
+    // only ever say a product ended up short, while these carry a timestamp and
+    // survive a later delivery masking them. Empty for any period before 058.
+    let events: OversellEvent[] = [];
+    if (openingTimestamp && closingTimestamp) {
+      let oq = db
+        .from("stock_oversells")
+        .select("id, product_id, source, requested, available, shortfall, occurred_at")
+        .gte("occurred_at", openingTimestamp)
+        .lte("occurred_at", closingTimestamp)
+        .order("occurred_at", { ascending: false });
+      if (isFiltered) oq = oq.eq("location_id", effectiveLoc);
+      const { data: ovs, error: ovErr } = await oq;
+      // Pre-058 databases have no such table. Degrade to the inference rather
+      // than failing the whole page.
+      if (!ovErr) {
+        // Cast to the selected columns rather than the whole row — location_id
+        // is filtered on but not fetched.
+        type Row = Omit<StockOversell, "location_id">;
+        events = ((ovs || []) as Row[]).map((o) => ({
+          id: o.id,
+          productName: prodMap.get(o.product_id)?.name || "Unknown product",
+          source: o.source,
+          requested: o.requested,
+          available: o.available,
+          shortfall: o.shortfall,
+          occurredAt: o.occurred_at,
+        }));
+      }
+    }
+    setOversellEvents(events);
+
     setLoading(false);
   }
 
@@ -771,6 +819,45 @@ export default function RevenueAssurancePage() {
                   </table>
                 </div>
               </div>
+
+              {/* Recorded shortfalls. Only rendered when there are some: an empty
+                  panel would read as "no problems" when it actually means "no
+                  data yet", since nothing before migration 058 was captured. The
+                  inferred column above remains the answer for historic periods. */}
+              {oversellEvents.length > 0 && (
+                <div className="mt-6 bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <div className="px-5 py-3 border-b border-gray-200 bg-gray-50">
+                    <h3 className="text-sm font-semibold text-gray-900">
+                      Recorded shortfalls ({oversellEvents.length})
+                    </h3>
+                    <p className="text-xs text-gray-500 mt-0.5">
+                      Captured as each deduction happened, so these survive a later delivery
+                      masking them in the totals above.
+                    </p>
+                  </div>
+                  <div className="divide-y divide-gray-100 max-h-80 overflow-y-auto">
+                    {oversellEvents.map((e) => (
+                      <div key={e.id} className="flex items-center justify-between gap-3 px-5 py-2.5">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">{e.productName}</p>
+                          <p className="text-xs text-gray-500">
+                            {new Date(e.occurredAt).toLocaleString()}
+                            {e.source === "adjustment" && (
+                              <span className="ml-2 text-gray-400">· write-off, not a sale</span>
+                            )}
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-semibold text-amber-700">{e.shortfall} short</p>
+                          <p className="text-xs text-gray-500 tabular-nums">
+                            wanted {e.requested}, had {e.available}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Legend and the method explanation are read once and then never
                   again, so they're collapsed by default rather than sitting under

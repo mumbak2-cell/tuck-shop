@@ -163,6 +163,10 @@ export default function StockAdjustmentsPage() {
         p_product_id: selectedProduct,
         p_quantity: qty,
         p_location_id: formLocationId,
+        // Tagged so a write-off that exceeded stock on hand is not reported
+        // as a till oversell — both are recorded, they just mean different
+        // things (migration 058).
+        p_source: "adjustment",
       });
       if (rpcErr) console.error(rpcErr);
     } else {
