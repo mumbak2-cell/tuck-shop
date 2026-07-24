@@ -210,7 +210,13 @@ export default function ReceiveStockPage() {
         }
       }
 
-      // 4. Optionally create expense entry (never for prepared food)
+      // 4. Optionally create expense entry (never for prepared food).
+      // The receipt path is copied across so the delivery's paperwork is
+      // reachable from Expenses too, not only from this page's History —
+      // looking for it under Expenses and not finding it invites recording
+      // the same delivery a second time. Both rows then reference one object,
+      // which is why deleting either goes through
+      // deleteReceiptIfUnreferenced() rather than removing the file outright.
       if (!preparedFood && createExpense && totalCost > 0) {
         await db.from("expenses").insert({
           expense_date: new Date().toISOString().split("T")[0],
@@ -218,6 +224,7 @@ export default function ReceiveStockPage() {
           description: supplier ? `Stock delivery from ${supplier}` : "Stock delivery",
           amount: totalCost,
           recorded_by: name,
+          ...(receiptPath ? { receipt_path: receiptPath } : {}),
         });
       }
 

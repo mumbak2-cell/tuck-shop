@@ -13,6 +13,7 @@ import { EXPENSE_CATEGORIES, INVENTORY_EXPENSE_CATEGORIES, type Expense, type Ex
 import { insertOrQueue } from "@/lib/offline-ops";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
+import { deleteReceiptIfUnreferenced, discardUnsavedReceipt } from "@/lib/receipt-storage";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
@@ -145,10 +146,21 @@ export default function ExpensesPage() {
     loadExpenses();
   }
 
-  async function handleDelete(id: string) {
+  async function handleDelete(id: string, receiptPath: string | null) {
     if (!confirm("Delete this expense entry?")) return;
     await db.from("expenses").delete().eq("id", id);
+    // After the row is gone, drop its receipt unless something else still
+    // needs it — a delivery and its auto-created expense share one file.
+    if (receiptPath) await deleteReceiptIfUnreferenced(receiptPath);
     loadExpenses();
+  }
+
+  async function handleCancel() {
+    // The file uploads as soon as it is picked, so abandoning the form would
+    // leave an object no row references.
+    if (formReceiptPath) await discardUnsavedReceipt(formReceiptPath);
+    setShowAdd(false);
+    resetForm();
   }
 
   function resetForm() {
@@ -327,7 +339,7 @@ export default function ExpensesPage() {
                 )}
                 <Tooltip label="Delete expense">
                   <button
-                    onClick={() => handleDelete(exp.id)}
+                    onClick={() => handleDelete(exp.id, exp.receipt_path)}
                     aria-label="Delete expense"
                     className="p-1.5 text-gray-400 hover:text-red-600 rounded"
                   >
@@ -341,7 +353,7 @@ export default function ExpensesPage() {
       )}
 
       {/* Add Expense Modal */}
-      <Modal open={showAdd} onClose={() => { setShowAdd(false); resetForm(); }} title="Record Expense">
+      <Modal open={showAdd} onClose={handleCancel} title="Record Expense">
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
@@ -414,7 +426,7 @@ export default function ExpensesPage() {
           )}
 
           <div className="flex gap-3 pt-2">
-            <Button variant="secondary" onClick={() => { setShowAdd(false); resetForm(); }} className="flex-1">
+            <Button variant="secondary" onClick={handleCancel} className="flex-1">
               Cancel
             </Button>
             <Button onClick={handleSave} loading={saving} disabled={!formAmount || parseFloat(formAmount) <= 0} className="flex-1">
