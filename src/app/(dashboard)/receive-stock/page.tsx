@@ -7,9 +7,10 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
-import { PackagePlus, Plus, Trash2, Search, Save, History } from "lucide-react";
+import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
+import { ReceiptUpload } from "@/components/ui/receipt-upload";
 
 interface ReceiptLine {
   id: string;
@@ -28,12 +29,13 @@ interface PastReceipt {
   supplier: string | null;
   total_cost: number;
   recorded_by: string | null;
+  receipt_path: string | null;
   created_at: string;
 }
 
 export default function ReceiveStockPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName, orgId } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [lines, setLines] = useState<ReceiptLine[]>([]);
@@ -49,6 +51,8 @@ export default function ReceiveStockPage() {
   // How the delivery was paid for. Drives the cash-spent report: stock bought
   // on account leaves the bank later, so it must not count as cash out today.
   const [paidBy, setPaidBy] = useState<"cash" | "account" | "electronic">("cash");
+  const [receiptPath, setReceiptPath] = useState<string | null>(null);
+  const [preparedFood, setPreparedFood] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -109,7 +113,9 @@ export default function ReceiveStockPage() {
     setLines(lines.filter((l) => l.id !== id));
   }
 
-  const totalCost = lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+  const totalCost = preparedFood
+    ? 0
+    : lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
 
   async function handleSave() {
     if (lines.length === 0) return;
@@ -127,6 +133,7 @@ export default function ReceiveStockPage() {
           total_cost: totalCost,
           recorded_by: name,
           paid_by: paidBy,
+          receipt_path: receiptPath,
         })
         .select()
         .single();
@@ -199,8 +206,8 @@ export default function ReceiveStockPage() {
         }
       }
 
-      // 4. Optionally create expense entry
-      if (createExpense && totalCost > 0) {
+      // 4. Optionally create expense entry (never for prepared food)
+      if (!preparedFood && createExpense && totalCost > 0) {
         await db.from("expenses").insert({
           expense_date: new Date().toISOString().split("T")[0],
           category: "Stock Purchases",
@@ -214,6 +221,8 @@ export default function ReceiveStockPage() {
       setLines([]);
       setSupplier("");
       setNotes("");
+      setReceiptPath(null);
+      setPreparedFood(false);
       loadData();
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -283,6 +292,25 @@ export default function ReceiveStockPage() {
               />
             </div>
           </div>
+
+          {/* Prepared food toggle */}
+          <button
+            type="button"
+            onClick={() => setPreparedFood(!preparedFood)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors w-fit ${
+              preparedFood
+                ? "border-amber-500 bg-amber-50 text-amber-700"
+                : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+            }`}
+          >
+            <ChefHat className="w-4 h-4" />
+            {preparedFood ? "Prepared food — no cost or expense" : "Prepared food?"}
+          </button>
+
+          {/* Attach receipt */}
+          {orgId && (
+            <ReceiptUpload orgId={orgId} value={receiptPath} onUploaded={setReceiptPath} />
+          )}
 
           {/* Add item button */}
           <div>
@@ -449,48 +477,53 @@ export default function ReceiveStockPage() {
           {/* Options */}
           {lines.length > 0 && (
             <div className="space-y-4">
-              <div>
-                <p className="text-sm font-medium text-gray-700 mb-2">How was this paid?</p>
-                <div className="flex flex-wrap gap-2">
-                  {([
-                    { key: "cash", label: "Cash" },
-                    { key: "account", label: "On account" },
-                    { key: "electronic", label: "EFT / card" },
-                  ] as const).map((opt) => (
-                    <button
-                      key={opt.key}
-                      type="button"
-                      onClick={() => setPaidBy(opt.key)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
-                        paidBy === opt.key
-                          ? "border-green-500 bg-green-50 text-green-700"
-                          : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-                      }`}
-                    >
-                      {opt.label}
-                    </button>
-                  ))}
-                </div>
-                <p className="text-xs text-gray-500 mt-2">
-                  {paidBy === "account"
-                    ? "Counted as cash spent on the day you pay the supplier, not today."
-                    : "Counted as money out today on the Cash spent report."}
-                </p>
-              </div>
+              {!preparedFood && (
+                <>
+                  <div>
+                    <p className="text-sm font-medium text-gray-700 mb-2">How was this paid?</p>
+                    <div className="flex flex-wrap gap-2">
+                      {([
+                        { key: "cash", label: "Cash" },
+                        { key: "account", label: "On account" },
+                        { key: "electronic", label: "EFT / card" },
+                      ] as const).map((opt) => (
+                        <button
+                          key={opt.key}
+                          type="button"
+                          onClick={() => setPaidBy(opt.key)}
+                          className={`px-4 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                            paidBy === opt.key
+                              ? "border-green-500 bg-green-50 text-green-700"
+                              : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+                          }`}
+                        >
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-gray-500 mt-2">
+                      {paidBy === "account"
+                        ? "Counted as cash spent on the day you pay the supplier, not today."
+                        : "Counted as money out today on the Cash spent report."}
+                    </p>
+                  </div>
 
-              <div className="flex items-center justify-between gap-3 flex-wrap">
-                <label className="flex items-center gap-2 text-sm text-gray-700">
-                  <input
-                    type="checkbox"
-                    checked={createExpense}
-                    onChange={(e) => setCreateExpense(e.target.checked)}
-                    className="rounded border-gray-300 text-green-600 focus:ring-green-500"
-                  />
-                  Also record as &quot;Stock Purchases&quot; expense
-                </label>
+                  <label className="flex items-center gap-2 text-sm text-gray-700">
+                    <input
+                      type="checkbox"
+                      checked={createExpense}
+                      onChange={(e) => setCreateExpense(e.target.checked)}
+                      className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                    />
+                    Also record as &quot;Stock Purchases&quot; expense
+                  </label>
+                </>
+              )}
+
+              <div className="flex items-center justify-end gap-3">
                 <Button onClick={handleSave} loading={saving} disabled={lines.length === 0}>
                   <Save className="w-4 h-4 mr-2" />
-                  Save Receipt — {formatZAR(totalCost)}
+                  Save Receipt{preparedFood ? "" : ` — ${formatZAR(totalCost)}`}
                 </Button>
               </div>
             </div>
@@ -516,7 +549,10 @@ export default function ReceiveStockPage() {
               <div key={r.id} className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between">
                 <div>
                   <p className="font-medium text-gray-900">{r.supplier || "No supplier"}</p>
-                  <p className="text-sm text-gray-500">{formatDate(r.receipt_date)} · Recorded by {r.recorded_by || "Unknown"}</p>
+                  <p className="text-sm text-gray-500 flex items-center gap-1">
+                    {formatDate(r.receipt_date)} · Recorded by {r.recorded_by || "Unknown"}
+                    {r.receipt_path && <Paperclip className="w-3 h-3 text-gray-400 ml-1" />}
+                  </p>
                 </div>
                 <p className="text-lg font-bold text-gray-900">{formatZAR(r.total_cost)}</p>
               </div>

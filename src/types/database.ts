@@ -200,6 +200,7 @@ export interface Expense {
   amount: number;
   director_name: string | null;
   recorded_by: string | null;
+  receipt_path: string | null;
   created_at: string;
 }
 
@@ -240,6 +241,7 @@ export interface StockReceipt {
   notes: string | null;
   total_cost: number;
   recorded_by: string | null;
+  receipt_path: string | null;
   created_at: string;
 }
 
