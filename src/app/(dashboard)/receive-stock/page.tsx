@@ -126,6 +126,10 @@ export default function ReceiveStockPage() {
 
     try {
       // 1. Create receipt header
+      // location_id records WHICH branch received this delivery (migration 059).
+      // Step 3 below already puts the units at currentLocationId; without it on
+      // the header, Revenue Assurance cannot tell which branch was replenished
+      // and credits the delivery to every one of them.
       const headerRow: Record<string, unknown> = {
         receipt_date: new Date().toISOString().split("T")[0],
         supplier: supplier || null,
@@ -133,14 +137,29 @@ export default function ReceiveStockPage() {
         total_cost: totalCost,
         recorded_by: name,
         paid_by: paidBy,
+        location_id: currentLocationId,
       };
       if (receiptPath) headerRow.receipt_path = receiptPath;
 
-      const { data: receipt, error: hErr } = await db
+      let { data: receipt, error: hErr } = await db
         .from("stock_receipts")
         .insert(headerRow)
         .select()
         .single();
+
+      // Migration 059 is applied by hand while this code deploys on merge, so
+      // it can arrive first. PostgREST reports an unknown column as PGRST204 —
+      // a plain object, not an Error, so read .code off it directly. Degrade to
+      // an unattributed receipt (exactly the old behaviour) rather than failing
+      // the delivery; same shape as the add_product_stock fallback below.
+      if (hErr && (hErr as { code?: string }).code === "PGRST204") {
+        delete headerRow.location_id;
+        ({ data: receipt, error: hErr } = await db
+          .from("stock_receipts")
+          .insert(headerRow)
+          .select()
+          .single());
+      }
       if (hErr) throw hErr;
 
       // 2. Create receipt items

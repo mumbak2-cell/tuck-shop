@@ -264,8 +264,29 @@ export default function RevenueAssurancePage() {
     const dateTo = closingOption.date;
 
     const replenishMap = new Map<string, number>();
-    const { data: receipts } = await db.from("stock_receipts").select("id")
+    // Scope replenishment to the branch being reviewed. Counts, sales and
+    // oversells above are all location-filtered; before migration 059 this
+    // query could not be, so a delivery to one branch was credited to every
+    // branch and rendered as shrinkage at the ones that received nothing.
+    //
+    // A NULL location_id means "recorded before 059, branch unknown" and is
+    // still counted org-wide — dropping those rows would retroactively change
+    // historic figures rather than fix them.
+    const receiptsForRange = () => db.from("stock_receipts").select("id")
       .gte("receipt_date", dateFrom).lte("receipt_date", dateTo);
+
+    let rq = receiptsForRange();
+    if (isFiltered) rq = rq.or(`location_id.eq.${effectiveLoc},location_id.is.null`);
+
+    // Migration 059 is applied by hand while this code deploys on merge, so it
+    // can arrive second. Filtering on a column that does not exist yet errors,
+    // and this query's error was previously discarded — which would leave
+    // replenishment at zero and overstate shrinkage on every filtered view.
+    // Fall back to the org-wide read, i.e. exactly the pre-059 behaviour.
+    const filteredReceipts = await rq;
+    const receipts = filteredReceipts.error
+      ? (await receiptsForRange()).data
+      : filteredReceipts.data;
     const receiptIds = ((receipts || []) as any[]).map((r: any) => r.id);
     if (receiptIds.length > 0) {
       const { data: items } = await db.from("stock_receipt_items").select("product_id, quantity")
