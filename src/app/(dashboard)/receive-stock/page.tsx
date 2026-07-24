@@ -124,17 +124,19 @@ export default function ReceiveStockPage() {
 
     try {
       // 1. Create receipt header
+      const headerRow: Record<string, unknown> = {
+        receipt_date: new Date().toISOString().split("T")[0],
+        supplier: supplier || null,
+        notes: notes || null,
+        total_cost: totalCost,
+        recorded_by: name,
+        paid_by: paidBy,
+      };
+      if (receiptPath) headerRow.receipt_path = receiptPath;
+
       const { data: receipt, error: hErr } = await db
         .from("stock_receipts")
-        .insert({
-          receipt_date: new Date().toISOString().split("T")[0],
-          supplier: supplier || null,
-          notes: notes || null,
-          total_cost: totalCost,
-          recorded_by: name,
-          paid_by: paidBy,
-          receipt_path: receiptPath,
-        })
+        .insert(headerRow)
         .select()
         .single();
       if (hErr) throw hErr;
@@ -226,7 +228,8 @@ export default function ReceiveStockPage() {
       loadData();
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
-      alert("Error saving receipt: " + (err instanceof Error ? err.message : "Unknown error"));
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || "Unknown error";
+      alert("Error saving receipt: " + msg);
     } finally {
       setSaving(false);
     }
