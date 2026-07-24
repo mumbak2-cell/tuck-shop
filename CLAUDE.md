@@ -95,7 +95,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **057**.
+number, never reuse a prefix. Latest applied: **058**.
 
 **The SQL Editor runs a whole script as ONE transaction.** If any statement fails,
 *everything before it rolls back* — including `ALTER TABLE`s that appeared to succeed.
@@ -232,6 +232,26 @@ scoped by org via RLS on `storage.objects` (policies match
   used in both the Record Expense modal and the Receive Stock form. Accepts PDF,
   JPEG, PNG, WebP up to 5 MB. Shows a dashed upload area, switches to a file-name
   chip after upload, and cleans up storage on removal.
+- **`ReceiptViewer`** (`src/components/ui/receipt-viewer.tsx`) — opens an attachment
+  from the row's paperclip. The bucket is private, so each open mints a fresh
+  5-minute signed URL; there is no permanent link. The loaded URL is stored
+  alongside the path it belongs to and compared on render, so switching receipts
+  shows "Loading…" rather than briefly showing the previous one.
+- **A delivery's receipt is copied onto the "Stock Purchases" expense it
+  auto-creates**, so it opens from either screen. Not finding it under Expenses
+  invites recording the delivery twice — which inflates Total Outflows, though
+  profit is safe (the category is held out of operating expenses).
+- **One file therefore has two owners, so deletion is reference-counted.**
+  `deleteReceiptIfUnreferenced()` (`src/lib/receipt-storage.ts`) counts rows in both
+  tables *after* the row is gone and removes the object only when nothing points at
+  it. It bails if either count query errors — an orphan wastes a little storage,
+  deleting a referenced file destroys a receipt.
+- **Uploads happen on file-pick, before save**, so abandoning a form strands an
+  object. The expense modal discards it on cancel. **Known gap:** navigating away
+  from Receive Stock mid-entry still orphans one; the upload widget's X is the
+  clean exit. `scripts/cleanup-orphaned-receipts.mjs` reconciles the bucket
+  (dry-run by default, skips objects under an hour old so it cannot race an
+  in-flight upload).
 - **`current_user_org_ids()` returns `SETOF UUID`**, not an array — use it with
   `IN (SELECT current_user_org_ids())`, never with `unnest()`.
 
@@ -246,6 +266,70 @@ Receive Stock has a **"Prepared food?"** toggle button. When active:
 
 This prevents double-counting: prepared items' costs flow through ingredient
 purchases and COGS via the recipe costing system (see Recipe costing above).
+
+## Stock can't go negative — three different mechanisms
+
+Worth knowing which, because only one is a real guarantee:
+
+- **Sale (POS)** — `deduct_stock_at_location` clamps: `GREATEST(quantity - n, 0)`.
+- **Transfer** — checks availability and raises `Insufficient stock at source`.
+- **Warehouse (WMS)** — a true DB constraint, `wms_inventory_qty_nonneg` (043).
+
+`product_stock.quantity` is plain `INTEGER NOT NULL DEFAULT 0` with **no CHECK**, so
+shop stock is protected by application logic alone; a direct UPDATE could write -5.
+
+**The POS deliberately does not block overselling** (`pos/cart.tsx`: "stock warning,
+not a block") — a wrong count must not stop a real sale at the till. So the clamp is
+reached in normal trade, and **selling 10 against 6 leaves stock at 0 with the
+4-unit shortfall discarded.** Keep the clamp: negative stock would break assumptions
+the POS, reporting and reorder logic all rely on. What changed is that the number is
+now written down before being clamped away.
+
+**`stock_oversells` (migration 058)** records `requested` / `available` / `shortfall`
+at the moment of the deduction, because it is unrecoverable afterwards — once the
+quantity is 0 there is no telling "landed on zero" from "went four under".
+
+- **`deduct_stock_at_location` takes a 4th arg, `p_source` (`'sale'` | `'adjustment'`).**
+  Stock adjustments call the same RPC, so without it a breakage write-off that
+  exceeded stock would be reported as a till oversell. Adding it required dropping
+  the 3-arg form (a 3-arg call would otherwise be ambiguous) — **and that drop
+  silently restores `PUBLIC EXECUTE`**, so 058 re-applies 040's REVOKE/GRANT pair.
+  Any future redefinition must do the same.
+- **`SELECT … FOR UPDATE`** locks the row so concurrent tills cannot each
+  independently miss the shortfall.
+- **No write policy on the table** — only the SECURITY DEFINER function inserts, so a
+  client can neither fabricate an oversell nor delete an inconvenient one.
+
+## Revenue Assurance reports BOTH directions
+
+`unrecordedUnits` was `Math.max(unitsSold - recordedSales, 0)`, which reported only
+units leaving the shelf unrecorded. The reverse — more rung up than stock movement
+explains, i.e. exactly what an oversell produces — collapsed to 0 and **rendered as a
+green tick**. On live data that was 307 units across 18 of 34 products being
+certified as reconciled.
+
+Movement is now kept signed and split: `unrecordedUnits` and `oversoldUnits`, exactly
+one ever non-zero. Three places independently asserted "all clear" and all three had
+to change or the fix leaks — the row cell, the **discrepancies filter** (which would
+otherwise hide the very rows it exists to surface), and the **summary card**, which
+keyed its green off missing revenue, a figure an oversell never touches.
+
+- **Oversells get no rand figure.** The money came in; the stock figure was
+  understated. Putting a number in "missing revenue" would misstate it as a loss.
+- **Write-off stays gated on the unrecorded direction.** It decreases stock, which on
+  an oversold row deepens the error. Those rows get the comment button instead.
+- The recorded-shortfall panel renders **only when there are records** — an empty one
+  would read as "no problems" when it means "no data yet", since nothing before 058
+  was captured. The inferred column remains the answer for historic periods.
+
+## POS low-stock warning
+
+Tiles show an amber "N left" badge at **5 units or fewer** (`LOW_STOCK_AT` in
+`pos/product-grid.tsx`). The POS overwrites `opening_stock` with the current
+location's quantity before rendering, so this is the branch figure. It covers 5 down
+to 1 — the grid already filters to stock above zero, so at zero the item leaves the
+grid, which is its own signal. `products.reorder_level` exists and could drive a
+per-product threshold; a flat 5 was chosen deliberately.
 
 ## Multi-location model
 
