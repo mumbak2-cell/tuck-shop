@@ -227,6 +227,14 @@ export default function POSPage() {
     );
   }
 
+  // Set an exact quantity (typed in the cart) rather than stepping by ±1.
+  // Floors at 1 — removal is the trash button, not typing 0.
+  function setQty(productId: string, quantity: number) {
+    setCart((prev) =>
+      prev.map((i) => (i.productId === productId ? { ...i, quantity: Math.max(1, quantity) } : i))
+    );
+  }
+
   function removeItem(productId: string) {
     setCart((prev) => prev.filter((i) => i.productId !== productId));
   }
@@ -307,6 +315,7 @@ export default function POSPage() {
         <Cart
           items={cart}
           onUpdateQty={updateQty}
+          onSetQty={setQty}
           onRemove={removeItem}
           onClear={clearCart}
           onCheckout={handleCheckout}
@@ -346,6 +355,7 @@ export default function POSPage() {
               <Cart
                 items={cart}
                 onUpdateQty={updateQty}
+                onSetQty={setQty}
                 onRemove={removeItem}
                 onClear={clearCart}
                 onCheckout={() => { setMobileCartOpen(false); handleCheckout(); }}

@@ -17,12 +17,13 @@ export interface CartItem {
 interface Props {
   items: CartItem[];
   onUpdateQty: (productId: string, delta: number) => void;
+  onSetQty: (productId: string, quantity: number) => void;
   onRemove: (productId: string) => void;
   onClear: () => void;
   onCheckout: () => void;
 }
 
-export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Props) {
+export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onCheckout }: Props) {
   const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
@@ -86,7 +87,22 @@ export function Cart({ items, onUpdateQty, onRemove, onClear, onCheckout }: Prop
                   >
                     <Minus className="w-4 h-4" />
                   </button>
-                  <span className="w-8 text-center text-sm font-semibold" aria-live="polite">{item.quantity}</span>
+                  {/* Typeable so large quantities don't need N clicks. Blank/
+                      invalid input is ignored (so clearing to retype won't drop
+                      the line); use the trash button to remove. */}
+                  <input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={item.quantity}
+                    onChange={(e) => {
+                      const n = parseInt(e.target.value, 10);
+                      if (!isNaN(n) && n >= 1) onSetQty(item.productId, n);
+                    }}
+                    onFocus={(e) => e.target.select()}
+                    aria-label={`${item.name} quantity`}
+                    className="w-12 h-8 text-center text-sm font-semibold border border-gray-200 rounded-lg focus:border-green-500 focus:ring-1 focus:ring-green-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
                   <button
                     onClick={() => onUpdateQty(item.productId, 1)}
                     aria-label={`Increase ${item.name} quantity`}
