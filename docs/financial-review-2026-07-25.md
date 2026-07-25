@@ -200,11 +200,19 @@ code can be correct and still not match a jurisdiction's required presentation.
   a zero-rated line even in a VAT-registered org (bread, milk). The product-form
   checkbox and payload field appear **only when the org is VAT-registered**, so a
   non-VAT fleet never references the column regardless of deploy order.
-- **DEFERRED (needs a machine + one decision):** input VAT capture on `expenses`
-  and `stock_receipts` (UI + columns), whether COGS is carried ex-VAT, and the
-  netted VAT-return card (output − input). A half-done ex-VAT profit rewrite is
-  more misleading than today's all-inclusive view, so it was not attempted
-  blind. This is the next Phase 2 step.
+- **DONE — input VAT + VAT-return card (`migration 063`):** `expenses.tax_amount`
+  (single source — Receive Stock rides input VAT on the auto "Stock Purchases"
+  expense, never on `stock_receipts`, so no double-count). A "VAT included
+  (reclaimable)" checkbox on the Record Expense modal and Receive Stock
+  back-calculates input VAT at the org rate. The P&L VAT panel is now a **VAT
+  return**: Output VAT − Input VAT = Net VAT payable/(refundable), shown for any
+  VAT-registered org. Input-VAT read degrades to 0 if 063 isn't applied yet.
+  Apply 063 before the code goes live for a VAT-registered org (only VAT orgs
+  send the column).
+- **STILL DEFERRED (needs a decision):** whether COGS is carried ex-VAT for a
+  VAT-registered org — a VAT return does not need it, but gross profit is
+  slightly overstated while COGS includes reclaimable input VAT. Not attempted
+  blind.
 - **DONE — receipt VAT with mixed baskets:** `CartItem` now carries `zeroRated`
   (populated in POS `addToCart` from `products.zero_rated`), and `receipt.tsx`
   computes VAT from the taxable subtotal (`vatableTotal`), not a back-calc of the

@@ -36,7 +36,11 @@ interface PastReceipt {
 
 export default function ReceiveStockPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName, orgId } = useOrg();
+  const { currentLocationId, currentLocationName, orgId, vatPercent, preparesFood } = useOrg();
+  // Reclaimable input VAT is only captured for a VAT-registered org, onto the
+  // auto-created "Stock Purchases" expense (migration 063). Gated so a non-VAT
+  // fleet never sends the column.
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [lines, setLines] = useState<ReceiptLine[]>([]);
@@ -49,6 +53,7 @@ export default function ReceiveStockPage() {
   const [tab, setTab] = useState<"new" | "history">("new");
   const [history, setHistory] = useState<PastReceipt[]>([]);
   const [createExpense, setCreateExpense] = useState(true);
+  const [vatIncluded, setVatIncluded] = useState(false);
   // How the delivery was paid for. Drives the cash-spent report: stock bought
   // on account leaves the bank later, so it must not count as cash out today.
   const [paidBy, setPaidBy] = useState<"cash" | "account" | "electronic">("cash");
@@ -118,6 +123,14 @@ export default function ReceiveStockPage() {
   const totalCost = preparedFood
     ? 0
     : lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+
+  // Reclaimable input VAT contained in totalCost, when the delivery was billed
+  // with standard-rate VAT. Rides on the auto-created "Stock Purchases" expense.
+  const vatRate = vatPercent ?? 0;
+  const stockVat =
+    isVatRegistered && vatIncluded && vatRate > 0
+      ? Math.round((totalCost - totalCost / (1 + vatRate / 100)) * 100) / 100
+      : 0;
 
   async function handleSave() {
     if (lines.length === 0) return;
@@ -244,6 +257,7 @@ export default function ReceiveStockPage() {
           amount: totalCost,
           recorded_by: name,
           ...(receiptPath ? { receipt_path: receiptPath } : {}),
+          ...(isVatRegistered ? { tax_amount: stockVat } : {}),
         });
       }
 
@@ -253,6 +267,7 @@ export default function ReceiveStockPage() {
       setNotes("");
       setReceiptPath(null);
       setPreparedFood(false);
+      setVatIncluded(false);
       loadData();
       setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -324,19 +339,23 @@ export default function ReceiveStockPage() {
             </div>
           </div>
 
-          {/* Prepared food toggle */}
-          <button
-            type="button"
-            onClick={() => setPreparedFood(!preparedFood)}
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors w-fit ${
-              preparedFood
-                ? "border-amber-500 bg-amber-50 text-amber-700"
-                : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
-            }`}
-          >
-            <ChefHat className="w-4 h-4" />
-            {preparedFood ? "Prepared food — no cost or expense" : "Prepared food?"}
-          </button>
+          {/* Prepared food toggle — only for shops that prepare food (same
+              gate as Ingredients, recipes, and the product "prepared item" box).
+              A stationery or hardware shop never sees it. */}
+          {preparesFood && (
+            <button
+              type="button"
+              onClick={() => setPreparedFood(!preparedFood)}
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors w-fit ${
+                preparedFood
+                  ? "border-amber-500 bg-amber-50 text-amber-700"
+                  : "border-gray-200 bg-white text-gray-600 hover:border-gray-300"
+              }`}
+            >
+              <ChefHat className="w-4 h-4" />
+              {preparedFood ? "Prepared food — no cost or expense" : "Prepared food?"}
+            </button>
+          )}
 
           {/* Attach receipt */}
           {orgId && (
@@ -548,6 +567,23 @@ export default function ReceiveStockPage() {
                     />
                     Also record as &quot;Stock Purchases&quot; expense
                   </label>
+
+                  {isVatRegistered && createExpense && (
+                    <label className="flex items-start gap-2 text-sm text-gray-700">
+                      <input
+                        type="checkbox"
+                        checked={vatIncluded}
+                        onChange={(e) => setVatIncluded(e.target.checked)}
+                        className="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                      />
+                      <span>
+                        Cost includes {vatPercent}% VAT (reclaimable)
+                        {vatIncluded && stockVat > 0 && (
+                          <span className="text-gray-500"> — input VAT {formatZAR(stockVat)}</span>
+                        )}
+                      </span>
+                    </label>
+                  )}
                 </>
               )}
 

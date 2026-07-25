@@ -12,7 +12,8 @@ import { INVENTORY_EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/data
 type Period = "today" | "week" | "month" | "custom";
 
 export default function ProfitLossPage() {
-  const { role, assignedLocationId, currentLocationId, locations } = useOrg();
+  const { role, assignedLocationId, currentLocationId, locations, vatPercent } = useOrg();
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
   const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
@@ -40,6 +41,9 @@ export default function ProfitLossPage() {
   // is part of Total Revenue and owed to the tax authority — not profit. Read
   // only; it does not enter the profit calculation.
   const [outputVat, setOutputVat] = useState(0);
+  // Reclaimable input VAT paid on purchases in the period (expenses.tax_amount,
+  // migration 063). Net VAT = output − input is what the return settles.
+  const [inputVat, setInputVat] = useState(0);
   const [operatingExpenses, setOperatingExpenses] = useState(0);
   const [directorWithdrawals, setDirectorWithdrawals] = useState(0);
   // Buying stock is not an expense — it converts cash into inventory, and only
@@ -148,6 +152,25 @@ export default function ProfitLossPage() {
         .sort((a, b) => b.total - a.total)
     );
 
+    // 4. Input VAT — reclaimable VAT paid on purchases (expenses.tax_amount,
+    // migration 063), summed across ALL categories. Only for a VAT-registered
+    // org; the read degrades to 0 if the column is not present yet (the query
+    // rejects and .catch returns []), so a pre-063 deploy cannot break the page.
+    if (isVatRegistered) {
+      const vatRows = await fetchAllPaged<any>(() => {
+        let q = db
+          .from("expenses")
+          .select("tax_amount")
+          .gte("expense_date", from)
+          .lte("expense_date", to);
+        if (isFiltered) q = q.eq("location_id", effectiveLoc);
+        return q;
+      }).catch(() => []);
+      setInputVat((vatRows as any[]).reduce((s, r) => s + (Number(r.tax_amount) || 0), 0));
+    } else {
+      setInputVat(0);
+    }
+
     setLoading(false);
   }
 
@@ -241,22 +264,29 @@ export default function ProfitLossPage() {
             </div>
           </div>
 
-          {/* Output VAT — read-only. Only shows for VAT-registered orgs (those
-              with any VAT captured on sales). It is part of Total Revenue above
-              and owed to the tax authority, so it is deliberately NOT subtracted
-              from profit here — profit math is unchanged. */}
-          {outputVat > 0 && (
+          {/* VAT return — read-only, VAT-registered orgs only. Output VAT is
+              part of Total Revenue and owed out; input VAT is reclaimable; the
+              net is what the return settles. None of this touches profit. */}
+          {isVatRegistered && (
             <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
               <div className="px-5 py-3 bg-blue-50 border-b border-blue-100">
-                <h2 className="font-semibold text-blue-800">VAT</h2>
+                <h2 className="font-semibold text-blue-800">VAT return</h2>
               </div>
               <div className="divide-y divide-gray-100">
                 <PnLRow label="Revenue excl. VAT" amount={totalRevenue - outputVat} />
-                <PnLRow label="Output VAT collected" amount={outputVat} />
+                <PnLRow label="Output VAT collected (on sales)" amount={outputVat} />
+                <PnLRow label="Input VAT reclaimable (on purchases)" amount={inputVat} negative />
+                <PnLRow
+                  label={outputVat - inputVat >= 0 ? "Net VAT payable" : "Net VAT refundable"}
+                  amount={Math.abs(outputVat - inputVat)}
+                  bold
+                  highlight={outputVat - inputVat >= 0 ? "red" : "green"}
+                />
                 <div className="px-5 py-3 text-xs text-gray-500">
-                  Output VAT is already inside Total Revenue above and is owed to the tax authority —
-                  it is not profit, so it is not subtracted from the profit figures below. A full VAT
-                  return also needs input VAT on your purchases, which is the next step.
+                  Output VAT is inside Total Revenue and owed to the tax authority; input VAT is what
+                  you paid on purchases and can reclaim. The net is what you {outputVat - inputVat >= 0 ? "pay over" : "are owed back"} —
+                  it is not profit, so none of it is subtracted from the profit figures below.
+                  {isFiltered && " Filtered to one branch; run across all branches for a full return."}
                 </div>
               </div>
             </div>

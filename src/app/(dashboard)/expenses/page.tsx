@@ -17,7 +17,11 @@ import { deleteReceiptIfUnreferenced, discardUnsavedReceipt } from "@/lib/receip
 
 export default function ExpensesPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName, orgId, role } = useOrg();
+  const { currentLocationId, currentLocationName, orgId, role, vatPercent } = useOrg();
+  // Input VAT is only captured for a VAT-registered org; the field and the
+  // payload key are gated on this so a non-VAT fleet never touches the new
+  // expenses.tax_amount column (migration 063).
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -45,7 +49,17 @@ export default function ExpensesPage() {
   const [formAmount, setFormAmount] = useState("");
   const [formDirectorName, setFormDirectorName] = useState("");
   const [formReceiptPath, setFormReceiptPath] = useState<string | null>(null);
+  const [formVatIncluded, setFormVatIncluded] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  // Reclaimable input VAT contained in the amount, when the purchase carried
+  // standard-rate VAT. Back-calculated from the VAT-inclusive amount.
+  const rate = vatPercent ?? 0;
+  const formAmountNum = parseFloat(formAmount) || 0;
+  const expenseVat =
+    isVatRegistered && formVatIncluded && rate > 0
+      ? Math.round((formAmountNum - formAmountNum / (1 + rate / 100)) * 100) / 100
+      : 0;
 
   useEffect(() => {
     loadExpenses();
@@ -127,6 +141,7 @@ export default function ExpensesPage() {
         recorded_by: name,
         location_id: currentLocationId,
         ...(formReceiptPath ? { receipt_path: formReceiptPath } : {}),
+        ...(isVatRegistered ? { tax_amount: expenseVat } : {}),
       } as { id?: string } & Record<string, unknown>,
     });
 
@@ -170,6 +185,7 @@ export default function ExpensesPage() {
     setFormAmount("");
     setFormDirectorName("");
     setFormReceiptPath(null);
+    setFormVatIncluded(false);
   }
 
   const totalAmount = expenses.reduce((sum, e) => sum + e.amount, 0);
@@ -420,6 +436,23 @@ export default function ExpensesPage() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
           </div>
+
+          {isVatRegistered && formCategory !== "Director Withdrawal" && (
+            <label className="flex items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={formVatIncluded}
+                onChange={(e) => setFormVatIncluded(e.target.checked)}
+                className="mt-0.5 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <span>
+                Amount includes {vatPercent}% VAT (reclaimable)
+                {formVatIncluded && expenseVat > 0 && (
+                  <span className="text-gray-500"> — input VAT {formatZAR(expenseVat)}</span>
+                )}
+              </span>
+            </label>
+          )}
 
           {orgId && (
             <ReceiptUpload orgId={orgId} value={formReceiptPath} onUploaded={setFormReceiptPath} />
