@@ -95,7 +95,16 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **058**.
+number, never reuse a prefix. Latest applied: **059**.
+
+**`default_user_org_id()` returns NULL under the service role**, so any table
+whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
+will fail its `NOT NULL` constraint when written by a script using
+`SUPABASE_SERVICE_ROLE_KEY` — the function resolves the caller through
+`auth.uid()`, which is null for the service key. Set `org_id` explicitly in any
+server-side or admin-API insert. The same applies to any column defaulting to a
+`current_user_*()` helper. (Surfaced writing `scripts/record-opening-count.mjs`,
+which failed on exactly this until it passed `org_id` on every row.)
 
 **The SQL Editor runs a whole script as ONE transaction.** If any statement fails,
 *everything before it rolls back* — including `ALTER TABLE`s that appeared to succeed.
@@ -321,6 +330,23 @@ keyed its green off missing revenue, a figure an oversell never touches.
 - The recorded-shortfall panel renders **only when there are records** — an empty one
   would read as "no problems" when it means "no data yet", since nothing before 058
   was captured. The inferred column remains the answer for historic periods.
+
+**Replenishment is scoped by branch (migration 059).** RA filters counts, sales and
+oversells by location, but `stock_receipts` had no `location_id`, so its
+replenishment query was org-wide — every delivery was credited to **every** branch,
+inflating expected stock where nothing arrived and rendering the gap as shrinkage that
+never happened. 059 adds a nullable `stock_receipts.location_id`; Receive Stock writes
+`currentLocationId` (the branch it already deducts stock at), and RA now filters on it.
+**`location_id IS NULL` means "recorded before 059, branch unknown" and is still
+counted org-wide** — dropping those rows would rewrite historic figures rather than fix
+them, so the 29 pre-059 receipts stay unattributed by design (a receipt's branch is
+unrecoverable once its units merge into `product_stock`). Both sides tolerate either
+deploy order: Receive Stock retries without the column on `PGRST204`, and RA's filtered
+read falls back to org-wide if the column is missing (that query previously **discarded
+its error**, which would have zeroed replenishment). This is why
+`scripts/record-opening-count.mjs` writes a stock count, not a receipt — see that
+script's header. RLS is unchanged: `stock_receipts` stays org-scoped, not
+org+location, so an owner still sees every branch's deliveries.
 
 ## POS low-stock warning
 
