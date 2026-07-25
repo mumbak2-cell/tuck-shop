@@ -92,6 +92,18 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
 
     const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
+    // VAT is charged only on standard-rated lines; a zero-rated item (bread,
+    // milk) contributes none. Compute from the taxable subtotal rather than the
+    // whole total, so a mixed basket prints the correct VAT — matching the
+    // per-line snapshot on `sales` (tax_amount), not a naive back-calc of total.
+    const vatRate = vatPercent ?? 0;
+    const vatableTotal = items.reduce(
+      (sum, i) => sum + (i.zeroRated ? 0 : i.unitPrice * i.quantity),
+      0
+    );
+    const vatAmount = vatRate > 0 ? vatableTotal - vatableTotal / (1 + vatRate / 100) : 0;
+    const exclVat = total - vatAmount;
+
     return (
       <div ref={ref} className="receipt-root">
         <style>{`
@@ -141,8 +153,14 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             justify-content: space-between;
             padding: 1px 0;
           }
-          .receipt-item {
+          .receipt-items {
             padding: 2px 0;
+          }
+          .receipt-item {
+            padding: 4px 0;
+          }
+          .receipt-item + .receipt-item {
+            border-top: 1px dotted #bbb;
           }
           .receipt-item-name {
             font-size: 11px;
@@ -153,11 +171,14 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             justify-content: space-between;
             font-size: 11px;
             padding-left: 8px;
+            margin-top: 1px;
           }
           .receipt-item-count {
             font-size: 10px;
             text-align: right;
-            padding-top: 2px;
+            padding-top: 6px;
+            margin-top: 4px;
+            border-top: 1px dashed #000;
           }
           .receipt-total-section {
             padding: 4px 0;
@@ -269,7 +290,7 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
         <hr className="receipt-divider" />
 
         {/* Line items — no header row, self-evident */}
-        <div>
+        <div className="receipt-items">
           {items.map((item, i) => (
             <div key={i} className="receipt-item">
               <div className="receipt-item-name">{item.name}</div>
@@ -296,11 +317,11 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             <div className="receipt-vat">
               <div>
                 <span>Excl. VAT:</span>
-                <span>{formatMoney(total / (1 + vatPercent / 100))}</span>
+                <span>{formatMoney(exclVat)}</span>
               </div>
               <div>
                 <span>VAT ({vatPercent}%):</span>
-                <span>{formatMoney(total - total / (1 + vatPercent / 100))}</span>
+                <span>{formatMoney(vatAmount)}</span>
               </div>
             </div>
           )}

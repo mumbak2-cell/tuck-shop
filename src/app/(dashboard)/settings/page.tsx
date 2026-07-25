@@ -10,6 +10,7 @@ import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 import { DailyDigestSection } from "@/components/settings/daily-digest-section";
 import { TeamSection } from "@/components/settings/team-section";
 import { PaymentMethodsSection } from "@/components/settings/payment-methods-section";
+import { VatSection } from "@/components/settings/vat-section";
 import { PricingModal } from "@/components/billing/pricing-modal";
 import { getPlan } from "@/lib/plans";
 
@@ -535,6 +536,9 @@ export default function SettingsPage() {
             )}
           </div>
         </div>
+
+        {/* VAT registration & rate - owner/manager, renders null for cashiers */}
+        <VatSection />
 
         {/* Payment methods - owner/manager, renders null for cashiers */}
         <PaymentMethodsSection />
