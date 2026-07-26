@@ -22,7 +22,11 @@ interface CategoryRow {
 }
 
 export function ProductForm({ product, onSaved, onCancel }: Props) {
-  const { preparesFood, currentLocationId, currentLocationName, orgId, locations } = useOrg();
+  const { preparesFood, currentLocationId, currentLocationName, orgId, locations, vatPercent } = useOrg();
+  // Zero-rating only matters for a VAT-registered org; the checkbox and the
+  // payload field are gated on this so a non-VAT fleet never references the
+  // products.zero_rated column (migration 062).
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [categories, setCategories] = useState<CategoryRow[]>([]);
@@ -39,6 +43,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     selling_price: product?.selling_price?.toString() || "",
     is_prepared: product?.is_prepared || false,
     is_sellable: (product as unknown as { is_sellable?: boolean })?.is_sellable !== false,
+    zero_rated: (product as unknown as { zero_rated?: boolean })?.zero_rated || false,
     opening_stock: product?.opening_stock?.toString() || "0",
     reorder_level: product?.reorder_level?.toString() || "0",
     units_per_batch: product?.units_per_batch?.toString() || "",
@@ -129,6 +134,12 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       opening_stock: parseInt(form.opening_stock) || 0,
       reorder_level: parseInt(form.reorder_level) || 0,
     };
+
+    // Only send zero_rated for a VAT-registered org, so a fleet that has not
+    // applied migration 062 never references the column.
+    if (isVatRegistered) {
+      payload.zero_rated = form.zero_rated;
+    }
 
     if (!payload.name || !payload.category || !payload.selling_price) {
       setError("Please fill in all required fields.");
@@ -323,6 +334,17 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
             />
             Sellable item (included in Revenue Assurance)
           </label>
+          {isVatRegistered && (
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="checkbox"
+                checked={form.zero_rated}
+                onChange={(e) => update("zero_rated", e.target.checked)}
+                className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              Zero-rated for VAT (0%) — e.g. bread, milk
+            </label>
+          )}
         </div>
       </div>
 

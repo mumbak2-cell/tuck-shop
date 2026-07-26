@@ -12,7 +12,8 @@ import { INVENTORY_EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/data
 type Period = "today" | "week" | "month" | "custom";
 
 export default function ProfitLossPage() {
-  const { role, assignedLocationId, currentLocationId, locations } = useOrg();
+  const { role, assignedLocationId, currentLocationId, locations, vatPercent } = useOrg();
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
   const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
@@ -32,6 +33,17 @@ export default function ProfitLossPage() {
   const [cardRevenue, setCardRevenue] = useState(0);
   const [creditRevenue, setCreditRevenue] = useState(0);
   const [cogs, setCogs] = useState(0);
+  // Sale lines sold with no cost price captured — they book at 100% margin and
+  // silently overstate gross profit. Tracked to warn even when COGS is non-zero.
+  const [zeroCostLines, setZeroCostLines] = useState(0);
+  const [totalSaleLines, setTotalSaleLines] = useState(0);
+  // Output VAT collected in the period (snapshot on sales, migration 061). It
+  // is part of Total Revenue and owed to the tax authority — not profit. Read
+  // only; it does not enter the profit calculation.
+  const [outputVat, setOutputVat] = useState(0);
+  // Reclaimable input VAT paid on purchases in the period (expenses.tax_amount,
+  // migration 063). Net VAT = output − input is what the return settles.
+  const [inputVat, setInputVat] = useState(0);
   const [operatingExpenses, setOperatingExpenses] = useState(0);
   const [directorWithdrawals, setDirectorWithdrawals] = useState(0);
   // Buying stock is not an expense — it converts cash into inventory, and only
@@ -70,7 +82,7 @@ export default function ProfitLossPage() {
     const sales = await fetchAllPaged<any>(() => {
       let q = db
         .from("sales")
-        .select("payment_method, total_amount, quantity, product_id, cost_price")
+        .select("payment_method, total_amount, quantity, product_id, cost_price, tax_amount")
         .gte("sale_date", from)
         .lte("sale_date", to)
         .eq("voided", false);
@@ -92,11 +104,18 @@ export default function ProfitLossPage() {
 
     // 2. COGS: use snapshot cost_price recorded at time of sale
     let totalCogs = 0;
+    let zeroCost = 0;
+    let totalVat = 0;
     (sales as any[]).forEach((s: any) => {
       const cost = Number(s.cost_price) || 0;
       totalCogs += cost * s.quantity;
+      if (cost === 0) zeroCost += 1;
+      totalVat += Number(s.tax_amount) || 0;
     });
     setCogs(totalCogs);
+    setZeroCostLines(zeroCost);
+    setTotalSaleLines((sales as any[]).length);
+    setOutputVat(totalVat);
 
     // 3. Expenses (H10 fix: fetchAllPaged)
     const expenses = await fetchAllPaged<any>(() => {
@@ -133,14 +152,37 @@ export default function ProfitLossPage() {
         .sort((a, b) => b.total - a.total)
     );
 
+    // 4. Input VAT — reclaimable VAT paid on purchases (expenses.tax_amount,
+    // migration 063), summed across ALL categories. Only for a VAT-registered
+    // org; the read degrades to 0 if the column is not present yet (the query
+    // rejects and .catch returns []), so a pre-063 deploy cannot break the page.
+    if (isVatRegistered) {
+      const vatRows = await fetchAllPaged<any>(() => {
+        let q = db
+          .from("expenses")
+          .select("tax_amount")
+          .gte("expense_date", from)
+          .lte("expense_date", to);
+        if (isFiltered) q = q.eq("location_id", effectiveLoc);
+        return q;
+      }).catch(() => []);
+      setInputVat((vatRows as any[]).reduce((s, r) => s + (Number(r.tax_amount) || 0), 0));
+    } else {
+      setInputVat(0);
+    }
+
     setLoading(false);
   }
 
   const totalRevenue = cashRevenue + cardRevenue + creditRevenue;
   const grossProfit = totalRevenue - cogs;
   const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
-  const netProfit = grossProfit - operatingExpenses - directorWithdrawals;
+  // Director withdrawals are a distribution of profit, not a business expense,
+  // so they must NOT reduce net profit. They are shown separately below the net
+  // profit line as money drawn out of that profit.
+  const netProfit = grossProfit - operatingExpenses;
   const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
+  const profitAfterDrawings = netProfit - directorWithdrawals;
 
   const periods: { key: Period; label: string }[] = [
     { key: "today", label: "Today" },
@@ -222,6 +264,34 @@ export default function ProfitLossPage() {
             </div>
           </div>
 
+          {/* VAT return — read-only, VAT-registered orgs only. Output VAT is
+              part of Total Revenue and owed out; input VAT is reclaimable; the
+              net is what the return settles. None of this touches profit. */}
+          {isVatRegistered && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 bg-blue-50 border-b border-blue-100">
+                <h2 className="font-semibold text-blue-800">VAT return</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <PnLRow label="Revenue excl. VAT" amount={totalRevenue - outputVat} />
+                <PnLRow label="Output VAT collected (on sales)" amount={outputVat} />
+                <PnLRow label="Input VAT reclaimable (on purchases)" amount={inputVat} negative />
+                <PnLRow
+                  label={outputVat - inputVat >= 0 ? "Net VAT payable" : "Net VAT refundable"}
+                  amount={Math.abs(outputVat - inputVat)}
+                  bold
+                  highlight={outputVat - inputVat >= 0 ? "red" : "green"}
+                />
+                <div className="px-5 py-3 text-xs text-gray-500">
+                  Output VAT is inside Total Revenue and owed to the tax authority; input VAT is what
+                  you paid on purchases and can reclaim. The net is what you {outputVat - inputVat >= 0 ? "pay over" : "are owed back"} —
+                  it is not profit, so none of it is subtracted from the profit figures below.
+                  {isFiltered && " Filtered to one branch; run across all branches for a full return."}
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* COGS section */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-amber-50 border-b border-amber-100">
@@ -231,6 +301,15 @@ export default function ProfitLossPage() {
               <PnLRow label="Product Costs (package_price ÷ qty_in_pack × units)" amount={cogs} negative />
               <PnLRow label="Gross Profit" amount={grossProfit} bold highlight={grossProfit >= 0 ? "green" : "red"} />
               <PnLRow label="Gross Margin" amount={grossMargin} percent />
+              {zeroCostLines > 0 && (
+                <div className="px-5 py-3 text-xs text-amber-700 bg-amber-50">
+                  <strong>{zeroCostLines} of {totalSaleLines} sales</strong> in this period have no
+                  cost price recorded, so they book at zero cost. Cost of Goods Sold is understated
+                  and the profit above looks higher than it really is. Set a cost price on those
+                  products — or, for prepared food, complete the recipe — so their cost flows into
+                  COGS.
+                </div>
+              )}
             </div>
           </div>
 
@@ -285,28 +364,12 @@ export default function ProfitLossPage() {
             </div>
           )}
 
-          {/* Director Withdrawals */}
-          {directorWithdrawals > 0 && (
-            <div className="bg-white border border-red-100 rounded-xl overflow-hidden">
-              <div className="px-5 py-3 bg-red-50 border-b border-red-100">
-                <h2 className="font-semibold text-red-800">Director Withdrawals</h2>
-              </div>
-              <div className="divide-y divide-gray-100">
-                {expenseBreakdown
-                  .filter((e) => e.category === "Director Withdrawal")
-                  .map((e) => (
-                    <PnLRow key={e.category} label="Cash Withdrawals" amount={e.total} negative />
-                  ))}
-              </div>
-            </div>
-          )}
-
           {/* Net Profit */}
           <div className={`rounded-xl overflow-hidden border-2 ${netProfit >= 0 ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}>
             <div className="px-5 py-4 flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Net Profit</p>
-                <p className="text-xs text-gray-500 mt-0.5">Revenue − COGS − Expenses − Withdrawals</p>
+                <p className="text-xs text-gray-500 mt-0.5">Revenue − COGS − Expenses</p>
               </div>
               <div className="text-right">
                 <p className={`text-3xl font-bold ${netProfit >= 0 ? "text-green-700" : "text-red-700"}`}>
@@ -318,6 +381,34 @@ export default function ProfitLossPage() {
               </div>
             </div>
           </div>
+
+          {/* Director Withdrawals — a distribution of the profit above, shown
+              after Net Profit because drawing money out is not a business cost. */}
+          {directorWithdrawals > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 bg-gray-50 border-b border-gray-100">
+                <h2 className="font-semibold text-gray-700">Director Withdrawals (drawn from profit)</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                {expenseBreakdown
+                  .filter((e) => e.category === "Director Withdrawal")
+                  .map((e) => (
+                    <PnLRow key={e.category} label="Cash Withdrawals" amount={e.total} negative />
+                  ))}
+                <PnLRow
+                  label="Profit kept in the business"
+                  amount={profitAfterDrawings}
+                  bold
+                  highlight={profitAfterDrawings >= 0 ? "green" : "red"}
+                />
+                <div className="px-5 py-3 text-xs text-gray-500">
+                  Money the director took out is paid <em>out of</em> net profit — it is not a
+                  business expense, so it does not reduce the net profit figure above. This shows
+                  what is left after those withdrawals.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

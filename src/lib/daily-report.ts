@@ -90,6 +90,7 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
       .select("location_id, total_amount, payment_method, product_id, quantity")
       .eq("org_id", orgId)
       .eq("sale_date", date)
+      .eq("voided", false)
   );
 
   // Lookup product names for the top-products list
@@ -339,6 +340,7 @@ export async function buildDailyItemsCsv(orgId: string, isoDate?: string): Promi
       .select("id, created_at, location_id, product_id, quantity, unit_price, total_amount, payment_method, customer_id")
       .eq("org_id", orgId)
       .eq("sale_date", date)
+      .eq("voided", false)
       .order("created_at", { ascending: true })
   );
 

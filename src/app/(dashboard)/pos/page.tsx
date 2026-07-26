@@ -211,6 +211,7 @@ export default function POSPage() {
           unitPrice: effectivePrice,
           quantity: 1,
           costPrice: product.cost_per_unit ?? 0,
+          zeroRated: product.zero_rated ?? false,
           availableStock: product.opening_stock ?? undefined, // H8: stock warning
         },
       ];

@@ -90,6 +90,9 @@ export interface Product {
   recipe_cost_per_unit: number | null;
   selling_price: number;
   is_prepared: boolean;
+  // Zero-rated for VAT (0%), e.g. bread/milk (migration 062). Only meaningful
+  // for a VAT-registered org; absent/false = standard-rated.
+  zero_rated?: boolean;
   opening_stock: number;
   reorder_level: number;
   discontinued: boolean;

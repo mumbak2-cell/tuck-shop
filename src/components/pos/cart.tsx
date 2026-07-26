@@ -10,6 +10,8 @@ export interface CartItem {
   quantity: number;
   /** Cost per unit snapshot at add-to-cart time. */
   costPrice: number;
+  /** Zero-rated for VAT (0%) — a mixed basket needs this to price VAT per line. */
+  zeroRated?: boolean;
   /** Available stock at the current location (H8: stock warning, not a block). */
   availableStock?: number;
 }

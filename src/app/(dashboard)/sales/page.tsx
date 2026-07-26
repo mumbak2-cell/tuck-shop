@@ -36,6 +36,7 @@ interface SaleRecord {
   customer_id: string | null;
   created_at: string;
   voided: boolean;
+  location_id: string | null;
 }
 
 export default function SalesPage() {
@@ -67,7 +68,7 @@ export default function SalesPage() {
     // Fetch all transactions for today (including voided for display)
     let salesQ = db
       .from("sales")
-      .select("id, product_id, quantity, unit_price, total_amount, payment_method, customer_id, created_at, voided, products(name)")
+      .select("id, product_id, quantity, unit_price, total_amount, payment_method, customer_id, created_at, voided, location_id, products(name)")
       .eq("sale_date", today)
       .order("created_at", { ascending: false });
     if (isFiltered) salesQ = salesQ.eq("location_id", effectiveLoc);
@@ -86,6 +87,7 @@ export default function SalesPage() {
       customer_id: s.customer_id,
       created_at: s.created_at,
       voided: s.voided || false,
+      location_id: s.location_id ?? null,
     }));
     setTransactions(txns);
 
@@ -168,18 +170,18 @@ export default function SalesPage() {
 
       if (voidErr) throw voidErr;
 
-      // 2. Return stock to the product
-      const { data: prod } = await db
-        .from("products")
-        .select("opening_stock")
-        .eq("id", voidTarget.product_id)
-        .single();
-
-      if (prod) {
-        await db
-          .from("products")
-          .update({ opening_stock: (prod.opening_stock || 0) + voidTarget.quantity })
-          .eq("id", voidTarget.product_id);
+      // 2. Return stock to the branch it was sold from. The sale deducted from
+      // product_stock.quantity at its location (migration 024), so the reversal
+      // must credit that same per-branch row — not the legacy org-wide
+      // products.opening_stock, which the multi-location POS does not read.
+      // Atomic increment via restock_at_location (migration 060).
+      if (voidTarget.location_id) {
+        const { error: restockErr } = await db.rpc("restock_at_location", {
+          p_product_id: voidTarget.product_id,
+          p_quantity: voidTarget.quantity,
+          p_location_id: voidTarget.location_id,
+        });
+        if (restockErr) throw restockErr;
       }
 
       // 3. If it was a credit sale, reduce customer balance (atomic — H1 fix)
