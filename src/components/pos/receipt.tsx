@@ -54,164 +54,207 @@ export function generateReceiptNumber(date?: Date): string {
   return `${yy}${mm}${dd}-${hh}${mi}-${rand}`;
 }
 
+/* ── Thermal-receipt text helpers (32-column, 58 mm paper) ───────── */
+
+export const LINE_WIDTH = 32;
+
+export function centerText(text: string): string {
+  const t = text.slice(0, LINE_WIDTH);
+  const pad = Math.floor((LINE_WIDTH - t.length) / 2);
+  return " ".repeat(pad) + t + " ".repeat(LINE_WIDTH - pad - t.length);
+}
+
+export function leftRight(left: string, right: string): string {
+  const avail = LINE_WIDTH - right.length;
+  if (avail < 2) return right.slice(0, LINE_WIDTH).padEnd(LINE_WIDTH);
+  const l = left.slice(0, avail - 1);
+  return l + " ".repeat(LINE_WIDTH - l.length - right.length) + right;
+}
+
+export function rightAligned(text: string): string {
+  return text.padStart(LINE_WIDTH);
+}
+
+export function dashes(): string {
+  return "-".repeat(LINE_WIDTH);
+}
+
+export function equals(): string {
+  return "=".repeat(LINE_WIDTH);
+}
+
+export function wrapCenter(text: string): string[] {
+  if (text.length <= LINE_WIDTH) return [centerText(text)];
+  const words = text.split(" ");
+  const out: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur && cur.length + 1 + w.length > LINE_WIDTH) {
+      out.push(centerText(cur));
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) out.push(centerText(cur));
+  return out;
+}
+
+export function wrapText(text: string): string[] {
+  if (text.length <= LINE_WIDTH) return [text.padEnd(LINE_WIDTH)];
+  const out: string[] = [];
+  for (let i = 0; i < text.length; i += LINE_WIDTH) {
+    out.push(text.slice(i, i + LINE_WIDTH).padEnd(LINE_WIDTH));
+  }
+  return out;
+}
+
+export function wrapLeft(text: string): string[] {
+  if (text.length <= LINE_WIDTH) return [text.padEnd(LINE_WIDTH)];
+  const words = text.split(" ");
+  const out: string[] = [];
+  let cur = "";
+  for (const w of words) {
+    if (cur && cur.length + 1 + w.length > LINE_WIDTH) {
+      out.push(cur.padEnd(LINE_WIDTH));
+      cur = w;
+    } else {
+      cur = cur ? cur + " " + w : w;
+    }
+  }
+  if (cur) out.push(cur.padEnd(LINE_WIDTH));
+  return out;
+}
+
+export function buildReceiptLines(data: ReceiptData): string[] {
+  const {
+    orgName, locationName, locationAddress, locationPhone,
+    items, total, paymentMethod, cashTendered, change,
+    paymentReference, customerName, customerTpin,
+    saleDate, tpin, vatPercent, receiptNumber, zra,
+  } = data;
+
+  const WALK_IN_TPIN = "1000000000";
+  const lines: string[] = [];
+
+  const dateStr = saleDate.toLocaleDateString("en-ZA", {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  });
+  const timeStr = saleDate.toLocaleTimeString("en-ZA", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const itemCount = items.reduce((s, i) => s + i.quantity, 0);
+
+  // ── Header ──
+  lines.push(...wrapCenter(orgName.toUpperCase()));
+  lines.push(centerText(locationName));
+  if (locationAddress) lines.push(...wrapCenter(locationAddress));
+  if (locationPhone) lines.push(centerText("Tel: " + locationPhone));
+  if (tpin) {
+    lines.push(centerText("TPIN: " + tpin));
+    lines.push(centerText("*** TAX INVOICE ***"));
+  }
+  if (zra) lines.push(centerText("ORIGINAL"));
+
+  lines.push(dashes());
+
+  // ── Date / time / receipt # ──
+  lines.push(leftRight(dateStr, timeStr));
+  if (receiptNumber) lines.push(leftRight("Rcpt#", receiptNumber));
+
+  lines.push(dashes());
+
+  // ── Line items ──
+  for (const item of items) {
+    lines.push(...wrapText(item.name));
+    const detail = "  " + item.quantity + " x " + formatMoney(item.unitPrice);
+    lines.push(leftRight(detail, formatMoney(item.unitPrice * item.quantity)));
+  }
+  lines.push(rightAligned(itemCount + " item" + (itemCount !== 1 ? "s" : "")));
+
+  lines.push(equals());
+
+  // ── Total + VAT ──
+  lines.push(leftRight("TOTAL", formatMoney(total)));
+  if (vatPercent != null && vatPercent > 0) {
+    const exclVat = total / (1 + vatPercent / 100);
+    lines.push(leftRight("Excl. VAT:", formatMoney(exclVat)));
+    lines.push(leftRight("VAT (" + vatPercent + "%):", formatMoney(total - exclVat)));
+  }
+
+  lines.push(dashes());
+
+  // ── Payment ──
+  lines.push(leftRight("Payment:", paymentMethod));
+  if (cashTendered != null && cashTendered > 0) {
+    lines.push(leftRight("Tendered:", formatMoney(cashTendered)));
+  }
+  if (change != null && change > 0) {
+    lines.push(leftRight("Change:", formatMoney(change)));
+  }
+  if (paymentReference) {
+    lines.push(leftRight("Ref No:", paymentReference));
+  }
+  if (customerName) {
+    lines.push(leftRight("Customer:", customerName));
+  }
+
+  // ── ZRA fiscal block ──
+  if (zra) {
+    lines.push(dashes());
+    if (zra.sdcId) lines.push(leftRight("SDC ID:", zra.sdcId));
+    lines.push(leftRight("Invoice #:", zra.rcptNo));
+    if (zra.rcptSign) {
+      lines.push("Signature:".padEnd(LINE_WIDTH));
+      lines.push(...wrapText(zra.rcptSign));
+    }
+    if (zra.intrlData) {
+      lines.push("Internal:".padEnd(LINE_WIDTH));
+      lines.push(...wrapText(zra.intrlData));
+    }
+    lines.push(dashes());
+    lines.push(leftRight("Client:", customerName || "Cash Sales"));
+    lines.push(leftRight("TPIN:", customerTpin || WALK_IN_TPIN));
+    lines.push(centerText("*** FISCAL RECEIPT ***"));
+  }
+
+  lines.push(dashes());
+
+  // ── Footer ──
+  lines.push(centerText("Thank you for your purchase!"));
+  lines.push("");
+  lines.push(centerText(zra ? "ZRA Smart Invoice" : "Powered by Tilify"));
+
+  return lines;
+}
+
 /** Print-optimised receipt. Rendered off-screen, printed via window.print(). */
 export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
   function Receipt({ data }, ref) {
-    const {
-      orgName,
-      locationName,
-      locationAddress,
-      locationPhone,
-      items,
-      total,
-      paymentMethod,
-      cashTendered,
-      change,
-      paymentReference,
-      customerName,
-      customerTpin,
-      saleDate,
-      tpin,
-      vatPercent,
-      receiptNumber,
-      zra,
-    } = data;
-
-    // Zambia's walk-in default TPIN when no registered customer is attached.
-    const WALK_IN_TPIN = "1000000000";
-
-    const dateStr = saleDate.toLocaleDateString("en-ZA", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-    });
-    const timeStr = saleDate.toLocaleTimeString("en-ZA", {
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-
-    const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+    const lines = buildReceiptLines(data);
 
     return (
       <div ref={ref} className="receipt-root">
         <style>{`
           .receipt-root {
             font-family: 'Courier New', Courier, monospace;
-            font-size: 11px;
-            line-height: 1.5;
             color: #000;
             background: #fff;
-            width: 72mm;
-            padding: 4mm;
             box-sizing: border-box;
           }
-          .receipt-root * { margin: 0; padding: 0; }
-          .receipt-header { text-align: center; margin-bottom: 6px; }
-          .receipt-header h1 {
-            font-size: 16px;
-            font-weight: bold;
-            text-transform: uppercase;
-            letter-spacing: 1px;
-            margin-bottom: 2px;
-          }
-          .receipt-header p { font-size: 11px; line-height: 1.4; }
-          .receipt-subtitle {
-            font-size: 11px;
-            font-weight: bold;
-            letter-spacing: 2px;
-            margin-top: 6px;
-            padding: 2px 8px;
-            border-top: 1px solid #000;
-            border-bottom: 1px solid #000;
-            display: inline-block;
-          }
-          .receipt-divider {
-            border: none;
-            border-top: 1px dashed #000;
-            margin: 6px 0;
-          }
-          .receipt-divider-double {
-            border: none;
-            border-top: 2px solid #000;
-            margin: 6px 0;
-          }
-          .receipt-meta { font-size: 11px; }
-          .receipt-meta-row {
-            display: flex;
-            justify-content: space-between;
-            padding: 1px 0;
-          }
-          .receipt-item {
-            padding: 2px 0;
-          }
-          .receipt-item-name {
-            font-size: 11px;
-            font-weight: bold;
-          }
-          .receipt-item-detail {
-            display: flex;
-            justify-content: space-between;
-            font-size: 11px;
-            padding-left: 8px;
-          }
-          .receipt-item-count {
-            font-size: 10px;
-            text-align: right;
-            padding-top: 2px;
-          }
-          .receipt-total-section {
-            padding: 4px 0;
-          }
-          .receipt-total-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 16px;
-            font-weight: bold;
-            padding: 4px 0;
-            letter-spacing: 0.5px;
-          }
-          .receipt-vat { font-size: 11px; margin-top: 4px; }
-          .receipt-vat div {
-            display: flex;
-            justify-content: space-between;
-            padding: 1px 0;
-          }
-          .receipt-payment { font-size: 11px; }
-          .receipt-payment div {
-            display: flex;
-            justify-content: space-between;
-            padding: 1px 0;
-          }
-          .receipt-footer {
-            text-align: center;
-            margin-top: 8px;
-            font-size: 11px;
-          }
-          .receipt-footer p { margin-top: 2px; }
-          .receipt-receipt-no {
-            font-size: 10px;
-            margin-top: 6px;
-          }
-          .receipt-original {
-            font-size: 11px;
-            font-weight: bold;
-            letter-spacing: 3px;
-            margin-top: 2px;
-          }
-          .receipt-fiscal-word {
-            font-size: 8px;
-            word-break: break-all;
-            text-align: right;
-          }
-          .receipt-fiscal-marker {
-            text-align: center;
+          .receipt-pre {
+            white-space: pre;
+            font-family: 'Courier New', Courier, monospace;
             font-size: 12px;
-            font-weight: bold;
-            letter-spacing: 1px;
-            margin: 6px 0;
+            line-height: 1.5;
+            margin: 0;
+            padding: 4mm;
           }
           .receipt-qr {
-            margin: 8px auto;
+            margin: 4px auto 8px;
             width: 120px;
             height: 120px;
             border: 1px dashed #000;
@@ -220,188 +263,19 @@ export const Receipt = forwardRef<HTMLDivElement, { data: ReceiptData }>(
             justify-content: center;
             text-align: center;
             font-size: 9px;
+            font-family: 'Courier New', Courier, monospace;
             line-height: 1.3;
             box-sizing: border-box;
             padding: 4px;
           }
-
           @media print {
             @page { size: 80mm auto; margin: 0; }
-            body * { visibility: hidden !important; }
-            .receipt-print-container,
-            .receipt-print-container * { visibility: visible !important; }
-            .receipt-print-container {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 80mm;
-            }
           }
         `}</style>
-
-        {/* Header */}
-        <div className="receipt-header">
-          <h1>{orgName}</h1>
-          <p>{locationName}</p>
-          {locationAddress && <p>{locationAddress}</p>}
-          {locationPhone && <p>Tel: {locationPhone}</p>}
-          {tpin && <p>TPIN: {tpin}</p>}
-          {tpin && <p className="receipt-subtitle">TAX INVOICE</p>}
-          {zra && <p className="receipt-original">ORIGINAL</p>}
-        </div>
-
-        <hr className="receipt-divider" />
-
-        {/* Date/Time + Receipt # */}
-        <div className="receipt-meta">
-          <div className="receipt-meta-row">
-            <span>{dateStr}</span>
-            <span>{timeStr}</span>
-          </div>
-          {receiptNumber && (
-            <div className="receipt-meta-row">
-              <span>Receipt #:</span>
-              <span>{receiptNumber}</span>
-            </div>
-          )}
-        </div>
-
-        <hr className="receipt-divider" />
-
-        {/* Line items — no header row, self-evident */}
-        <div>
-          {items.map((item, i) => (
-            <div key={i} className="receipt-item">
-              <div className="receipt-item-name">{item.name}</div>
-              <div className="receipt-item-detail">
-                <span>{item.quantity} × {formatMoney(item.unitPrice)}</span>
-                <span>{formatMoney(item.unitPrice * item.quantity)}</span>
-              </div>
-            </div>
-          ))}
-          <div className="receipt-item-count">
-            {itemCount} item{itemCount !== 1 ? "s" : ""}
-          </div>
-        </div>
-
-        <hr className="receipt-divider-double" />
-
-        {/* Total + VAT breakdown */}
-        <div className="receipt-total-section">
-          <div className="receipt-total-row">
-            <span>TOTAL</span>
-            <span>{formatMoney(total)}</span>
-          </div>
-          {vatPercent != null && vatPercent > 0 && (
-            <div className="receipt-vat">
-              <div>
-                <span>Excl. VAT:</span>
-                <span>{formatMoney(total / (1 + vatPercent / 100))}</span>
-              </div>
-              <div>
-                <span>VAT ({vatPercent}%):</span>
-                <span>{formatMoney(total - total / (1 + vatPercent / 100))}</span>
-              </div>
-            </div>
-          )}
-        </div>
-
-        <hr className="receipt-divider" />
-
-        {/* Payment details */}
-        <div className="receipt-payment">
-          <div>
-            <span>Payment:</span>
-            <span>{paymentMethod}</span>
-          </div>
-          {cashTendered != null && cashTendered > 0 && (
-            <div>
-              <span>Tendered:</span>
-              <span>{formatMoney(cashTendered)}</span>
-            </div>
-          )}
-          {change != null && change > 0 && (
-            <div style={{ fontWeight: "bold" }}>
-              <span>Change:</span>
-              <span>{formatMoney(change)}</span>
-            </div>
-          )}
-          {paymentReference && (
-            <div>
-              <span>Ref No:</span>
-              <span>{paymentReference}</span>
-            </div>
-          )}
-          {customerName && (
-            <div>
-              <span>Customer:</span>
-              <span>{customerName}</span>
-            </div>
-          )}
-        </div>
-
-        {/* ZRA Smart Invoice fiscal block — only when submitted to the VSDC */}
-        {zra && (
-          <>
-            <hr className="receipt-divider" />
-            <div className="receipt-meta">
-              {zra.sdcId && (
-                <div className="receipt-meta-row">
-                  <span>SDC ID:</span>
-                  <span>{zra.sdcId}</span>
-                </div>
-              )}
-              <div className="receipt-meta-row">
-                <span>Invoice #:</span>
-                <span>{zra.rcptNo}</span>
-              </div>
-              {zra.rcptSign && (
-                <div className="receipt-meta-row">
-                  <span>Signature:</span>
-                  <span className="receipt-fiscal-word">{zra.rcptSign}</span>
-                </div>
-              )}
-              {zra.intrlData && (
-                <div className="receipt-meta-row">
-                  <span>Internal:</span>
-                  <span className="receipt-fiscal-word">{zra.intrlData}</span>
-                </div>
-              )}
-            </div>
-
-            <hr className="receipt-divider" />
-            <div className="receipt-meta">
-              <div className="receipt-meta-row">
-                <span>Client Name:</span>
-                <span>{customerName || "Cash Sales"}</span>
-              </div>
-              <div className="receipt-meta-row">
-                <span>TPIN:</span>
-                <span>{customerTpin || WALK_IN_TPIN}</span>
-              </div>
-            </div>
-
-            <p className="receipt-fiscal-marker">*** FISCAL RECEIPT ***</p>
-
-            {/*
-              TODO (ZRA go-live): render the scannable verification QR here.
-              The exact payload ZRA expects must be confirmed against a real
-              VSDC response during the first live invoice test — until then
-              this is a marked placeholder so the layout is final.
-            */}
-            <div className="receipt-qr">ZRA QR CODE<br />(added at go-live)</div>
-          </>
+        <pre className="receipt-pre">{lines.join("\n")}</pre>
+        {data.zra && (
+          <div className="receipt-qr">ZRA QR CODE<br />(added at go-live)</div>
         )}
-
-        <hr className="receipt-divider" />
-
-        {/* Footer */}
-        <div className="receipt-footer">
-          <p>Thank you for your purchase!</p>
-          <p className="receipt-receipt-no">
-            {zra ? "Powered by ZRA Smart Invoice" : "Powered by Tilify"}
-          </p>
-        </div>
       </div>
     );
   }
