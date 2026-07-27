@@ -46,6 +46,7 @@ export interface OrgState {
   trialEndsAt: string | null;
   subscriptionPlan: string | null;
   subscriptionStatus: string | null;
+  currentPeriodEnd: string | null;
   // Derived: true when the org can write data (trial active or paid)
   isWritable: boolean;
   // Days until trial expiry; negative when expired; null when not on a trial.
@@ -135,6 +136,7 @@ const DEFAULT_STATE: OrgState = {
   trialEndsAt: null,
   subscriptionPlan: null,
   subscriptionStatus: null,
+  currentPeriodEnd: null,
   isWritable: false,
   trialDaysLeft: null,
   setupCompleted: false,
@@ -293,6 +295,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       trialEndsAt,
       subscriptionPlan: org?.subscription_plan ?? null,
       subscriptionStatus: status,
+      currentPeriodEnd,
       isWritable: computeWritable(status, trialEndsAt, currentPeriodEnd),
       trialDaysLeft: computeDaysLeft(status, trialEndsAt),
       setupCompleted: settingsMap.setup_completed === "true",

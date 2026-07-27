@@ -95,7 +95,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **059**.
+number, never reuse a prefix. Latest applied: **066**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -161,10 +161,10 @@ Drop the email fallback and subscription events are silently lost with `org_id` 
 Access is gated by `current_user_writable_org_ids()` as redefined in migration 035:
 active **with a future `current_period_end`**, or trialing with a future `trial_ends_at`.
 
-**Known gap:** `PricingModal` is only reachable from `TrialBanner`, which renders solely
-when `subscription_status = 'trialing'`. An active paying customer has **no way to
-upgrade, downgrade, or change cycle** in the app — worth a "manage plan" entry in
-Settings.
+Settings → Plan & Billing shows the current plan, renewal date, a "Change plan" button
+(opens `PricingModal`), and — for active subscribers — a "Manage subscription" button
+that opens Paystack's customer portal (card updates, cancellation) via
+`/api/billing/manage`.
 
 **Temporary:** `src/app/api/billing/plan-check/route.ts` is a token-gated diagnostic
 (plan-code validity + key mode) kept for the live cutover. **Delete it once live billing

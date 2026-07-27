@@ -37,24 +37,13 @@
 // operation, and the member/location reads must cross RLS.
 
 import { readFileSync } from "node:fs";
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient, resolveOrg, runMain } from "./lib/common.mjs";
 
 // Mirrors PLANS in src/lib/plans.ts. Kept as a literal because that file is
 // TypeScript and this script runs under plain node. An org on trial/past_due/
 // cancelled falls back to the Starter allowance, same as the API does.
 const MAX_USERS = { starter: 2, growth: 5, pro: 15 };
 const FALLBACK_MAX_USERS = MAX_USERS.starter;
-
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!url || !serviceKey) {
-  console.error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.\n" +
-      'Run with: node --env-file=.env.local scripts/add-cashiers.mjs --org "Chilufya" cashiers.json'
-  );
-  process.exit(1);
-}
 
 const args = process.argv.slice(2);
 const apply = args.includes("--apply");
@@ -67,9 +56,7 @@ if (!orgName || args.indexOf("--org") === -1 || !listPath) {
   process.exit(1);
 }
 
-const supabase = createClient(url, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const supabase = createServiceClient();
 
 /** Readable, transcribable temp password: Tilify-xxxx-xxxx (no ambiguous chars).
  *  Same shape as src/app/api/team/route.ts so handover instructions match. */
@@ -104,19 +91,7 @@ async function main() {
     throw new Error(`${listPath} must be a non-empty JSON array of { email, name?, branch }`);
   }
 
-  // --- Resolve the org. Refuse on ambiguity rather than guessing which shop.
-  const { data: orgs, error: orgErr } = await supabase
-    .from("organizations")
-    .select("id, name, subscription_plan")
-    .ilike("name", `%${orgName}%`);
-  if (orgErr) throw new Error(`Looking up org: ${orgErr.message}`);
-  if (!orgs || orgs.length === 0) throw new Error(`No shop matching "${orgName}"`);
-  if (orgs.length > 1) {
-    throw new Error(
-      `"${orgName}" matches ${orgs.length} shops: ${orgs.map((o) => o.name).join(", ")}. Use a more specific name.`
-    );
-  }
-  const org = orgs[0];
+  const org = await resolveOrg(supabase, orgName, "id, name, subscription_plan");
 
   const { data: locRows, error: locErr } = await supabase
     .from("locations")
@@ -378,7 +353,4 @@ async function main() {
   }
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+runMain(main);

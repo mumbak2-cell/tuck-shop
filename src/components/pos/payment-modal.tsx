@@ -23,7 +23,7 @@ import {
   CloudOff,
   Printer,
 } from "lucide-react";
-import { Receipt, ReceiptData, ZraFiscalData, generateReceiptNumber } from "./receipt";
+import { Receipt, ReceiptData, ZraFiscalData, generateReceiptNumber, buildReceiptLines, LINE_WIDTH } from "./receipt";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
@@ -379,72 +379,25 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     });
   }
 
-  /** Generate a receipt image matching thermal-print dimensions using Canvas. */
   function generateReceiptImage(): Promise<Blob | null> {
     return new Promise((resolve) => {
-      const loc = (currentLocationId && orgState.locations)
-        ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
-        : null;
-      const shopName = (orgState.orgName ?? "Shop").toUpperCase();
-      const locName = loc?.name ?? "";
-      const locAddr = loc?.address ?? "";
-      const locTel = loc?.phone ?? "";
-      const tpin = orgState.tpin ?? "";
-      const vatPct = orgState.vatPercent;
-      const receiptNo = generateReceiptNumber();
-      const now = new Date();
-      const dateStr = now.toLocaleDateString("en-ZA", { year: "numeric", month: "short", day: "numeric" });
-      const timeStr = now.toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
-      const customer = selectedKind === "credit"
-        ? customers.find((c) => c.id === selectedCustomer)
-        : null;
-      const fiscal = zraFiscal;
-      const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
+      const rd = buildReceiptData();
+      if (!rd) { resolve(null); return; }
+      const lines = buildReceiptLines(rd);
+      const hasFiscal = !!rd.zra;
 
-      const CW = 302;
-      const FSM = "11px 'Courier New', monospace";
-      const FLG = "bold 15px 'Courier New', monospace";
-      const FTL = "bold 16px 'Courier New', monospace";
-      const FSS = "10px 'Courier New', monospace";
-      const FBL = "bold 11px 'Courier New', monospace";
+      const FONT = "12px 'Courier New', monospace";
       const PD = 16;
-      const LH = 16;
+      const LH = 18;
 
-      // Calculate height
-      let lc = 0;
-      lc += 3; // shop name, location, address
-      if (locTel) lc += 1;
-      if (tpin) lc += 2; // TPIN + "TAX INVOICE"
-      lc += 1; // dash
-      lc += 2; // date/time + receipt#
-      lc += 1; // dash
-      lc += items.length * 2; // name + qty line
-      lc += 1; // item count
-      lc += 1; // double line
-      lc += 1; // TOTAL
-      if (vatPct != null && vatPct > 0) lc += 2;
-      lc += 1; // dash
-      lc += 1; // payment
-      if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) lc += 2;
-      if (customer) lc += 1;
-      // ZRA fiscal block
-      let qrPx = 0;
-      if (fiscal) {
-        lc += 1; // ORIGINAL (header)
-        lc += 1; // dash before fiscal meta
-        if (fiscal.sdcId) lc += 1;
-        lc += 1; // Invoice #
-        if (fiscal.rcptSign) lc += 1;
-        if (fiscal.intrlData) lc += 1;
-        lc += 1; // dash before client
-        lc += 2; // Client Name + TPIN
-        lc += 1; // *** FISCAL RECEIPT ***
-        qrPx = 132; // 120px QR box + margins
-      }
-      lc += 1; // dash
-      lc += 3; // footer
-
-      const CH = PD * 2 + lc * LH + 30 + qrPx;
+      const mc = document.createElement("canvas");
+      const mx = mc.getContext("2d");
+      if (!mx) { resolve(null); return; }
+      mx.font = FONT;
+      const textW = Math.ceil(mx.measureText("M".repeat(LINE_WIDTH)).width);
+      const CW = textW + PD * 2;
+      const qrH = hasFiscal ? 140 : 0;
+      const CH = PD * 2 + lines.length * LH + qrH;
 
       const canvas = document.createElement("canvas");
       canvas.width = CW;
@@ -452,145 +405,34 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const ctx = canvas.getContext("2d");
       if (!ctx) { resolve(null); return; }
 
-      ctx.fillStyle = "#ffffff";
+      ctx.fillStyle = "#fff";
       ctx.fillRect(0, 0, CW, CH);
+      ctx.font = FONT;
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
 
       let y = PD;
-      const mw = CW - PD * 2;
+      for (const line of lines) {
+        ctx.fillText(line, PD, y);
+        y += LH;
+      }
 
-      function center(text: string, font: string) {
-        ctx!.font = font;
-        ctx!.fillStyle = "#000";
-        ctx!.textAlign = "center";
-        ctx!.fillText(text, CW / 2, y, mw);
-        y += LH;
-      }
-      function row(left: string, right: string, font: string) {
-        ctx!.font = font;
-        ctx!.fillStyle = "#000";
-        ctx!.textAlign = "left";
-        ctx!.fillText(left, PD, y, mw - 80);
-        ctx!.textAlign = "right";
-        ctx!.fillText(right, CW - PD, y, 80);
-        y += LH;
-      }
-      function dash() {
-        ctx!.font = FSM;
-        ctx!.fillStyle = "#000";
-        ctx!.textAlign = "center";
-        ctx!.fillText("- ".repeat(20), CW / 2, y, mw);
-        y += LH;
-      }
-      function doubleLine() {
-        ctx!.strokeStyle = "#000";
-        ctx!.lineWidth = 2;
-        ctx!.beginPath();
-        ctx!.moveTo(PD, y - 6);
-        ctx!.lineTo(CW - PD, y - 6);
-        ctx!.stroke();
-        y += 4;
-      }
-      // Placeholder QR box — the scannable ZRA verification QR is finalized at
-      // go-live once the exact VSDC payload is confirmed (see receipt.tsx TODO).
-      function qrBox() {
+      if (hasFiscal) {
         const size = 120;
         const bx = (CW - size) / 2;
-        ctx!.save();
-        ctx!.strokeStyle = "#000";
-        ctx!.lineWidth = 1;
-        ctx!.setLineDash([3, 3]);
-        ctx!.strokeRect(bx, y, size, size);
-        ctx!.restore();
-        ctx!.fillStyle = "#000";
-        ctx!.textAlign = "center";
-        ctx!.font = FSS;
-        ctx!.fillText("ZRA QR CODE", CW / 2, y + size / 2 - 4, size - 8);
-        ctx!.fillText("(added at go-live)", CW / 2, y + size / 2 + 12, size - 8);
-        y += size + 12;
+        ctx.save();
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
+        ctx.setLineDash([3, 3]);
+        ctx.strokeRect(bx, y + 4, size, size);
+        ctx.restore();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "10px 'Courier New', monospace";
+        ctx.fillText("ZRA QR CODE", CW / 2, y + 4 + size / 2 - 8);
+        ctx.fillText("(added at go-live)", CW / 2, y + 4 + size / 2 + 8);
       }
-
-      // Header
-      center(shopName, FTL);
-      center(locName, FSM);
-      if (locAddr) center(locAddr, FSM);
-      if (locTel) center("Tel: " + locTel, FSM);
-      if (tpin) center("TPIN: " + tpin, FSM);
-      if (tpin) center("TAX INVOICE", FBL);
-      if (fiscal) center("ORIGINAL", FBL);
-
-      dash();
-
-      // Meta
-      row(dateStr, timeStr, FSM);
-      row("Receipt #:", receiptNo, FSM);
-
-      dash();
-
-      // Line items — no "Item"/"Amount" header
-      items.forEach((item) => {
-        ctx!.font = FBL;
-        ctx!.fillStyle = "#000";
-        ctx!.textAlign = "left";
-        ctx!.fillText(item.name, PD, y, mw);
-        y += LH;
-        row("   " + item.quantity + " × " + formatMoney(item.unitPrice), formatMoney(item.unitPrice * item.quantity), FSM);
-      });
-
-      // Item count
-      ctx!.font = FSS;
-      ctx!.fillStyle = "#000";
-      ctx!.textAlign = "right";
-      ctx!.fillText(itemCount + " item" + (itemCount !== 1 ? "s" : ""), CW - PD, y, mw);
-      y += LH;
-
-      // Double line before total
-      doubleLine();
-
-      // Total
-      row("TOTAL", formatMoney(total), FLG);
-      if (vatPct != null && vatPct > 0) {
-        y += 2;
-        const exclVat = total / (1 + vatPct / 100);
-        row("Excl. VAT:", formatMoney(exclVat), FSM);
-        row("VAT (" + vatPct + "%):", formatMoney(total - exclVat), FSM);
-      }
-
-      dash();
-
-      // Payment
-      if (selectedMethod) {
-        row("Payment:", selectedMethod.name, FSM);
-      }
-      if (selectedKind === "cash" && cashTendered && parseFloat(cashTendered) > total) {
-        row("Tendered:", formatMoney(parseFloat(cashTendered)), FSM);
-        row("Change:", formatMoney(parseFloat(cashTendered) - total), FBL);
-      }
-      if (customer) {
-        row("Customer:", customer.name, FSM);
-      }
-
-      // ZRA fiscal block
-      if (fiscal) {
-        dash();
-        if (fiscal.sdcId) row("SDC ID:", fiscal.sdcId, FSM);
-        row("Invoice #:", fiscal.rcptNo, FSM);
-        if (fiscal.rcptSign) row("Signature:", fiscal.rcptSign, FSS);
-        if (fiscal.intrlData) row("Internal:", fiscal.intrlData, FSS);
-        dash();
-        const clientTpin = (customer as { tpin?: string | null } | null | undefined)?.tpin || "1000000000";
-        row("Client Name:", customer?.name || "Cash Sales", FSM);
-        row("TPIN:", clientTpin, FSM);
-        y += 2;
-        center("*** FISCAL RECEIPT ***", FBL);
-        qrBox();
-      }
-
-      dash();
-
-      // Footer
-      center("Thank you for your purchase!", FSM);
-      y += 4;
-      center(fiscal ? "Powered by ZRA Smart Invoice" : "Powered by Tilify", FSS);
 
       canvas.toBlob((blob) => resolve(blob), "image/png");
     });

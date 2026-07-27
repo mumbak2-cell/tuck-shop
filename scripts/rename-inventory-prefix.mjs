@@ -26,23 +26,12 @@
 //
 // Re-runnable: rows already carrying the target prefix are left alone.
 
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient, PAGE, fetchAll, resolveOrg, flag as getFlag, runMain } from "./lib/common.mjs";
 
-const PAGE = 1000; // PostgREST's default cap -- page or rows go missing
 const CONCURRENCY = 20;
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !serviceKey) {
-  console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  process.exit(1);
-}
-
 const args = process.argv.slice(2);
-const flag = (n) => {
-  const i = args.indexOf(`--${n}`);
-  return i === -1 ? null : args[i + 1];
-};
+const flag = (n) => getFlag(args, n);
 const orgName = flag("org");
 const fromPrefix = (flag("from") || "").toUpperCase();
 const toPrefix = (flag("to") || "").toUpperCase();
@@ -53,30 +42,10 @@ if (!orgName || !fromPrefix || !toPrefix) {
   process.exit(1);
 }
 
-const supabase = createClient(url, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-async function fetchAll(build) {
-  const out = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build().range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
-    out.push(...(data || []));
-    if (!data || data.length < PAGE) break;
-  }
-  return out;
-}
+const supabase = createServiceClient();
 
 async function main() {
-  const { data: orgs, error: orgErr } = await supabase
-    .from("organizations")
-    .select("id, name")
-    .ilike("name", `%${orgName}%`);
-  if (orgErr) throw new Error(orgErr.message);
-  if (!orgs?.length) throw new Error(`No shop matching "${orgName}"`);
-  if (orgs.length > 1) throw new Error(`"${orgName}" matches: ${orgs.map((o) => o.name).join(", ")}`);
-  const org = orgs[0];
+  const org = await resolveOrg(supabase, orgName);
 
   const products = await fetchAll(() =>
     supabase.from("products").select("id, inventory_id, name").eq("org_id", org.id)
@@ -156,7 +125,4 @@ async function main() {
   console.log(`${org.name}: ${withNew} products on "${toPrefix}", ${withOld} still on "${fromPrefix}".`);
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+runMain(main);

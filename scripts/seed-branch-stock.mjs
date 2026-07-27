@@ -25,23 +25,12 @@
 // Needs SUPABASE_SERVICE_ROLE_KEY: product_stock writes are org+location
 // scoped by RLS, which the anon key cannot cross for another user's org.
 
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient, PAGE, fetchAll, resolveOrg, resolveBranch, flag as getFlag, runMain } from "./lib/common.mjs";
 
-const PAGE = 1000; // PostgREST's default cap -- read in pages or rows go missing
-const BATCH = 500; // upsert chunk
-
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-if (!url || !serviceKey) {
-  console.error("Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.");
-  process.exit(1);
-}
+const BATCH = 500;
 
 const args = process.argv.slice(2);
-const flag = (name) => {
-  const i = args.indexOf(`--${name}`);
-  return i === -1 ? null : args[i + 1];
-};
+const flag = (name) => getFlag(args, name);
 const orgName = flag("org");
 const branchName = flag("branch");
 // Keep the raw value: Number(null) is 0, so a MISSING --qty would otherwise
@@ -56,43 +45,13 @@ if (!orgName || !branchName || qtyRaw === null || !Number.isInteger(qty) || qty 
   process.exit(1);
 }
 
-const supabase = createClient(url, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
-
-/** Read every row of a table in pages. A plain select silently stops at 1000. */
-async function fetchAll(build) {
-  const out = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await build().range(from, from + PAGE - 1);
-    if (error) throw new Error(error.message);
-    out.push(...(data || []));
-    if (!data || data.length < PAGE) break;
-  }
-  return out;
-}
+const supabase = createServiceClient();
 
 const money = (n) => n.toLocaleString("en-ZA", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
 async function main() {
-  const { data: orgs, error: orgErr } = await supabase
-    .from("organizations")
-    .select("id, name")
-    .ilike("name", `%${orgName}%`);
-  if (orgErr) throw new Error(orgErr.message);
-  if (!orgs?.length) throw new Error(`No shop matching "${orgName}"`);
-  if (orgs.length > 1) throw new Error(`"${orgName}" matches: ${orgs.map((o) => o.name).join(", ")}`);
-  const org = orgs[0];
-
-  const { data: locs, error: locErr } = await supabase
-    .from("locations")
-    .select("id, name, active")
-    .eq("org_id", org.id);
-  if (locErr) throw new Error(locErr.message);
-  const branch = (locs || []).find((l) => l.name.trim().toLowerCase() === branchName.trim().toLowerCase());
-  if (!branch) {
-    throw new Error(`No branch "${branchName}" at ${org.name}. Have: ${(locs || []).map((l) => l.name).join(", ")}`);
-  }
+  const org = await resolveOrg(supabase, orgName);
+  const branch = await resolveBranch(supabase, org.id, branchName);
 
   const products = await fetchAll(() =>
     supabase
@@ -157,7 +116,4 @@ async function main() {
   console.log(`Done. ${branch.name} now has ${after.length} stock rows, ${atQty} at ${qty}.`);
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : String(e));
-  process.exit(1);
-});
+runMain(main);

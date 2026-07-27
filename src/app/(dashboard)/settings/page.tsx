@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -35,6 +35,7 @@ export default function SettingsPage() {
     currentLocationId,
     subscriptionPlan,
     subscriptionStatus,
+    currentPeriodEnd,
     refresh: refreshOrg,
   } = useOrg();
   // PINs are per-location (location_settings). `pinLocationId` is the branch the
@@ -44,6 +45,7 @@ export default function SettingsPage() {
   const [pinLocationId, setPinLocationId] = useState<string | null>(null);
   const effectivePinLocationId = pinLocationId ?? currentLocationId;
   const [showPricing, setShowPricing] = useState(false);
+  const [managingSubscription, setManagingSubscription] = useState(false);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -100,6 +102,28 @@ export default function SettingsPage() {
     ((data || []) as { key: string; value: string }[]).forEach((row) => (map[row.key] = row.value));
     setAdminPin(map.admin_pin || "1234");
     setCashierPin(map.cashier_pin || "0000");
+  }
+
+  async function handleManageSubscription() {
+    setManagingSubscription(true);
+    try {
+      const { data: sessionData } = await db.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) { alert("Not signed in"); return; }
+      const res = await fetch("/api/billing/manage", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({ error: "Unknown error" }));
+        alert(body.error || "Could not open subscription management");
+        return;
+      }
+      const { url } = await res.json();
+      window.open(url, "_blank", "noopener");
+    } finally {
+      setManagingSubscription(false);
+    }
   }
 
   async function handleSave() {
@@ -217,31 +241,52 @@ export default function SettingsPage() {
             <CreditCard className="w-5 h-5 text-gray-600" />
             Plan &amp; Billing
           </h2>
-          <div className="flex flex-wrap items-center justify-between gap-4">
-            <div>
-              <p className="text-sm text-gray-700">
-                Current plan:{" "}
-                <span className="font-semibold">
-                  {(subscriptionPlan && getPlan(subscriptionPlan as "starter" | "growth" | "pro")?.name) || "Trial"}
-                </span>
-                {subscriptionStatus === "trialing" && (
-                  <span className="text-gray-400 font-normal"> · on trial</span>
+          <div className="space-y-4">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div>
+                <p className="text-sm text-gray-700">
+                  Current plan:{" "}
+                  <span className="font-semibold">
+                    {(subscriptionPlan && getPlan(subscriptionPlan as "starter" | "growth" | "pro")?.name) || "Trial"}
+                  </span>
+                  {subscriptionStatus === "trialing" && (
+                    <span className="text-gray-400 font-normal"> · on trial</span>
+                  )}
+                  {subscriptionStatus === "past_due" && (
+                    <span className="text-amber-600 font-normal"> · payment overdue</span>
+                  )}
+                  {subscriptionStatus === "cancelled" && (
+                    <span className="text-red-600 font-normal"> · cancelled</span>
+                  )}
+                </p>
+                {subscriptionStatus === "active" && currentPeriodEnd && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Renews {new Date(currentPeriodEnd).toLocaleDateString("en-ZA", { day: "numeric", month: "long", year: "numeric" })}
+                  </p>
                 )}
-                {subscriptionStatus === "past_due" && (
-                  <span className="text-amber-600 font-normal"> · payment overdue</span>
+                {subscriptionStatus !== "active" && (
+                  <p className="text-xs text-gray-500 mt-1">
+                    Upgrade any time to unlock more locations, users and priority support.
+                  </p>
                 )}
-                {subscriptionStatus === "cancelled" && (
-                  <span className="text-red-600 font-normal"> · cancelled</span>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {subscriptionStatus === "active" && (
+                  <Button
+                    variant="secondary"
+                    onClick={handleManageSubscription}
+                    loading={managingSubscription}
+                  >
+                    <ExternalLink className="w-4 h-4 mr-2" />
+                    Manage subscription
+                  </Button>
                 )}
-              </p>
-              <p className="text-xs text-gray-500 mt-1">
-                Upgrade any time to unlock more locations, users and priority support.
-              </p>
+                <Button onClick={() => setShowPricing(true)}>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  {subscriptionStatus === "active" ? "Change plan" : "Upgrade"}
+                </Button>
+              </div>
             </div>
-            <Button onClick={() => setShowPricing(true)}>
-              <Sparkles className="w-4 h-4 mr-2" />
-              {subscriptionStatus === "active" ? "Change plan" : "Upgrade"}
-            </Button>
           </div>
         </div>
         <PricingModal open={showPricing} onClose={() => setShowPricing(false)} />

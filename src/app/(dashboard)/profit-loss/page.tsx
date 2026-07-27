@@ -12,7 +12,7 @@ import { INVENTORY_EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/data
 type Period = "today" | "week" | "month" | "custom";
 
 export default function ProfitLossPage() {
-  const { role, assignedLocationId, currentLocationId, locations } = useOrg();
+  const { role, assignedLocationId, currentLocationId, locations, vatPercent } = useOrg();
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
   const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
@@ -136,8 +136,16 @@ export default function ProfitLossPage() {
     setLoading(false);
   }
 
-  const totalRevenue = cashRevenue + cardRevenue + creditRevenue;
-  const grossProfit = totalRevenue - cogs;
+  const vatRate = vatPercent != null ? vatPercent / 100 : 0;
+  const isVatRegistered = vatPercent != null && vatPercent > 0;
+  const exVat = (amount: number) => isVatRegistered ? amount / (1 + vatRate) : amount;
+
+  const totalRevenueInc = cashRevenue + cardRevenue + creditRevenue;
+  const totalRevenue = exVat(totalRevenueInc);
+  const exVatCogs = exVat(cogs);
+  const outputVat = totalRevenueInc - totalRevenue;
+  const inputVat = cogs - exVatCogs;
+  const grossProfit = totalRevenue - exVatCogs;
   const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
   const netProfit = grossProfit - operatingExpenses - directorWithdrawals;
   const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
@@ -212,12 +220,14 @@ export default function ProfitLossPage() {
           {/* Revenue section */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-green-50 border-b border-green-100">
-              <h2 className="font-semibold text-green-800">Revenue</h2>
+              <h2 className="font-semibold text-green-800">
+                Revenue{isVatRegistered ? " (ex-VAT)" : ""}
+              </h2>
             </div>
             <div className="divide-y divide-gray-100">
-              <PnLRow label="Cash Sales" amount={cashRevenue} />
-              <PnLRow label="Card Sales" amount={cardRevenue} />
-              <PnLRow label="Credit Sales" amount={creditRevenue} />
+              <PnLRow label="Cash Sales" amount={exVat(cashRevenue)} />
+              <PnLRow label="Card Sales" amount={exVat(cardRevenue)} />
+              <PnLRow label="Credit Sales" amount={exVat(creditRevenue)} />
               <PnLRow label="Total Revenue" amount={totalRevenue} bold />
             </div>
           </div>
@@ -225,10 +235,12 @@ export default function ProfitLossPage() {
           {/* COGS section */}
           <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 bg-amber-50 border-b border-amber-100">
-              <h2 className="font-semibold text-amber-800">Cost of Goods Sold</h2>
+              <h2 className="font-semibold text-amber-800">
+                Cost of Goods Sold{isVatRegistered ? " (ex-VAT)" : ""}
+              </h2>
             </div>
             <div className="divide-y divide-gray-100">
-              <PnLRow label="Product Costs (package_price ÷ qty_in_pack × units)" amount={cogs} negative />
+              <PnLRow label="Product Costs" amount={exVatCogs} negative />
               <PnLRow label="Gross Profit" amount={grossProfit} bold highlight={grossProfit >= 0 ? "green" : "red"} />
               <PnLRow label="Gross Margin" amount={grossMargin} percent />
             </div>
@@ -301,12 +313,33 @@ export default function ProfitLossPage() {
             </div>
           )}
 
+          {/* VAT summary — only for VAT-registered orgs */}
+          {isVatRegistered && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 bg-blue-50 border-b border-blue-100">
+                <h2 className="font-semibold text-blue-800">VAT Summary ({vatPercent}%)</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <PnLRow label="Output VAT (collected on sales)" amount={outputVat} />
+                <PnLRow label="Input VAT (paid on stock purchases)" amount={inputVat} />
+                <PnLRow label="Net VAT Payable" amount={outputVat - inputVat} bold highlight={outputVat - inputVat > 0 ? "red" : "green"} />
+                <div className="px-5 py-3 text-xs text-gray-500">
+                  VAT has been extracted from revenue and COGS above. This section shows the
+                  VAT portion for reference — the net payable is what you owe (or are owed by)
+                  the tax authority for this period.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Net Profit */}
           <div className={`rounded-xl overflow-hidden border-2 ${netProfit >= 0 ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}>
             <div className="px-5 py-4 flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Net Profit</p>
-                <p className="text-xs text-gray-500 mt-0.5">Revenue − COGS − Expenses − Withdrawals</p>
+                <p className="text-xs text-gray-500 mt-0.5">
+                  Revenue − COGS − Expenses − Withdrawals{isVatRegistered ? " (all ex-VAT)" : ""}
+                </p>
               </div>
               <div className="text-right">
                 <p className={`text-3xl font-bold ${netProfit >= 0 ? "text-green-700" : "text-red-700"}`}>

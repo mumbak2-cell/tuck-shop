@@ -20,31 +20,17 @@
 // Needs SUPABASE_SERVICE_ROLE_KEY: listing the bucket and counting references
 // must span every org, which RLS deliberately prevents the anon key from doing.
 
-import { createClient } from "@supabase/supabase-js";
+import { createServiceClient, PAGE, runMain } from "./lib/common.mjs";
 
 const BUCKET = "receipts";
-const PAGE = 1000;
 
 // An object younger than this is assumed to be an upload still in flight —
 // picked but not yet saved against a row. Deleting those would break a receipt
 // the operator is in the middle of attaching.
 const MIN_AGE_MS = 60 * 60 * 1000;
 
-const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!url || !serviceKey) {
-  console.error(
-    "Missing NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY.\n" +
-      "Run with: node --env-file=.env.local scripts/cleanup-orphaned-receipts.mjs"
-  );
-  process.exit(1);
-}
-
 const doDelete = process.argv.includes("--delete");
-const supabase = createClient(url, serviceKey, {
-  auth: { persistSession: false, autoRefreshToken: false },
-});
+const supabase = createServiceClient();
 
 /** Every object in the bucket, as { path, size, createdAt }. */
 async function listObjects() {
@@ -161,7 +147,4 @@ async function main() {
   console.log(`\nDeleted ${removed} objects, reclaiming ${mb(orphanBytes)} MB.`);
 }
 
-main().catch((err) => {
-  console.error(err.message);
-  process.exit(1);
-});
+runMain(main);
