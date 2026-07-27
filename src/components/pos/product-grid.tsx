@@ -13,7 +13,7 @@ import { useEffect, useState, useMemo, useRef } from "react";
 import { Product } from "@/types/database";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
-import { Search, X, LayoutGrid } from "lucide-react";
+import { Search, X, LayoutGrid, List } from "lucide-react";
 
 interface Props {
   products: Product[];
@@ -45,6 +45,7 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
 
   useEffect(() => {
     (async () => {
@@ -172,26 +173,39 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
 
       {/* ── Search bar + product grid ── */}
       <div className="flex-1 flex flex-col min-h-0">
-        <div className="relative mb-3 flex-shrink-0">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder={`Search ${totalCount} products by name or ID...`}
-            aria-label="Search products by name or barcode"
-            role="searchbox"
-            className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-          />
-          {search && (
-            <button
-              onClick={() => setSearch("")}
-              className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
-              aria-label="Clear search"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          )}
+        <div className="flex gap-2 mb-3 flex-shrink-0">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+            <input
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={`Search ${totalCount} products by name or ID...`}
+              aria-label="Search products by name or barcode"
+              role="searchbox"
+              className="w-full pl-10 pr-10 py-3 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            {search && (
+              <button
+                onClick={() => setSearch("")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 text-gray-400 hover:text-gray-700"
+                aria-label="Clear search"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
+          </div>
+          <button
+            onClick={() => setViewMode(viewMode === "grid" ? "list" : "grid")}
+            aria-label={`Switch to ${viewMode === "grid" ? "list" : "grid"} view`}
+            className={`flex-shrink-0 p-3 rounded-lg border transition-colors ${
+              viewMode === "list"
+                ? "bg-green-600 text-white border-green-600"
+                : "bg-white text-gray-600 border-gray-200 hover:border-green-400"
+            }`}
+          >
+            {viewMode === "grid" ? <List className="w-5 h-5" /> : <LayoutGrid className="w-5 h-5" />}
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto">
@@ -217,6 +231,7 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
             )
           ) : (
             <>
+              {viewMode === "grid" ? (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-2" role="list" aria-label="Products">
                 {renderList.map((product) => {
                   const discountPct = discountMap?.get(product.id) ?? 0;
@@ -224,9 +239,6 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                   const salePrice = hasDiscount
                     ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
                     : product.selling_price;
-                  // The POS page overwrites opening_stock with the current
-                  // location's quantity before handing products here, so this
-                  // is the branch figure rather than the org-wide total.
                   const unitsLeft = product.opening_stock ?? 0;
                   const isLow = unitsLeft > 0 && unitsLeft <= LOW_STOCK_AT;
                   return (
@@ -262,9 +274,6 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                       {product.is_prepared && (
                         <span className="text-[10px] text-blue-600 mt-0.5">Prepared</span>
                       )}
-                      {/* Sits below the price rather than over the tile: the price
-                          is what the cashier actually reads, and a corner badge on
-                          a 90px target competes with it. */}
                       {isLow && (
                         <span className="mt-0.5 rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800">
                           {unitsLeft} left
@@ -274,6 +283,59 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                   );
                 })}
               </div>
+              ) : (
+              <div className="flex flex-col gap-1" role="list" aria-label="Products">
+                {renderList.map((product) => {
+                  const discountPct = discountMap?.get(product.id) ?? 0;
+                  const hasDiscount = discountPct > 0;
+                  const salePrice = hasDiscount
+                    ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
+                    : product.selling_price;
+                  const unitsLeft = product.opening_stock ?? 0;
+                  const isLow = unitsLeft > 0 && unitsLeft <= LOW_STOCK_AT;
+                  return (
+                    <button
+                      key={product.id}
+                      onClick={() => onAddToCart(product)}
+                      aria-label={`Add ${product.name} to cart, ${formatMoney(hasDiscount ? salePrice : product.selling_price)}${isLow ? `, only ${unitsLeft} left` : ""}`}
+                      role="listitem"
+                      className={`flex items-center gap-3 px-3 py-2.5 border rounded-lg hover:shadow-sm active:scale-[0.99] transition-all touch-manipulation ${
+                        hasDiscount
+                          ? "bg-red-50 border-red-200 hover:border-red-400"
+                          : "bg-white border-gray-200 hover:border-green-400"
+                      }`}
+                    >
+                      <span className="flex-1 text-sm font-medium text-gray-900 text-left">
+                        {product.name}
+                      </span>
+                      {product.is_prepared && (
+                        <span className="text-[10px] text-blue-600 flex-shrink-0">Prepared</span>
+                      )}
+                      {isLow && (
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-100 text-amber-800 flex-shrink-0">
+                          {unitsLeft} left
+                        </span>
+                      )}
+                      {hasDiscount ? (
+                        <div className="flex items-center gap-2 flex-shrink-0">
+                          <span className="text-xs line-through text-gray-400">
+                            {formatMoney(product.selling_price)}
+                          </span>
+                          <span className="text-sm font-bold text-red-600">
+                            {formatMoney(salePrice)}
+                          </span>
+                          <span className="text-[10px] font-semibold text-red-500">-{discountPct}%</span>
+                        </div>
+                      ) : (
+                        <span className="text-sm font-bold text-green-700 flex-shrink-0">
+                          {formatMoney(product.selling_price)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+              )}
               {cappedHidden > 0 && (
                 <p className="text-center text-xs text-gray-400 mt-3">
                   Showing first {RENDER_CAP} of {filtered.length} matches. Use search or pick a
