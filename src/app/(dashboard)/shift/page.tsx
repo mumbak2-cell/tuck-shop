@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
@@ -20,6 +21,7 @@ interface MethodTotal {
 }
 
 export default function ShiftPage() {
+  const router = useRouter();
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift } = useShift();
   const { currentLocationId, currentLocationName } = useOrg();
@@ -83,8 +85,11 @@ export default function ShiftPage() {
 
   async function handleOpenShift() {
     setOpening(true);
-    await openShift(userName, parseFloat(openingFloat) || 0);
+    const success = await openShift(userName, parseFloat(openingFloat) || 0);
     setOpening(false);
+    if (success) {
+      router.push("/pos");
+    }
   }
 
   async function handleCloseShift() {
