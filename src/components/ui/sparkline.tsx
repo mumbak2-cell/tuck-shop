@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import { toLocalDateStr } from "@/lib/date-utils";
 
 export interface SparkPoint {
   /** ISO date (yyyy-mm-dd) — used as the tooltip label and the x ordering. */
@@ -92,7 +93,7 @@ export function bucketByDay<T>(
   const start = new Date(from);
   const end = new Date(to);
   for (let d = new Date(start); d <= end; d.setDate(d.getDate() + 1)) {
-    totals.set(d.toISOString().split("T")[0], 0);
+    totals.set(toLocalDateStr(d), 0);
   }
   rows.forEach((r) => {
     const key = getDate(r).split("T")[0];

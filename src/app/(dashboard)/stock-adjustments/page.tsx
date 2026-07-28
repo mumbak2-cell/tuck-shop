@@ -12,6 +12,8 @@ import { Sparkline, bucketByDay } from "@/components/ui/sparkline";
 import { Timeline, TimelineGroup, TimelineItem, Avatar } from "@/components/ui/timeline";
 import type { Product } from "@/types/database";
 import { Wrench, Plus, Search, ArrowDown, ArrowUp, Package, Store } from "lucide-react";
+import { localToday, toLocalDateStr } from "@/lib/date-utils";
+import { usePeriodLock } from "@/lib/use-period-lock";
 
 const REASONS = ["Breakage", "Expired", "Theft", "Damaged", "Samples", "Correction", "Other"] as const;
 
@@ -36,6 +38,7 @@ interface Adjustment {
 export default function StockAdjustmentsPage() {
   const { name: userName } = useAuth();
   const { locations, currentLocationId, currentLocationName, canSwitchLocation } = useOrg();
+  const { lockedThrough, isLocked } = usePeriodLock();
   const [adjustments, setAdjustments] = useState<Adjustment[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   /** quantity at each (product_id, location_id) so the form can show the
@@ -129,6 +132,11 @@ export default function StockAdjustmentsPage() {
       return;
     }
 
+    if (isLocked(localToday())) {
+      alert(`Today is in a locked period (through ${lockedThrough}). Unlock the period in Settings first.`);
+      return;
+    }
+
     setSaving(true);
 
     const qty = parseInt(quantity);
@@ -137,9 +145,10 @@ export default function StockAdjustmentsPage() {
       ? Math.max(stockBefore - qty, 0)
       : stockBefore + qty;
 
-    // 1. Record the adjustment with location_id
+    // 1. Record the adjustment with location_id + cost snapshot (migration 068)
+    const costPerUnit = products.find((p) => p.id === selectedProduct)?.cost_per_unit ?? null;
     const { error: adjErr } = await db.from("stock_adjustments").insert({
-      adjustment_date: new Date().toISOString().split("T")[0],
+      adjustment_date: localToday(),
       product_id: selectedProduct,
       reason,
       quantity: qty,
@@ -149,6 +158,7 @@ export default function StockAdjustmentsPage() {
       stock_before: stockBefore,
       stock_after: stockAfter,
       location_id: formLocationId,
+      cost_price: costPerUnit,
     });
 
     if (adjErr) {
@@ -215,14 +225,12 @@ export default function StockAdjustmentsPage() {
     const removals = adjustments.filter((a) => a.direction === "decrease");
     if (adjustments.length === 0) return { removalsByDay: [], unitsRemoved: 0 };
 
-    const today = new Date();
-    const windowStart = new Date(today);
+    const windowStart = new Date();
     windowStart.setDate(windowStart.getDate() - (ROLLUP_DAYS - 1));
+    const windowStartStr = toLocalDateStr(windowStart);
 
     const oldest = adjustments.map((a) => a.adjustment_date).sort()[0];
-    const from = oldest > windowStart.toISOString().split("T")[0]
-      ? oldest
-      : windowStart.toISOString().split("T")[0];
+    const from = oldest > windowStartStr ? oldest : windowStartStr;
 
     const inWindow = removals.filter((a) => a.adjustment_date >= from);
     return {
@@ -231,7 +239,7 @@ export default function StockAdjustmentsPage() {
         (a) => a.adjustment_date,
         (a) => a.quantity,
         from,
-        today.toISOString().split("T")[0]
+        localToday()
       ),
       unitsRemoved: inWindow.reduce((sum, a) => sum + a.quantity, 0),
     };

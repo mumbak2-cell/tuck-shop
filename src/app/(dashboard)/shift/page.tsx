@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, CheckCircle, Banknote, Smartphone, CreditCard, Users } from "lucide-react";
 import Link from "next/link";
 import { paymentBucket } from "@/lib/payment-buckets";
+import { localToday } from "@/lib/date-utils";
 
 interface LastCount {
   date: string;
@@ -60,7 +61,7 @@ export default function ShiftPage() {
     async function loadMethodTotals() {
       if (!shift || !currentLocationId) return;
       setLoadingTotals(true);
-      const today = new Date().toISOString().split("T")[0];
+      const today = localToday();
       const { data } = await db
         .from("sales")
         .select("total_amount, payment_method, location_id")

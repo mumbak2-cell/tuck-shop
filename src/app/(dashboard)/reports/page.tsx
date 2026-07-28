@@ -32,6 +32,7 @@ import {
 import { paymentBucket } from "@/lib/payment-buckets";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
+import { localToday, localMonthStart, localWeekStart } from "@/lib/date-utils";
 
 type Period = "today" | "week" | "month" | "custom";
 
@@ -96,12 +97,8 @@ export default function ReportsPage() {
   const filteredLocName = isFiltered ? (locations.find((l) => l.id === effectiveLoc)?.name || "") : "";
 
   const [period, setPeriod] = useState<Period>("month");
-  const [customFrom, setCustomFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  });
-  const [customTo, setCustomTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [customFrom, setCustomFrom] = useState(localMonthStart);
+  const [customTo, setCustomTo] = useState(localToday);
   const [loading, setLoading] = useState(true);
 
   const [revenue, setRevenue] = useState(0);
@@ -130,18 +127,10 @@ export default function ReportsPage() {
   }, [period, customFrom, customTo, effectiveLoc, isFiltered, isManager]);
 
   function getDateRange(): { from: string; to: string } {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localToday();
     if (period === "today") return { from: today, to: today };
-    if (period === "week") {
-      const d = new Date();
-      d.setDate(d.getDate() - d.getDay()); // start of week (Sunday)
-      return { from: d.toISOString().split("T")[0], to: today };
-    }
-    if (period === "month") {
-      const d = new Date();
-      d.setDate(1);
-      return { from: d.toISOString().split("T")[0], to: today };
-    }
+    if (period === "week") return { from: localWeekStart(), to: today };
+    if (period === "month") return { from: localMonthStart(), to: today };
     return { from: customFrom, to: customTo };
   }
 
@@ -456,9 +445,8 @@ export default function ReportsPage() {
   }
 
   function exportLowStock() {
-    const today = new Date().toISOString().split("T")[0];
     downloadCsv(
-      `tilify-low-stock-${today}${locSuffix()}.csv`,
+      `tilify-low-stock-${localToday()}${locSuffix()}.csv`,
       ["Product", "Quantity"],
       lowStock.map((r) => [r.name, String(r.quantity)])
     );

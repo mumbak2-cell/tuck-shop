@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Sparkline, bucketByDay } from "@/components/ui/sparkline";
 import { BookOpen, ArrowUpRight, ArrowDownLeft, MessageCircle, Download } from "lucide-react";
 import type { Customer } from "@/types/database";
+import { localToday, localMonthStart } from "@/lib/date-utils";
 
 interface LedgerEntry {
   id: string;
@@ -37,12 +38,8 @@ export default function CreditLedgerPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [filterCustomer, setFilterCustomer] = useState("all");
-  const [filterFrom, setFilterFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  });
-  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [filterFrom, setFilterFrom] = useState(localMonthStart);
+  const [filterTo, setFilterTo] = useState(localToday);
   const [broughtForward, setBroughtForward] = useState(0);
 
   useEffect(() => {

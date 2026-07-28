@@ -7,6 +7,7 @@ import { TruckIcon, Upload, Check, AlertTriangle } from "lucide-react";
 import type { Product } from "@/types/database";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
+import { localToday } from "@/lib/date-utils";
 
 interface StockPilotRow {
   inventoryId: string;
@@ -194,7 +195,7 @@ export default function StockPilotImportPage() {
 
         // Also record as a per-location stock count for the day so Revenue
         // Assurance has the audit trail.
-        const countDate = m.row.sessionDate || new Date().toISOString().split("T")[0];
+        const countDate = m.row.sessionDate || localToday();
         await db.from("stock_counts").upsert(
           {
             session_id: importSessionId,

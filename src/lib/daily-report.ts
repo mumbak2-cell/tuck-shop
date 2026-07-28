@@ -118,7 +118,7 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
   // Yesterday's stock adjustments (count only losses, i.e. direction='decrease')
   const { data: adjRows, error: adjErr } = await supabase
     .from("stock_adjustments")
-    .select("location_id, quantity, direction, products(selling_price)")
+    .select("location_id, quantity, direction, cost_price, products(selling_price, cost_per_unit)")
     .eq("org_id", orgId)
     .eq("adjustment_date", date);
   if (adjErr) console.error(`[daily-report] adjustments query failed for ${orgId}:`, adjErr.message);
@@ -155,10 +155,14 @@ export async function buildDailySummary(orgId: string, isoDate?: string): Promis
     const adjustmentsLoss: number = adjustments
       .filter((a: any) => a.location_id === loc.id && a.direction === "decrease")
       .reduce((sum: number, a: any) => {
-        // products may come back as an object or an array depending on FK direction
+        // Prefer snapshotted cost_price (migration 068); fall back to
+        // product's current cost_per_unit; last resort selling_price.
         const productRel = Array.isArray(a.products) ? a.products[0] : a.products;
-        const sellPrice = Number(productRel?.selling_price) || 0;
-        return sum + sellPrice * (Number(a.quantity) || 0);
+        const unitCost = Number(a.cost_price)
+          || Number(productRel?.cost_per_unit)
+          || Number(productRel?.selling_price)
+          || 0;
+        return sum + unitCost * (Number(a.quantity) || 0);
       }, 0);
 
     return {

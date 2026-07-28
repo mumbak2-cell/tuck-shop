@@ -4,6 +4,7 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { insertOrQueue } from "@/lib/offline-ops";
 import { enqueueOp } from "@/lib/offline-store";
+import { localToday } from "@/lib/date-utils";
 
 interface Shift {
   id: string;
@@ -48,7 +49,7 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
   const [shift, setShift] = useState<Shift | null>(null);
   const [loading, setLoading] = useState(true);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localToday();
 
   // Shifts are per-location. Each shop opens and closes its own shift independently.
   const fetchShift = useCallback(async () => {

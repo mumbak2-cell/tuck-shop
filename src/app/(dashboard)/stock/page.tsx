@@ -7,6 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
+import { localToday } from "@/lib/date-utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -54,7 +55,7 @@ export default function StockCountPage() {
   const [todaySessions, setTodaySessions] = useState<ExistingSession[]>([]);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localToday();
 
   const fetchProducts = useCallback(async (forSessionId?: string) => {
     if (!currentLocationId) {

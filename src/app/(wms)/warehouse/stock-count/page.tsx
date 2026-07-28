@@ -18,6 +18,7 @@ import {
   Filter,
   Clock,
 } from "lucide-react";
+import { localToday, toLocalDateStr } from "@/lib/date-utils";
 
 interface WmsInventoryRow {
   wms_item_id: number;
@@ -75,7 +76,7 @@ function nextDueDate(item: WmsCatalogItem): string | null {
   if (!item.last_counted_at) return null;
   const d = new Date(item.last_counted_at);
   d.setDate(d.getDate() + item.count_frequency_days);
-  return d.toISOString().split("T")[0];
+  return toLocalDateStr(d);
 }
 
 export default function WmsStockCountPage() {
@@ -96,7 +97,7 @@ export default function WmsStockCountPage() {
   const [todaySessions, setTodaySessions] = useState<ExistingSession[]>([]);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localToday();
 
   const fetchData = useCallback(
     async (forSessionId?: string) => {

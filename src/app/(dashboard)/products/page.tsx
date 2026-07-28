@@ -13,6 +13,7 @@ import { CsvUploadModal } from "@/components/products/csv-upload";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useDebounce } from "@/lib/use-debounce";
 import { Tooltip } from "@/components/ui/tooltip";
+import { localToday } from "@/lib/date-utils";
 import { TruncatedText } from "@/components/ui/truncate";
 import { ActionMenu, MenuItem } from "@/components/ui/menu";
 import { Plus, Search, Filter, Upload, Download, Tag, Pencil, Trash2 } from "lucide-react";
@@ -209,7 +210,7 @@ export default function ProductsPage() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `products_with_stock_${new Date().toISOString().split("T")[0]}.csv`;
+    a.download = `products_with_stock_${localToday()}.csv`;
     a.click();
     URL.revokeObjectURL(url);
   }

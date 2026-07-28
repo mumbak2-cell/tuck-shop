@@ -14,10 +14,13 @@ import { insertOrQueue } from "@/lib/offline-ops";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 import { deleteReceiptIfUnreferenced, discardUnsavedReceipt } from "@/lib/receipt-storage";
+import { localToday, localMonthStart } from "@/lib/date-utils";
+import { usePeriodLock } from "@/lib/use-period-lock";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
   const { currentLocationId, currentLocationName, orgId, role } = useOrg();
+  const { lockedThrough, isLocked } = usePeriodLock();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -31,15 +34,11 @@ export default function ExpensesPage() {
 
   // Filters
   const [filterCategory, setFilterCategory] = useState<string>("all");
-  const [filterFrom, setFilterFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1); // first of month
-    return d.toISOString().split("T")[0];
-  });
-  const [filterTo, setFilterTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [filterFrom, setFilterFrom] = useState(localMonthStart);
+  const [filterTo, setFilterTo] = useState(localToday);
 
   // Form
-  const [formDate, setFormDate] = useState(() => new Date().toISOString().split("T")[0]);
+  const [formDate, setFormDate] = useState(localToday);
   const [formCategory, setFormCategory] = useState<ExpenseCategory>("Transport");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState("");
@@ -146,7 +145,11 @@ export default function ExpensesPage() {
     loadExpenses();
   }
 
-  async function handleDelete(id: string, receiptPath: string | null) {
+  async function handleDelete(id: string, receiptPath: string | null, expenseDate?: string) {
+    if (expenseDate && isLocked(expenseDate)) {
+      alert(`This expense is in a locked period (through ${lockedThrough}). Unlock the period in Settings first.`);
+      return;
+    }
     if (!confirm("Delete this expense entry?")) return;
     await db.from("expenses").delete().eq("id", id);
     // After the row is gone, drop its receipt unless something else still
@@ -164,7 +167,7 @@ export default function ExpensesPage() {
   }
 
   function resetForm() {
-    setFormDate(new Date().toISOString().split("T")[0]);
+    setFormDate(localToday());
     setFormCategory("Transport");
     setFormDescription("");
     setFormAmount("");
@@ -339,7 +342,7 @@ export default function ExpensesPage() {
                 )}
                 <Tooltip label="Delete expense">
                   <button
-                    onClick={() => handleDelete(exp.id, exp.receipt_path)}
+                    onClick={() => handleDelete(exp.id, exp.receipt_path, exp.expense_date)}
                     aria-label="Delete expense"
                     className="p-1.5 text-gray-400 hover:text-red-600 rounded"
                   >

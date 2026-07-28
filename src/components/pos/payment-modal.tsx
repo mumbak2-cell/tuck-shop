@@ -9,6 +9,7 @@ import { useOnline } from "@/lib/use-online";
 import { readCache } from "@/lib/offline-store";
 import { submitSaleBatch } from "@/lib/offline-ops";
 import { toInternationalPhone } from "@/lib/currency";
+import { localToday } from "@/lib/date-utils";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -251,7 +252,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       payment_method: selectedMethod.name,
       payment_reference: paymentReference.trim() || null,
       customer_id: selectedKind === "credit" ? selectedCustomer : null,
-      sale_date: new Date().toISOString().split("T")[0],
+      sale_date: localToday(),
       created_at: new Date().toISOString(),
       lines: items.map((item) => ({
         product_id: item.productId,

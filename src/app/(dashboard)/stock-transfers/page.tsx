@@ -22,6 +22,7 @@ import {
   Printer, Mail, MessageCircle, FileDown, RotateCcw,
 } from "lucide-react";
 import { formatZAR } from "@/lib/format";
+import { localToday, localYesterday, toLocalDateStr } from "@/lib/date-utils";
 
 interface Product {
   id: string;
@@ -497,7 +498,7 @@ export default function StockTransfersPage() {
   const groupedRecent = (() => {
     const byDay = new Map<string, TransferRow[]>();
     recent.forEach((t) => {
-      const day = new Date(t.transferred_at).toISOString().split("T")[0];
+      const day = toLocalDateStr(new Date(t.transferred_at));
       const rows = byDay.get(day) ?? [];
       rows.push(t);
       byDay.set(day, rows);
@@ -796,10 +797,8 @@ export default function StockTransfersPage() {
 /** Day heading for the transfer timeline — "Today"/"Yesterday" where it helps,
  *  an explicit date otherwise. */
 function formatDayLabel(day: string): string {
-  const today = new Date().toISOString().split("T")[0];
-  const yesterdayDate = new Date();
-  yesterdayDate.setDate(yesterdayDate.getDate() - 1);
-  const yesterday = yesterdayDate.toISOString().split("T")[0];
+  const today = localToday();
+  const yesterday = localYesterday();
 
   if (day === today) return "Today";
   if (day === yesterday) return "Yesterday";

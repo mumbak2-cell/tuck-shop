@@ -1,4 +1,4 @@
--- 065_fix_chichi_currency_zmw.sql
+-- 067_fix_chichi_currency_zmw.sql
 --
 -- Set Chichi's Bakes and Accessories to the Zambian Kwacha (ZMW).
 --

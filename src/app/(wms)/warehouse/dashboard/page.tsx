@@ -19,6 +19,7 @@ import {
   RefreshCw,
   Boxes,
 } from "lucide-react";
+import { toLocalDateStr } from "@/lib/date-utils";
 
 /* ------------------------------------------------------------------ */
 /*  Types                                                              */
@@ -132,7 +133,7 @@ export default function WmsDashboardPage() {
   const thirtyDaysAgo = (() => {
     const d = new Date();
     d.setDate(d.getDate() - 30);
-    return d.toISOString().split("T")[0];
+    return toLocalDateStr(d);
   })();
 
   const fetchAll = useCallback(async () => {

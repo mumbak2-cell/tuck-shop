@@ -8,6 +8,7 @@ import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/loca
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { INVENTORY_EXPENSE_CATEGORIES, type ExpenseCategory } from "@/types/database";
+import { localToday, localMonthStart, localWeekStart } from "@/lib/date-utils";
 
 type Period = "today" | "week" | "month" | "custom";
 
@@ -19,12 +20,8 @@ export default function ProfitLossPage() {
   const filteredLocName = isFiltered ? (locations.find((l) => l.id === effectiveLoc)?.name || "") : "";
 
   const [period, setPeriod] = useState<Period>("month");
-  const [customFrom, setCustomFrom] = useState(() => {
-    const d = new Date();
-    d.setDate(1);
-    return d.toISOString().split("T")[0];
-  });
-  const [customTo, setCustomTo] = useState(() => new Date().toISOString().split("T")[0]);
+  const [customFrom, setCustomFrom] = useState(localMonthStart);
+  const [customTo, setCustomTo] = useState(localToday);
   const [loading, setLoading] = useState(true);
 
   // P&L data
@@ -40,6 +37,11 @@ export default function ProfitLossPage() {
   // twice and understated profit. Held separate so the figure stays visible.
   const [stockPurchases, setStockPurchases] = useState(0);
   const [expenseBreakdown, setExpenseBreakdown] = useState<{ category: string; total: number }[]>([]);
+  const [shrinkageCost, setShrinkageCost] = useState(0);
+  const [shrinkageUncosted, setShrinkageUncosted] = useState(0);
+  const [inventoryValue, setInventoryValue] = useState(0);
+  const [inventoryUncosted, setInventoryUncosted] = useState(0);
+  const [inventoryUnits, setInventoryUnits] = useState(0);
 
   useEffect(() => {
     loadPnL();
@@ -47,18 +49,10 @@ export default function ProfitLossPage() {
   }, [period, customFrom, customTo, effectiveLoc, isFiltered]);
 
   function getDateRange(): { from: string; to: string } {
-    const today = new Date().toISOString().split("T")[0];
+    const today = localToday();
     if (period === "today") return { from: today, to: today };
-    if (period === "week") {
-      const d = new Date();
-      d.setDate(d.getDate() - d.getDay()); // start of week (Sunday)
-      return { from: d.toISOString().split("T")[0], to: today };
-    }
-    if (period === "month") {
-      const d = new Date();
-      d.setDate(1);
-      return { from: d.toISOString().split("T")[0], to: today };
-    }
+    if (period === "week") return { from: localWeekStart(), to: today };
+    if (period === "month") return { from: localMonthStart(), to: today };
     return { from: customFrom, to: customTo };
   }
 
@@ -133,6 +127,54 @@ export default function ProfitLossPage() {
         .sort((a, b) => b.total - a.total)
     );
 
+    // 4. Shrinkage: stock adjustments (decrease) for loss reasons, valued at cost
+    const LOSS_REASONS = ["Breakage", "Expired", "Theft", "Damaged", "Samples"];
+    let adjQ = db
+      .from("stock_adjustments")
+      .select("quantity, cost_price, reason")
+      .eq("direction", "decrease")
+      .in("reason", LOSS_REASONS)
+      .gte("adjustment_date", from)
+      .lte("adjustment_date", to);
+    if (isFiltered) adjQ = adjQ.eq("location_id", effectiveLoc);
+    const { data: adjRows } = await adjQ;
+
+    let shrinkTotal = 0;
+    let uncosted = 0;
+    ((adjRows || []) as { quantity: number; cost_price: number | null; reason: string }[]).forEach((a) => {
+      if (a.cost_price != null) {
+        shrinkTotal += a.cost_price * a.quantity;
+      } else {
+        uncosted++;
+      }
+    });
+    setShrinkageCost(shrinkTotal);
+    setShrinkageUncosted(uncosted);
+
+    // 5. Inventory on hand (point-in-time, not period-dependent)
+    let stockQ = db
+      .from("product_stock")
+      .select("quantity, product_id, products(cost_per_unit)")
+      .gt("quantity", 0);
+    if (isFiltered) stockQ = stockQ.eq("location_id", effectiveLoc);
+    const { data: stockRows } = await stockQ;
+
+    let invValue = 0;
+    let invUncosted = 0;
+    let invUnits = 0;
+    ((stockRows || []) as { quantity: number; product_id: string; products: { cost_per_unit: number | null } | null }[]).forEach((r) => {
+      const cost = r.products?.cost_per_unit;
+      invUnits += r.quantity;
+      if (cost != null && cost > 0) {
+        invValue += cost * r.quantity;
+      } else {
+        invUncosted += r.quantity;
+      }
+    });
+    setInventoryValue(invValue);
+    setInventoryUncosted(invUncosted);
+    setInventoryUnits(invUnits);
+
     setLoading(false);
   }
 
@@ -145,7 +187,7 @@ export default function ProfitLossPage() {
   const exVatCogs = exVat(cogs);
   const outputVat = totalRevenueInc - totalRevenue;
   const inputVat = cogs - exVatCogs;
-  const grossProfit = totalRevenue - exVatCogs;
+  const grossProfit = totalRevenue - exVatCogs - shrinkageCost;
   const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
   const netProfit = grossProfit - operatingExpenses - directorWithdrawals;
   const netMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0;
@@ -241,6 +283,14 @@ export default function ProfitLossPage() {
             </div>
             <div className="divide-y divide-gray-100">
               <PnLRow label="Product Costs" amount={exVatCogs} negative />
+              {shrinkageCost > 0 && (
+                <PnLRow label="Shrinkage & Losses" amount={shrinkageCost} negative />
+              )}
+              {shrinkageUncosted > 0 && (
+                <div className="px-5 py-2 text-xs text-amber-700 bg-amber-50">
+                  {shrinkageUncosted} older adjustment{shrinkageUncosted > 1 ? "s" : ""} not costed (recorded before cost tracking).
+                </div>
+              )}
               <PnLRow label="Gross Profit" amount={grossProfit} bold highlight={grossProfit >= 0 ? "green" : "red"} />
               <PnLRow label="Gross Margin" amount={grossMargin} percent />
             </div>
@@ -332,13 +382,39 @@ export default function ProfitLossPage() {
             </div>
           )}
 
+          {/* Inventory on Hand — point-in-time, not a period figure */}
+          {inventoryUnits > 0 && (
+            <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+              <div className="px-5 py-3 bg-indigo-50 border-b border-indigo-100">
+                <h2 className="font-semibold text-indigo-800">Inventory on Hand</h2>
+              </div>
+              <div className="divide-y divide-gray-100">
+                <PnLRow label="Stock Value (at cost)" amount={inventoryValue} />
+                <div className="px-5 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-700">Total Units</span>
+                  <span className="text-sm font-medium text-gray-900">{inventoryUnits.toLocaleString()}</span>
+                </div>
+                {inventoryUncosted > 0 && (
+                  <div className="px-5 py-2 text-xs text-amber-700 bg-amber-50">
+                    {inventoryUncosted.toLocaleString()} unit{inventoryUncosted > 1 ? "s" : ""} have no cost price —
+                    actual inventory value is higher than shown.
+                  </div>
+                )}
+                <div className="px-5 py-3 text-xs text-gray-500">
+                  Current stock × cost price. A snapshot, not a period figure — it always
+                  reflects stock levels right now{isFiltered ? ` at ${filteredLocName}` : ""}.
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Net Profit */}
           <div className={`rounded-xl overflow-hidden border-2 ${netProfit >= 0 ? "border-green-300 bg-green-50" : "border-red-300 bg-red-50"}`}>
             <div className="px-5 py-4 flex items-center justify-between">
               <div>
                 <p className="text-sm text-gray-600">Net Profit</p>
                 <p className="text-xs text-gray-500 mt-0.5">
-                  Revenue − COGS − Expenses − Withdrawals{isVatRegistered ? " (all ex-VAT)" : ""}
+                  Revenue − COGS − Shrinkage − Expenses − Withdrawals{isVatRegistered ? " (all ex-VAT)" : ""}
                 </p>
               </div>
               <div className="text-right">

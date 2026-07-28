@@ -21,6 +21,7 @@ import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/loca
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { fetchAllPaged } from "@/lib/fetch-all";
+import { localToday, localYesterday, localMonthStart, toLocalDateStr } from "@/lib/date-utils";
 
 interface DashboardData {
   totalProducts: number;
@@ -55,8 +56,8 @@ export default function DashboardPage() {
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const [showComparison, setShowComparison] = useState(false);
 
-  const today = new Date().toISOString().split("T")[0];
-  const yesterday = (() => { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split("T")[0]; })();
+  const today = localToday();
+  const yesterday = localYesterday();
 
   // Cashiers are pinned to their own location for reports.
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
@@ -66,7 +67,7 @@ export default function DashboardPage() {
     setLoading(true);
 
     // Get first of month for expenses query
-    const monthStart = (() => { const d = new Date(); d.setDate(1); return d.toISOString().split("T")[0]; })();
+    const monthStart = localMonthStart();
 
     // Build queries with optional location filter.
     let salesQ = db.from("sales").select("total_amount, payment_method").eq("sale_date", today).eq("voided", false);
@@ -603,7 +604,7 @@ async function downloadStockReport() {
     );
   });
 
-  downloadCSV(`stock_levels_${new Date().toISOString().split("T")[0]}.csv`, header, lines);
+  downloadCSV(`stock_levels_${localToday()}.csv`, header, lines);
 }
 
 async function downloadCreditReport() {
@@ -617,14 +618,12 @@ async function downloadCreditReport() {
   const rows = ((customers || []) as any[]).map((c: any) =>
     `\"${c.name}\",${c.phone || ""},${c.credit_limit.toFixed(2)},${c.balance.toFixed(2)}`
   );
-  downloadCSV(`credit_outstanding_${new Date().toISOString().split("T")[0]}.csv`, header, rows);
+  downloadCSV(`credit_outstanding_${localToday()}.csv`, header, rows);
 }
 
 async function downloadPnLReport(date: string) {
   // Get first of month to today
-  const d = new Date();
-  d.setDate(1);
-  const from = d.toISOString().split("T")[0];
+  const from = localMonthStart();
   const to = date;
 
   const [{ data: sales }, { data: expenses }, products] = await Promise.all([

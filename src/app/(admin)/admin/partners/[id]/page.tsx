@@ -74,11 +74,11 @@ function fmtDate(iso: string | null): string {
 }
 function firstOfThisMonth(): string {
   const d = new Date();
-  d.setUTCDate(1);
-  return d.toISOString().split("T")[0];
+  d.setDate(1);
+  return d.toLocaleDateString("en-CA");
 }
 function todayIso(): string {
-  return new Date().toISOString().split("T")[0];
+  return new Date().toLocaleDateString("en-CA");
 }
 
 export default function PartnerDetailPage({ params }: { params: Promise<{ id: string }> }) {

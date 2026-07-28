@@ -8,6 +8,7 @@ import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/curr
 import { setActiveCurrency } from "@/lib/format";
 import { CURRENCY_CACHE_KEY } from "@/lib/currency-context";
 import { DailyDigestSection } from "@/components/settings/daily-digest-section";
+import { PeriodLockSection } from "@/components/settings/period-lock-section";
 import { TeamSection } from "@/components/settings/team-section";
 import { PaymentMethodsSection } from "@/components/settings/payment-methods-section";
 import { PricingModal } from "@/components/billing/pricing-modal";
@@ -586,6 +587,9 @@ export default function SettingsPage() {
 
         {/* Team management - owner/manager, renders null for cashiers */}
         <TeamSection />
+
+        {/* Period Lock - owner only, prevents retroactive edits to closed periods */}
+        <PeriodLockSection />
 
         {/* Daily Email Digest - self-contained section reading from report_subscriptions */}
         <DailyDigestSection />

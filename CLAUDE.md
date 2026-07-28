@@ -95,7 +95,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **066**.
+number, never reuse a prefix. Latest applied: **069**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -165,6 +165,13 @@ Settings → Plan & Billing shows the current plan, renewal date, a "Change plan
 (opens `PricingModal`), and — for active subscribers — a "Manage subscription" button
 that opens Paystack's customer portal (card updates, cancellation) via
 `/api/billing/manage`.
+
+**Manage subscription** (`/api/billing/manage`, `src/app/api/billing/manage/route.ts`):
+looks up the org's `billing_subscription_id`, calls Paystack's
+`/subscription/{id}/manage/link` to mint a single-use portal URL, and returns it for the
+client to open (card updates, cancellation). Returns 404 if no active subscription, 503
+if Paystack is unconfigured. The "Manage subscription" button in Settings → Plan &
+Billing is visible only to owners with an active subscription.
 
 **Temporary:** `src/app/api/billing/plan-check/route.ts` is a token-gated diagnostic
 (plan-code validity + key mode) kept for the live cutover. **Delete it once live billing
@@ -348,6 +355,56 @@ its error**, which would have zeroed replenishment). This is why
 script's header. RLS is unchanged: `stock_receipts` stays org-scoped, not
 org+location, so an owner still sees every branch's deliveries.
 
+## POS grid/list view toggle
+
+`ProductGrid` (`src/components/pos/product-grid.tsx`) has a toggle button next to the
+search bar that switches between the tile grid and a single-row list view. Built for
+operators with long product names (e.g. Chichi's "Artificial Flower Arrangement …")
+where `line-clamp-2` truncates to uselessness.
+
+- **Grid** (default) — compact tiles, 2–5 columns depending on breakpoint, names
+  clamped to two lines.
+- **List** — full product name on the left, price on the right, one row per item.
+  No truncation.
+
+Both views share the same RENDER_CAP (200), discount/low-stock badge logic, and
+`onAddToCart` handler. `viewMode` is component state (not persisted across page loads).
+
+## POS typeable cart quantity
+
+The +/− stepper in `src/components/pos/cart.tsx` wraps a native
+`<input type="number" min={1} inputMode="numeric">`. The `onFocus` handler
+auto-selects the text for quick overwrite. Invalid or blank input is ignored — the
+line keeps its previous quantity until the user types a valid integer ≥ 1. Setting
+quantity to zero is not possible via the input; the trash button is the only way to
+remove a line. The parent POS page implements both `onUpdateQty` (delta) and
+`onSetQty` (absolute) callbacks.
+
+## Partial returns and credit notes
+
+Returns are modelled as **negative-quantity rows in `sales`** (migration **064**), so
+every existing SUM-based report (revenue, COGS, VAT, cash intake) nets out
+automatically with no changes to reporting queries.
+
+- **`sales.return_of_sale_id`** — FK to the original sale being returned.
+- **`sales.credit_note_number`** — format `CN-YYMMDD-HHMM-XXXX`.
+- **`record_sale_return` RPC** enforces: qty > 0, original must not be voided or itself
+  a return, cumulative returned qty cannot exceed original. Atomically inserts the
+  negative row, restocks the branch via `restock_at_location`, and for credit sales
+  reduces the customer balance via `adjust_customer_balance`.
+- **`src/components/pos/credit-note.tsx`** renders a printable credit note. Handles
+  both `refundMode: "cash"` and `"account"`.
+
+## P&L ex-VAT
+
+`src/app/(dashboard)/profit-loss/page.tsx` reads `vatPercent` from `useOrg()`. When
+the org is VAT-registered (`vatPercent > 0`), every revenue and COGS figure is divided
+by `(1 + vatPercent/100)` via the `exVat()` helper. Section headers annotate
+"(ex-VAT)" and a separate VAT Summary card shows output VAT (collected), input VAT
+(on stock purchases), and net payable. Non-VAT-registered orgs see raw figures with
+no VAT card. The extraction assumes all prices are VAT-inclusive, which is the
+standard for the SADC market.
+
 ## POS low-stock warning
 
 Tiles show an amber "N left" badge at **5 units or fewer** (`LOW_STOCK_AT` in
@@ -390,3 +447,46 @@ Model: **base price + overrides**.
 
 To use it: add branches under Locations, distribute stock per branch (POS needs stock > 0
 to show an item), then override prices only on the items/branches that differ.
+
+## Timezone-safe date utility
+
+`src/lib/date-utils.ts` exports `toLocalDateStr(d)`, `localToday()`,
+`localYesterday()`, `localMonthStart()`, `localWeekStart()` — all returning
+`YYYY-MM-DD` in the browser's local timezone. **Every client-side "today" must use
+these**, not `new Date().toISOString().split("T")[0]` (which returns UTC — a SAST user
+at 01:30 local sees yesterday's date). ~40 call sites were migrated.
+
+`daily-report.ts` intentionally uses UTC — it's a server-side cron running at 04:30 UTC
+(06:30 SAST), well clear of the midnight boundary.
+
+## Shrinkage on P&L (migration 068)
+
+`stock_adjustments.cost_price` (migration **068**) snapshots `products.cost_per_unit`
+at adjustment time. The P&L page queries decrease adjustments for loss reasons
+(Breakage, Expired, Theft, Damaged, Samples — not Correction or Other) and shows a
+**"Shrinkage & Losses"** line inside the COGS section. Gross profit =
+`revenue - COGS - shrinkage`. Pre-068 rows have NULL `cost_price` and are counted
+separately with a warning ("N older adjustments not costed").
+
+`daily-report.ts` was updated to value adjustments at cost (snapshot `cost_price` →
+product `cost_per_unit` → `selling_price` fallback), not selling price.
+
+## Inventory valuation card
+
+The P&L page shows an **"Inventory on Hand"** card (indigo theme) — point-in-time
+snapshot of current stock × `cost_per_unit`. Not period-dependent, always shows current
+stock. Products with NULL `cost_per_unit` are counted separately with a warning.
+
+## Period lock (migration 069)
+
+`period_locks` (migration **069**) — one row per org, `locked_through DATE`,
+`UNIQUE(org_id)`, RLS owner-only write / any org member read.
+
+- **Settings UI** (`src/components/settings/period-lock-section.tsx`): owner-only, date
+  picker max=yesterday, can only advance forward.
+- **`src/lib/use-period-lock.ts`**: reusable hook, exposes `isLocked(date)`.
+- **Guards**: sale void (`sales/page.tsx`), expense delete (`expenses/page.tsx`), stock
+  adjustment (`stock-adjustments/page.tsx`) — all check `isLocked(date)` and refuse with
+  a clear message. Sale returns are blocked when the original sale's date is locked.
+- Client-side guard only (no DB trigger). A determined user with SQL access can bypass
+  it — acceptable for management accounts.

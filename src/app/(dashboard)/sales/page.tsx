@@ -12,6 +12,8 @@ import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/loca
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket, type PaymentBucket } from "@/lib/payment-buckets";
 import { CreditNote, generateCreditNoteNumber, type CreditNoteData } from "@/components/pos/credit-note";
+import { localToday } from "@/lib/date-utils";
+import { usePeriodLock } from "@/lib/use-period-lock";
 
 interface SaleSummary {
   cash: number;
@@ -81,7 +83,8 @@ export default function SalesPage() {
     return map;
   }, {} as Record<string, number>);
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = localToday();
+  const { lockedThrough, isLocked } = usePeriodLock();
 
   const fetchSummary = useCallback(async () => {
     setLoading(true);
@@ -187,6 +190,12 @@ export default function SalesPage() {
 
   async function handleVoid() {
     if (!voidTarget) return;
+
+    if (isLocked(today)) {
+      alert(`This sale is in a locked period (through ${lockedThrough}). Unlock the period in Settings first.`);
+      return;
+    }
+
     setVoiding(true);
 
     try {
@@ -237,6 +246,12 @@ export default function SalesPage() {
 
   async function handleReturn() {
     if (!returnTarget) return;
+
+    if (isLocked(today)) {
+      alert(`This sale is in a locked period (through ${lockedThrough}). Returns against locked periods are blocked.`);
+      return;
+    }
+
     const remaining = returnTarget.quantity - (returnedByOriginal[returnTarget.id] || 0);
     const qty = parseInt(returnQty, 10);
     if (!qty || qty < 1 || qty > remaining) {

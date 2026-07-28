@@ -12,6 +12,7 @@ import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
+import { localToday } from "@/lib/date-utils";
 
 interface ReceiptLine {
   id: string;
@@ -131,7 +132,7 @@ export default function ReceiveStockPage() {
       // the header, Revenue Assurance cannot tell which branch was replenished
       // and credits the delivery to every one of them.
       const headerRow: Record<string, unknown> = {
-        receipt_date: new Date().toISOString().split("T")[0],
+        receipt_date: localToday(),
         supplier: supplier || null,
         notes: notes || null,
         total_cost: totalCost,
@@ -238,7 +239,7 @@ export default function ReceiveStockPage() {
       // deleteReceiptIfUnreferenced() rather than removing the file outright.
       if (!preparedFood && createExpense && totalCost > 0) {
         await db.from("expenses").insert({
-          expense_date: new Date().toISOString().split("T")[0],
+          expense_date: localToday(),
           category: "Stock Purchases",
           description: supplier ? `Stock delivery from ${supplier}` : "Stock delivery",
           amount: totalCost,

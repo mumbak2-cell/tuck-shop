@@ -22,6 +22,7 @@ import {
   CloudOff,
 } from "lucide-react";
 import { insertOrQueue } from "@/lib/offline-ops";
+import { localToday } from "@/lib/date-utils";
 
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -588,7 +589,7 @@ function PaymentModal({
       queueKind: "insert_customer_payment",
       row: {
         customer_id: customer.id,
-        payment_date: new Date().toISOString().split("T")[0],
+        payment_date: localToday(),
         amount: val,
         location_id: (customer as { location_id?: string | null }).location_id ?? null,
       } as { id?: string } & Record<string, unknown>,
