@@ -7,17 +7,10 @@ import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, CheckCircle, Banknote, Smartphone, CreditCard, Users } from "lucide-react";
+import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, Banknote, Smartphone, Users } from "lucide-react";
 import Link from "next/link";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { localToday } from "@/lib/date-utils";
-
-interface LastCount {
-  date: string;
-  countedBy: string;
-  countedAt: string;
-  productCount: number;
-}
 
 interface MethodTotal {
   method: string;
@@ -35,8 +28,6 @@ export default function ShiftPage() {
   const [closingCash, setClosingCash] = useState("");
   const [opening, setOpening] = useState(false);
   const [closing, setClosing] = useState(false);
-  const [lastCount, setLastCount] = useState<LastCount | null>(null);
-  const [loadingCount, setLoadingCount] = useState(true);
   const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
   const [loadingTotals, setLoadingTotals] = useState(false);
 
@@ -89,43 +80,6 @@ export default function ShiftPage() {
     }
   }, [shift, currentLocationId]);
 
-  // Check for the most recent stock count
-  useEffect(() => {
-    async function checkLastCount() {
-      setLoadingCount(true);
-      // Find the most recent stock count date
-      const { data: latest } = await db
-        .from("stock_counts")
-        .select("count_date, counted_by, counted_at")
-        .order("count_date", { ascending: false })
-        .order("counted_at", { ascending: false })
-        .limit(1);
-
-      if (latest && latest.length > 0) {
-        const row = (latest as any[])[0];
-        // Get count of products counted on that date
-        const { count } = await db
-          .from("stock_counts")
-          .select("*", { count: "exact", head: true })
-          .eq("count_date", row.count_date);
-
-        setLastCount({
-          date: row.count_date,
-          countedBy: row.counted_by || "Unknown",
-          countedAt: row.counted_at || "",
-          productCount: count || 0,
-        });
-      } else {
-        setLastCount(null);
-      }
-      setLoadingCount(false);
-    }
-    if (!shift) {
-      checkLastCount();
-    } else {
-      setLoadingCount(false);
-    }
-  }, [shift]);
 
   async function handleOpenShift() {
     setOpening(true);
@@ -147,19 +101,12 @@ export default function ShiftPage() {
     setClosing(false);
   }
 
-  if (loading || loadingCount) {
+  if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
   }
 
   // No shift today — show open shift screen
   if (!shift) {
-    const lastCountDate = lastCount
-      ? new Date(lastCount.date).toLocaleDateString("en-ZA", { weekday: "short", year: "numeric", month: "short", day: "numeric" })
-      : null;
-    const lastCountTime = lastCount?.countedAt
-      ? new Date(lastCount.countedAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })
-      : "";
-
     return (
       <div className="max-w-lg mx-auto mt-8">
         <div className="bg-white rounded-2xl border border-gray-200 p-8">
@@ -172,39 +119,6 @@ export default function ShiftPage() {
           </div>
 
           <div className="space-y-4">
-            {/* Last stock count info */}
-            {lastCount ? (
-              <div className="bg-green-50 border border-green-200 rounded-xl px-5 py-4">
-                <div className="flex items-start gap-3">
-                  <CheckCircle className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-green-800">Last stock count available</p>
-                    <p className="text-sm text-green-700 mt-1">
-                      <strong>{lastCountDate}</strong>{lastCountTime ? ` at ${lastCountTime}` : ""}
-                    </p>
-                    <p className="text-xs text-green-600 mt-0.5">
-                      {lastCount.productCount} products counted by {lastCount.countedBy}
-                    </p>
-                    <p className="text-xs text-gray-500 mt-2">
-                      This will be used as your opening stock for today.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4">
-                <div className="flex items-start gap-3">
-                  <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-                  <div>
-                    <p className="text-sm font-medium text-amber-800">No previous stock count found</p>
-                    <p className="text-xs text-amber-600 mt-1">
-                      Current system stock levels will be used as opening stock. You can do a stock count now or continue.
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
-
             <Input
               label="Opening Float (R)"
               type="number"
@@ -214,30 +128,10 @@ export default function ShiftPage() {
               placeholder="Cash in till at start of shift"
             />
 
-            {/* Open shift with last count */}
             <Button onClick={handleOpenShift} loading={opening} size="lg" className="w-full text-base py-4">
               <Play className="w-5 h-5 mr-2" />
-              {lastCount ? `Open Shift (using ${lastCountDate} stock)` : "Open Shift"}
+              Open Shift
             </Button>
-
-            {/* Or do a fresh count first */}
-            <div className="relative">
-              <div className="absolute inset-0 flex items-center"><div className="w-full border-t border-gray-200" /></div>
-              <div className="relative flex justify-center"><span className="bg-white px-3 text-xs text-gray-400 uppercase">or count first</span></div>
-            </div>
-
-            <div className="flex gap-3">
-              <Link href="/stock" className="flex-1">
-                <Button variant="secondary" className="w-full">
-                  <ClipboardList className="w-4 h-4 mr-2" /> Count in App
-                </Button>
-              </Link>
-              <Link href="/stockpilot-import" className="flex-1">
-                <Button variant="secondary" className="w-full">
-                  <ClipboardList className="w-4 h-4 mr-2" /> StockPilot Import
-                </Button>
-              </Link>
-            </div>
           </div>
         </div>
       </div>
