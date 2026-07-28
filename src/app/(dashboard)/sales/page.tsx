@@ -173,8 +173,6 @@ export default function SalesPage() {
     }
     setSaving(true);
     const payload = {
-      org_id: orgId,
-      recon_date: today,
       opening_float: openingFloat,
       cash_sales: summary.cash,
       card_sales: summary.card,
@@ -184,9 +182,25 @@ export default function SalesPage() {
       variance: actualCash - expectedCash,
     };
 
-    const { error } = await db
+    // Check if row exists for this org+date
+    const { data: existing } = await db
       .from("daily_reconciliation")
-      .upsert(payload, { onConflict: "org_id,recon_date" });
+      .select("id")
+      .eq("org_id", orgId)
+      .eq("recon_date", today)
+      .maybeSingle();
+
+    let error;
+    if (existing) {
+      ({ error } = await db
+        .from("daily_reconciliation")
+        .update(payload)
+        .eq("id", existing.id));
+    } else {
+      ({ error } = await db
+        .from("daily_reconciliation")
+        .insert({ ...payload, org_id: orgId, recon_date: today }));
+    }
 
     if (error) alert("Error saving: " + error.message);
     else setReconSaved(true);
