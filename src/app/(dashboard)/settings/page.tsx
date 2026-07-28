@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -28,6 +28,7 @@ export default function SettingsPage() {
   const [preparesFood, setPreparesFood] = useState(false);
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
+  const [requiresShift, setRequiresShift] = useState(false);
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
   const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
   const {
@@ -89,6 +90,7 @@ export default function SettingsPage() {
     setWmsOnly(map.wms_only === "true");
     setPreparesFood(map.prepares_food === "true");
     setStockMode(map.stock_mode === "central" ? "central" : "per_location");
+    setRequiresShift(map.requires_shift === "true");
     setLoading(false);
   }
 
@@ -142,6 +144,7 @@ export default function SettingsPage() {
       { key: "wms_only", value: wmsOnly ? "true" : "false" },
       { key: "prepares_food", value: preparesFood ? "true" : "false" },
       { key: "stock_mode", value: stockMode },
+      { key: "requires_shift", value: requiresShift ? "true" : "false" },
     ];
 
     if (!orgId) {
@@ -429,6 +432,31 @@ export default function SettingsPage() {
               </label>
             ))}
           </div>
+        </div>
+
+        {/* Shift Requirements */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Clock className="w-5 h-5 text-gray-600" />
+            Shift Requirements
+          </h2>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={requiresShift}
+              onChange={(e) => setRequiresShift(e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                Require shift to be open before selling
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                When enabled, cashiers must open a shift before they can make sales.
+                The shift tracks opening float, closing cash, and daily reconciliation.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Online Payment Link (generic) */}

@@ -7,7 +7,7 @@ import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Play, Square, ClipboardList, Check, AlertTriangle, Banknote, Smartphone, Users } from "lucide-react";
+import { Clock, Play, Square, Check, Banknote, Smartphone, Users } from "lucide-react";
 import Link from "next/link";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { localToday } from "@/lib/date-utils";
@@ -22,7 +22,7 @@ interface MethodTotal {
 export default function ShiftPage() {
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift } = useShift();
-  const { requiresStockCountToClose, currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
@@ -88,10 +88,6 @@ export default function ShiftPage() {
   }
 
   async function handleCloseShift() {
-    if (requiresStockCountToClose && !shift?.stock_count_done) {
-      alert("Please complete a stock count before closing the shift. Use Stock Count in the app or import from StockPilot.");
-      return;
-    }
     if (!closingCash && closingCash !== "0") {
       alert("Please enter the closing cash amount.");
       return;
@@ -216,12 +212,6 @@ export default function ShiftPage() {
             <span className="text-gray-500">Opening float</span>
             <span className="font-medium text-gray-900">{formatZAR(shift.opening_float)}</span>
           </div>
-          <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-gray-500">Stock count done</span>
-            <span className={`font-medium ${shift.stock_count_done ? "text-green-600" : "text-amber-600"}`}>
-              {shift.stock_count_done ? "Yes ✓" : "Not yet"}
-            </span>
-          </div>
         </div>
 
         {/* Close shift section */}
@@ -230,28 +220,6 @@ export default function ShiftPage() {
             <Square className="w-5 h-5 text-red-500" />
             End-of-Day Reconciliation
           </h2>
-
-          {requiresStockCountToClose && !shift.stock_count_done && (
-            <div className="flex items-start gap-3 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 mb-4">
-              <AlertTriangle className="w-5 h-5 text-amber-600 mt-0.5 flex-shrink-0" />
-              <div className="text-sm text-amber-800">
-                <p className="font-medium">Stock count required before closing</p>
-                <p className="mt-1">Do a count in the app or import from StockPilot.</p>
-                <div className="flex gap-2 mt-3">
-                  <Link href="/stock">
-                    <Button variant="secondary" size="sm">
-                      <ClipboardList className="w-4 h-4 mr-1" /> Stock Count
-                    </Button>
-                  </Link>
-                  <Link href="/stockpilot-import">
-                    <Button variant="secondary" size="sm">
-                      <ClipboardList className="w-4 h-4 mr-1" /> StockPilot Import
-                    </Button>
-                  </Link>
-                </div>
-              </div>
-            </div>
-          )}
 
           {/* End-of-day reconciliation panel: every payment method on one screen */}
           <ReconciliationPanel
@@ -275,8 +243,7 @@ export default function ShiftPage() {
             <Button
               onClick={handleCloseShift}
               loading={closing}
-              variant={requiresStockCountToClose && !shift.stock_count_done ? "secondary" : "danger"}
-              disabled={requiresStockCountToClose && !shift.stock_count_done}
+              variant="danger"
               size="lg"
               className="w-full text-base py-4"
             >
