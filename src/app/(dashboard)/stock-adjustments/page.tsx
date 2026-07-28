@@ -11,11 +11,22 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Sparkline, bucketByDay } from "@/components/ui/sparkline";
 import { Timeline, TimelineGroup, TimelineItem, Avatar } from "@/components/ui/timeline";
 import type { Product } from "@/types/database";
-import { Wrench, Plus, Search, ArrowDown, ArrowUp, Package, Store } from "lucide-react";
+import { Wrench, Plus, Search, ArrowDown, ArrowUp, Package, Store, Trash2 } from "lucide-react";
 import { localToday, toLocalDateStr } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
 
 const REASONS = ["Breakage", "Expired", "Theft", "Damaged", "Samples", "Correction", "Other"] as const;
+
+interface DraftItem {
+  productId: string;
+  productName: string;
+  inventoryId: string;
+  quantity: number;
+  direction: "decrease" | "increase";
+  reason: string;
+  notes: string;
+  stockBefore: number;
+}
 
 interface Adjustment {
   id: string;
@@ -46,6 +57,7 @@ export default function StockAdjustmentsPage() {
   const [perLocationStock, setPerLocationStock] = useState<Record<string, Record<string, number>>>({});
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState<DraftItem[]>([]);
 
   // Form state
   const [formLocationId, setFormLocationId] = useState<string | null>(currentLocationId);
@@ -115,6 +127,41 @@ export default function StockAdjustmentsPage() {
     setNotes("");
     setProductSearch("");
     setFormLocationId(currentLocationId);
+    setDraft([]);
+  }
+
+  function resetItemForm() {
+    setSelectedProduct("");
+    setReason("Breakage");
+    setDirection("decrease");
+    setQuantity("");
+    setNotes("");
+    setProductSearch("");
+  }
+
+  function handleAddToDraft() {
+    if (!selectedProduct || !quantity || parseInt(quantity) <= 0 || !formLocationId) return;
+    const prod = products.find((p) => p.id === selectedProduct);
+    if (!prod) return;
+    const stockBefore = stockAt(selectedProduct, formLocationId);
+    setDraft((prev) => [
+      ...prev,
+      {
+        productId: selectedProduct,
+        productName: prod.name,
+        inventoryId: prod.inventory_id,
+        quantity: parseInt(quantity),
+        direction,
+        reason,
+        notes: notes.trim(),
+        stockBefore,
+      },
+    ]);
+    resetItemForm();
+  }
+
+  function removeFromDraft(index: number) {
+    setDraft((prev) => prev.filter((_, i) => i !== index));
   }
 
   function stockAt(productId: string, locationId: string | null): number {
@@ -127,8 +174,8 @@ export default function StockAdjustmentsPage() {
       alert("Please pick a location.");
       return;
     }
-    if (!selectedProduct || !quantity || parseInt(quantity) <= 0) {
-      alert("Select a product and enter a valid quantity.");
+    if (draft.length === 0) {
+      alert("Add at least one item to the list.");
       return;
     }
 
@@ -139,53 +186,46 @@ export default function StockAdjustmentsPage() {
 
     setSaving(true);
 
-    const qty = parseInt(quantity);
-    const stockBefore = stockAt(selectedProduct, formLocationId);
-    const stockAfter = direction === "decrease"
-      ? Math.max(stockBefore - qty, 0)
-      : stockBefore + qty;
+    for (const item of draft) {
+      const stockAfter = item.direction === "decrease"
+        ? Math.max(item.stockBefore - item.quantity, 0)
+        : item.stockBefore + item.quantity;
 
-    // 1. Record the adjustment with location_id + cost snapshot (migration 068)
-    const costPerUnit = products.find((p) => p.id === selectedProduct)?.cost_per_unit ?? null;
-    const { error: adjErr } = await db.from("stock_adjustments").insert({
-      adjustment_date: localToday(),
-      product_id: selectedProduct,
-      reason,
-      quantity: qty,
-      direction,
-      notes: notes.trim() || null,
-      adjusted_by: userName,
-      stock_before: stockBefore,
-      stock_after: stockAfter,
-      location_id: formLocationId,
-      cost_price: costPerUnit,
-    });
-
-    if (adjErr) {
-      alert("Error saving adjustment: " + adjErr.message);
-      setSaving(false);
-      return;
-    }
-
-    // 2. Apply the stock change to product_stock at the selected location
-    if (direction === "decrease") {
-      const { error: rpcErr } = await db.rpc("deduct_stock_at_location", {
-        p_product_id: selectedProduct,
-        p_quantity: qty,
-        p_location_id: formLocationId,
-        // Tagged so a write-off that exceeded stock on hand is not reported
-        // as a till oversell — both are recorded, they just mean different
-        // things (migration 058).
-        p_source: "adjustment",
+      const costPerUnit = products.find((p) => p.id === item.productId)?.cost_per_unit ?? null;
+      const { error: adjErr } = await db.from("stock_adjustments").insert({
+        adjustment_date: localToday(),
+        product_id: item.productId,
+        reason: item.reason,
+        quantity: item.quantity,
+        direction: item.direction,
+        notes: item.notes || null,
+        adjusted_by: userName,
+        stock_before: item.stockBefore,
+        stock_after: stockAfter,
+        location_id: formLocationId,
+        cost_price: costPerUnit,
       });
-      if (rpcErr) console.error(rpcErr);
-    } else {
-      const { error: rpcErr } = await db.rpc("add_product_stock_at_location", {
-        p_product_id: selectedProduct,
-        p_quantity: qty,
-        p_location_id: formLocationId,
-      });
-      if (rpcErr) console.error(rpcErr);
+
+      if (adjErr) {
+        alert("Error saving adjustment for " + item.productName + ": " + adjErr.message);
+        setSaving(false);
+        return;
+      }
+
+      if (item.direction === "decrease") {
+        await db.rpc("deduct_stock_at_location", {
+          p_product_id: item.productId,
+          p_quantity: item.quantity,
+          p_location_id: formLocationId,
+          p_source: "adjustment",
+        });
+      } else {
+        await db.rpc("add_product_stock_at_location", {
+          p_product_id: item.productId,
+          p_quantity: item.quantity,
+          p_location_id: formLocationId,
+        });
+      }
     }
 
     setSaving(false);
@@ -519,18 +559,72 @@ export default function StockAdjustmentsPage() {
             />
           </div>
 
-          {/* Actions */}
+          {/* Add to list button */}
           <div className="flex gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={handleAddToDraft}
+              disabled={!selectedProduct || !quantity || parseInt(quantity) <= 0 || !formLocationId}
+              className="flex-1"
+            >
+              <Plus className="w-4 h-4 mr-2" />
+              Add to List
+            </Button>
+          </div>
+
+          {/* Draft list */}
+          {draft.length > 0 && (
+            <div className="border-t border-gray-200 pt-4 mt-4">
+              <h3 className="text-sm font-medium text-gray-700 mb-3">
+                Items to adjust ({draft.length})
+              </h3>
+              <div className="space-y-2 max-h-48 overflow-y-auto">
+                {draft.map((item, i) => (
+                  <div
+                    key={i}
+                    className="flex items-center justify-between bg-gray-50 rounded-lg px-3 py-2"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <span className="font-medium text-gray-900 text-sm">{item.productName}</span>
+                        <Badge color={reasonColors[item.reason] || "gray"} className="text-xs">
+                          {item.reason}
+                        </Badge>
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {item.direction === "decrease" ? "Remove" : "Add"} {item.quantity} units
+                        {item.notes && ` · ${item.notes}`}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <span className={`text-sm font-bold ${item.direction === "decrease" ? "text-red-600" : "text-green-600"}`}>
+                        {item.direction === "decrease" ? "−" : "+"}{item.quantity}
+                      </span>
+                      <button
+                        onClick={() => removeFromDraft(i)}
+                        className="p-1 text-gray-400 hover:text-red-500"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Save all / Cancel */}
+          <div className="flex gap-3 pt-4 border-t border-gray-200 mt-4">
             <Button variant="secondary" onClick={() => { setShowForm(false); resetForm(); }} className="flex-1">
               Cancel
             </Button>
             <Button
               onClick={handleSave}
               loading={saving}
-              disabled={!selectedProduct || !quantity || parseInt(quantity) <= 0 || !formLocationId}
+              disabled={draft.length === 0 || !formLocationId}
               className="flex-1"
             >
-              Save Adjustment
+              Save {draft.length} Adjustment{draft.length !== 1 ? "s" : ""}
             </Button>
           </div>
         </div>
