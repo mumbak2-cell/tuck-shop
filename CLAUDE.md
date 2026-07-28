@@ -95,7 +95,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **069**.
+number, never reuse a prefix. Latest applied: **070**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -477,6 +477,22 @@ The P&L page shows an **"Inventory on Hand"** card (indigo theme) — point-in-t
 snapshot of current stock × `cost_per_unit`. Not period-dependent, always shows current
 stock. Products with NULL `cost_per_unit` are counted separately with a warning.
 
+## Shift opening (simplified)
+
+Shift opening (`src/app/(dashboard)/shift/page.tsx`) now shows only the opening float
+input and Open Shift button. No stock count info or prompts — operators open immediately.
+Stock count is still required for **closing** (if `requiresStockCountToClose` org setting
+is enabled). The previous day's closing stock carries forward automatically via
+`product_stock.quantity`.
+
+## Daily reconciliation (migration 070)
+
+Migration **070** changed `daily_reconciliation`'s unique constraint from `recon_date`
+(single-tenant legacy) to `(org_id, recon_date)`. The Sales page upsert now includes
+`org_id` explicitly and uses the composite `onConflict: "org_id,recon_date"`. Without
+this, multi-tenant orgs got RLS errors — the old constraint matched another org's row,
+then RLS blocked the update.
+
 ## Period lock (migration 069)
 
 `period_locks` (migration **069**) — one row per org, `locked_through DATE`,
@@ -490,3 +506,15 @@ stock. Products with NULL `cost_per_unit` are counted separately with a warning.
   a clear message. Sale returns are blocked when the original sale's date is locked.
 - Client-side guard only (no DB trigger). A determined user with SQL access can bypass
   it — acceptable for management accounts.
+
+## Admin scripts (`scripts/`)
+
+All scripts use `--env-file=.env.local` and require `SUPABASE_SERVICE_ROLE_KEY`. Dry-run
+by default; add `--apply` to execute.
+
+- **`set-reorder-levels.mjs`** — bulk update `reorder_level` for all products in an org,
+  excluding "Ingredients" category. Usage: `--org "Shop Name" --level 5 [--apply]`
+- **`seed-branch-stock.mjs`** — set flat stock qty at a branch (new location bootstrap).
+- **`record-opening-count.mjs`** — write stock count rows for a branch.
+- **`cleanup-orphaned-receipts.mjs`** — remove storage objects with no DB reference.
+- **`add-cashiers.mjs`**, **`rename-inventory-prefix.mjs`** — one-off data migrations.
