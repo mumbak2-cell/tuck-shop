@@ -9,7 +9,7 @@ export function usePeriodLock() {
     db.from("period_locks")
       .select("locked_through")
       .maybeSingle()
-      .then(({ data }) => {
+      .then(({ data }: { data: { locked_through: string } | null }) => {
         if (data) setLockedThrough(data.locked_through);
       });
   }, []);
