@@ -47,7 +47,7 @@ interface SaleRecord {
 
 export default function SalesPage() {
   const { role, name: userName } = useAuth();
-  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName } = useOrg();
+  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId } = useOrg();
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = orgRole === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
   const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
@@ -167,8 +167,13 @@ export default function SalesPage() {
   const variance = recon.actual_cash ? actualCash - expectedCash : null;
 
   async function saveRecon() {
+    if (!orgId) {
+      alert("Organization not loaded yet.");
+      return;
+    }
     setSaving(true);
     const payload = {
+      org_id: orgId,
       recon_date: today,
       opening_float: openingFloat,
       cash_sales: summary.cash,
@@ -181,7 +186,7 @@ export default function SalesPage() {
 
     const { error } = await db
       .from("daily_reconciliation")
-      .upsert(payload, { onConflict: "recon_date" });
+      .upsert(payload, { onConflict: "org_id,recon_date" });
 
     if (error) alert("Error saving: " + error.message);
     else setReconSaved(true);
