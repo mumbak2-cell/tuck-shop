@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Lock, AlertTriangle } from "lucide-react";
 import { localToday } from "@/lib/date-utils";
 
@@ -66,12 +67,8 @@ export function PeriodLockSection() {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl overflow-hidden">
-      <div className="px-5 py-3 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-        <Lock className="w-4 h-4 text-gray-600" />
-        <h2 className="font-semibold text-gray-800">Period Lock</h2>
-      </div>
-      <div className="p-5 space-y-4">
+    <CollapsibleSection title="Period Lock" icon={Lock}>
+      <div className="space-y-4">
         <p className="text-sm text-gray-600">
           Lock a past accounting period to prevent voids, expense deletions, and returns
           from modifying historical data. Once set, the lock can only be moved forward.
@@ -141,6 +138,6 @@ export function PeriodLockSection() {
           </>
         )}
       </div>
-    </div>
+    </CollapsibleSection>
   );
 }

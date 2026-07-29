@@ -2,6 +2,7 @@
 import { useEffect, useState } from "react";
 import { db, supabase } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Mail, Plus, Trash2, Send, AlertCircle, Check } from "lucide-react";
 
 interface Subscription {
@@ -134,16 +135,10 @@ export function DailyDigestSection() {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <div className="flex items-start gap-3 mb-4">
-        <Mail className="w-5 h-5 text-gray-600 mt-0.5 flex-shrink-0" />
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Daily Email Digest</h2>
-          <p className="text-sm text-gray-500 mt-0.5">
-            Each morning, a summary of yesterday&apos;s sales, expenses, stock loss, and top products is emailed to every recipient below. Send a test email to confirm the address works before relying on it.
-          </p>
-        </div>
-      </div>
+    <CollapsibleSection title="Daily Email Digest" icon={Mail}>
+      <p className="text-sm text-gray-500 mb-4">
+        Each morning, a summary of yesterday&apos;s sales, expenses, stock loss, and top products is emailed to every recipient below. Send a test email to confirm the address works before relying on it.
+      </p>
 
       {error && (
         <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
@@ -241,6 +236,6 @@ export function DailyDigestSection() {
       <p className="text-xs text-gray-500 mt-2">
         Cron currently runs once at 04:30 UTC (06:30 SAST/CAT). The per-recipient hour above is recorded for future per-hour delivery but does not yet filter when the cron runs.
       </p>
-    </div>
+    </CollapsibleSection>
   );
 }

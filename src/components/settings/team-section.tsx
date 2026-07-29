@@ -10,6 +10,7 @@ import { supabase } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Users, UserPlus, Trash2, AlertCircle, Copy, Check } from "lucide-react";
 
 interface Member {
@@ -172,16 +173,15 @@ export function TeamSection() {
   const atLimit = seats.max !== null && seats.used >= seats.max;
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-200 p-6">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <Users className="w-5 h-5 text-green-600" />
-          Team
-        </h2>
-        <span className="text-sm text-gray-500">
-          {seats.max === null ? `${seats.used} users` : `${seats.used} of ${seats.max} seats`}
+    <CollapsibleSection
+      title="Team"
+      icon={Users}
+      badge={
+        <span className="text-xs font-normal text-gray-400 ml-1">
+          ({seats.max === null ? `${seats.used} users` : `${seats.used} of ${seats.max} seats`})
         </span>
-      </div>
+      }
+    >
       <p className="text-sm text-gray-500 mb-4">
         Give your team their own login. Each person counts as one seat on your plan.
       </p>
@@ -353,6 +353,6 @@ export function TeamSection() {
           </Button>
         </form>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }

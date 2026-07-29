@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
@@ -303,6 +304,11 @@ export default function SettingsPage() {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
   }
 
+  // Shown beside the headings of settings that are stored per branch.
+  const perBranchBadge = locations.length > 1
+    ? <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
+    : undefined;
+
   return (
     <div className="max-w-2xl">
       <div className="mb-6">
@@ -315,11 +321,7 @@ export default function SettingsPage() {
 
       <div className="space-y-6">
         {/* Plan & Billing — always-available upgrade / change-plan entry point */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <CreditCard className="w-5 h-5 text-gray-600" />
-            Plan &amp; Billing
-          </h2>
+        <CollapsibleSection title="Plan & Billing" icon={CreditCard}>
           <div className="space-y-4">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
@@ -367,15 +369,11 @@ export default function SettingsPage() {
               </div>
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
         <PricingModal open={showPricing} onClose={() => setShowPricing(false)} />
 
         {/* Business Details */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Building2 className="w-5 h-5 text-gray-600" />
-            Business Details
-          </h2>
+        <CollapsibleSection title="Business Details" icon={Building2}>
           <div className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Business Name</label>
@@ -397,14 +395,10 @@ export default function SettingsPage() {
               />
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Currency */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Coins className="w-5 h-5 text-gray-600" />
-            Currency
-          </h2>
+        <CollapsibleSection title="Currency" icon={Coins}>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Display currency</label>
             <select
@@ -423,17 +417,10 @@ export default function SettingsPage() {
               Changes apply immediately after Save.
             </p>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Access PINs */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Key className="w-5 h-5 text-gray-600" />
-            Access PINs
-            {locations.length > 1 && (
-              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
-            )}
-          </h2>
+        <CollapsibleSection title="Access PINs" icon={Key} badge={perBranchBadge}>
           <div className="space-y-4">
             {locations.length > 1 && (
               <div>
@@ -477,17 +464,10 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500 mt-1">Limited access: POS, stock count, daily sales only</p>
             </div>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Receipts — per branch */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Printer className="w-5 h-5 text-gray-600" />
-            Receipts
-            {locations.length > 1 && (
-              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
-            )}
-          </h2>
+        <CollapsibleSection title="Receipts" icon={Printer} badge={perBranchBadge}>
           <p className="text-sm text-gray-500 mb-4">
             Untick a branch that doesn&apos;t issue receipts — the Print and WhatsApp receipt
             buttons will no longer appear after a sale at that branch.
@@ -507,14 +487,10 @@ export default function SettingsPage() {
               </label>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Shift Requirements */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Clock className="w-5 h-5 text-gray-600" />
-            Shift Requirements
-          </h2>
+        <CollapsibleSection title="Shift Requirements" icon={Clock}>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -532,17 +508,10 @@ export default function SettingsPage() {
               </p>
             </div>
           </label>
-        </div>
+        </CollapsibleSection>
 
         {/* Cash denomination counter — per branch */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Calculator className="w-5 h-5 text-gray-600" />
-            Cash Count at Shift Close
-            {locations.length > 1 && (
-              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
-            )}
-          </h2>
+        <CollapsibleSection title="Cash Count at Shift Close" icon={Calculator} badge={perBranchBadge}>
           <p className="text-sm text-gray-500 mb-4">
             Tick a branch to give its cashiers a note-by-note counter when closing a shift.
             They enter how many of each note and coin are in the till and the closing cash
@@ -563,17 +532,10 @@ export default function SettingsPage() {
               </label>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Wholesale Mode — per branch */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <ShoppingCart className="w-5 h-5 text-gray-600" />
-            Wholesale Mode
-            {locations.length > 1 && (
-              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
-            )}
-          </h2>
+        <CollapsibleSection title="Wholesale Mode" icon={ShoppingCart} badge={perBranchBadge}>
           <p className="text-sm text-gray-500 mb-4">
             Tick the branches allowed to sell in bulk. Products must also be flagged as
             &ldquo;wholesale enabled&rdquo; to offer a wholesale price. The discount itself is
@@ -594,14 +556,10 @@ export default function SettingsPage() {
               </label>
             ))}
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Online Payment Link (generic) */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Link className="w-5 h-5 text-gray-600" />
-            Online Payment Link
-          </h2>
+        <CollapsibleSection title="Online Payment Link" icon={Link}>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Payment Link URL (optional)
@@ -619,15 +577,11 @@ export default function SettingsPage() {
               to every WhatsApp credit invoice and statement you send. Leave blank if you do not have one.
             </p>
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Prepared food — gates Ingredients, the "prepared item" flag on products,
             and recipe costing. Only settable at first-time setup before this. */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <ChefHat className="w-5 h-5 text-gray-600" />
-            Prepared Food
-          </h2>
+        <CollapsibleSection title="Prepared Food" icon={ChefHat}>
           <label className="flex items-start gap-3 cursor-pointer">
             <input
               type="checkbox"
@@ -657,17 +611,16 @@ export default function SettingsPage() {
               Leave this off if you only resell items you buy in.
             </p>
           )}
-        </div>
+        </CollapsibleSection>
 
         {/* Stock Mode — always visible so single-shop orgs can pre-pick before adding a second location */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-            <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-              <Boxes className="w-5 h-5 text-gray-600" />
-              Stock Mode
-              {locations.length <= 1 && (
-                <span className="text-xs font-normal text-gray-400 ml-1">(takes effect when you add a second shop)</span>
-              )}
-            </h2>
+        <CollapsibleSection
+          title="Stock Mode"
+          icon={Boxes}
+          badge={locations.length <= 1 ? (
+            <span className="text-xs font-normal text-gray-400 ml-1">(takes effect when you add a second shop)</span>
+          ) : undefined}
+        >
             <p className="text-sm text-gray-500 mb-4">
               How stock is shared across your shops. Default: each shop holds its own stock — sales decrement the shop where the sale happened, and stock counts only show that shop&apos;s products.
             </p>
@@ -706,14 +659,10 @@ export default function SettingsPage() {
                 </div>
               </label>
             </div>
-          </div>
+        </CollapsibleSection>
 
         {/* Warehouse Management */}
-        <div className="bg-white border border-gray-200 rounded-xl p-6">
-          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
-            <Warehouse className="w-5 h-5 text-gray-600" />
-            Warehouse Management (WMS)
-          </h2>
+        <CollapsibleSection title="Warehouse Management (WMS)" icon={Warehouse}>
           <div className="space-y-4">
             <label className="flex items-center gap-3 cursor-pointer">
               <input
@@ -745,7 +694,7 @@ export default function SettingsPage() {
               </label>
             )}
           </div>
-        </div>
+        </CollapsibleSection>
 
         {/* Payment methods - owner/manager, renders null for cashiers */}
         <PaymentMethodsSection />

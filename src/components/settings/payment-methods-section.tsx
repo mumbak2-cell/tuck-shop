@@ -12,6 +12,7 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { CreditCard, Plus, Pencil, Power, Trash2 } from "lucide-react";
 import type { PaymentKind } from "@/lib/payment-presets";
 
@@ -136,20 +137,16 @@ export function PaymentMethodsSection() {
     "w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500";
 
   return (
-    <div className="bg-white border border-gray-200 rounded-xl p-6">
-      <div className="flex items-center justify-between mb-1">
-        <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-          <CreditCard className="w-5 h-5 text-gray-600" />
-          Payment Methods
-        </h2>
+    <CollapsibleSection title="Payment Methods" icon={CreditCard}>
+      <div className="flex items-start justify-between gap-4 mb-4">
+        <p className="text-sm text-gray-500">
+          The buttons your cashiers see at checkout. Hide one to take it off the till without losing
+          its history.
+        </p>
         <Button onClick={openNew}>
           <Plus className="w-4 h-4 mr-1.5" /> Add
         </Button>
       </div>
-      <p className="text-sm text-gray-500 mb-4">
-        The buttons your cashiers see at checkout. Hide one to take it off the till without losing
-        its history.
-      </p>
 
       {error && (
         <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2 mb-4">
@@ -242,6 +239,6 @@ export function PaymentMethodsSection() {
           ))}
         </div>
       )}
-    </div>
+    </CollapsibleSection>
   );
 }
