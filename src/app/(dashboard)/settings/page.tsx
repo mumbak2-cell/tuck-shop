@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -37,6 +37,8 @@ export default function SettingsPage() {
   const [wholesaleByLocation, setWholesaleByLocation] = useState<Record<string, boolean>>({});
   // Per-branch cash denomination counter at shift close. Absence of a row = off.
   const [denomCountByLocation, setDenomCountByLocation] = useState<Record<string, boolean>>({});
+  // Per-branch blind cash-up: hides expected cash from cashiers at shift close.
+  const [blindCashUpByLocation, setBlindCashUpByLocation] = useState<Record<string, boolean>>({});
   const {
     locations,
     orgId,
@@ -112,6 +114,22 @@ export default function SettingsPage() {
           map[row.location_id] = row.value === "true";
         });
         setDenomCountByLocation(map);
+      });
+  }, [locations]);
+
+  // Load the per-branch blind cash-up toggle for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, value")
+      .eq("key", "blind_cash_up_enabled")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = false));
+        (data || []).forEach((row) => {
+          map[row.location_id] = row.value === "true";
+        });
+        setBlindCashUpByLocation(map);
       });
   }, [locations]);
 
@@ -281,6 +299,25 @@ export default function SettingsPage() {
       if (denomErr) {
         setSaving(false);
         alert("Failed to save cash count settings: " + (denomErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Blind cash-up toggle — one row per branch.
+    if (locations.length > 0) {
+      const blindRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "blind_cash_up_enabled",
+        value: (blindCashUpByLocation[l.id] ?? false) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: blindErr } = await db
+        .from("location_settings")
+        .upsert(blindRows, { onConflict: "location_id,key" });
+      if (blindErr) {
+        setSaving(false);
+        alert("Failed to save blind cash-up settings: " + (blindErr.message || "Unknown error"));
         return;
       }
     }
@@ -525,6 +562,31 @@ export default function SettingsPage() {
                   checked={denomCountByLocation[l.id] ?? false}
                   onChange={(e) =>
                     setDenomCountByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        {/* Blind cash-up — per branch */}
+        <CollapsibleSection title="Blind Cash-Up" icon={EyeOff} badge={perBranchBadge}>
+          <p className="text-sm text-gray-500 mb-4">
+            Tick a branch to hide the expected cash, cash takings and variance from its
+            cashiers when they close a shift. They count the till and enter the total
+            without being shown what it should be, so you reconcile against an unprompted
+            figure. Admins always see the full reconciliation.
+          </p>
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={blindCashUpByLocation[l.id] ?? false}
+                  onChange={(e) =>
+                    setBlindCashUpByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
                   }
                   className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                 />

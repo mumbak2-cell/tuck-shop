@@ -52,8 +52,13 @@ export default function ShiftPage() {
   // Per-branch denomination counter (location_settings). Absence of a row = off.
   // Cached locally so a cashier closing a shift offline still gets the counter.
   const [denomCountEnabled, setDenomCountEnabled] = useState(false);
+  // Blind cash-up: the cashier counts the till without being shown what it
+  // should hold, so the manager reconciles against an unprompted figure.
+  const [blindCashUpEnabled, setBlindCashUpEnabled] = useState(false);
 
   const isAdmin = role === "admin";
+  // Managers always see the full reconciliation — they are the ones checking it.
+  const hideCashTotals = blindCashUpEnabled && !isAdmin;
 
   // Reset the local form inputs whenever the operator switches location so
   // values typed for one shop do not pre-fill at another shop.
@@ -62,30 +67,48 @@ export default function ShiftPage() {
     setClosingCash("");
   }, [currentLocationId]);
 
-  // Read the branch's denomination-counter toggle. Cache first so the panel
-  // still appears offline; refresh from the server only when we have a line.
+  // Read the branch's shift-close toggles. Cache first so both still work
+  // offline; refresh from the server only when we have a line.
   useEffect(() => {
     if (!currentLocationId) return;
-    const cacheKey = "tilify_denom_count_" + currentLocationId;
-    try {
-      setDenomCountEnabled(window.localStorage.getItem(cacheKey) === "true");
-    } catch {
-      setDenomCountEnabled(false);
-    }
+
+    const read = (key: string) => {
+      try {
+        return window.localStorage.getItem("tilify_" + key + "_" + currentLocationId);
+      } catch {
+        return null;
+      }
+    };
+    const write = (key: string, enabled: boolean) => {
+      try {
+        window.localStorage.setItem("tilify_" + key + "_" + currentLocationId, enabled ? "true" : "false");
+      } catch {
+        // ignore — cache is best-effort
+      }
+    };
+
+    const cachedDenom = read("denom_count");
+    const cachedBlind = read("blind_cash_up");
+    setDenomCountEnabled(cachedDenom === "true");
+    // The denomination counter is a convenience, so an unknown value is simply
+    // off. Blind cash-up is a control, so an unknown value hides the totals
+    // rather than revealing them — a never-synced device must not leak the
+    // expected cash just because it cannot reach the server.
+    setBlindCashUpEnabled(cachedBlind === null ? !navigator.onLine : cachedBlind === "true");
+
     if (!navigator.onLine) return;
     db.from("location_settings")
-      .select("value")
+      .select("key, value")
       .eq("location_id", currentLocationId)
-      .eq("key", "denomination_count_enabled")
-      .maybeSingle()
-      .then(({ data }: { data: { value: string } | null }) => {
-        const enabled = data?.value === "true";
-        setDenomCountEnabled(enabled);
-        try {
-          window.localStorage.setItem(cacheKey, enabled ? "true" : "false");
-        } catch {
-          // ignore — cache is best-effort
-        }
+      .in("key", ["denomination_count_enabled", "blind_cash_up_enabled"])
+      .then(({ data }: { data: { key: string; value: string }[] | null }) => {
+        const byKey = new Map((data || []).map((r) => [r.key, r.value]));
+        const denom = byKey.get("denomination_count_enabled") === "true";
+        const blind = byKey.get("blind_cash_up_enabled") === "true";
+        setDenomCountEnabled(denom);
+        setBlindCashUpEnabled(blind);
+        write("denom_count", denom);
+        write("blind_cash_up", blind);
       });
   }, [currentLocationId]);
 
@@ -212,10 +235,12 @@ export default function ShiftPage() {
                 {new Date(shift.opened_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}
               </span>
             </div>
-            <div className="flex justify-between py-2 border-b border-gray-100">
-              <span className="text-gray-500">Opening float</span>
-              <span className="font-medium text-gray-900">{formatZAR(shift.opening_float)}</span>
-            </div>
+            {!hideCashTotals && (
+              <div className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-gray-500">Opening float</span>
+                <span className="font-medium text-gray-900">{formatZAR(shift.opening_float)}</span>
+              </div>
+            )}
             <div className="flex justify-between py-2 border-b border-gray-100">
               <span className="text-gray-500">Closed by</span>
               <span className="font-medium text-gray-900">{shift.closed_by}</span>
@@ -269,14 +294,18 @@ export default function ShiftPage() {
             </div>
           )}
 
-          <div className="mt-6 pt-4 border-t border-gray-100">
-            <Link
-              href="/revenue-assurance"
-              className="flex items-center justify-center gap-2 text-sm text-green-600 hover:underline"
-            >
-              View Revenue Assurance Report →
-            </Link>
-          </div>
+          {/* That report states the variance outright, so linking to it from
+              here would hand back exactly what blind cash-up withholds. */}
+          {!hideCashTotals && (
+            <div className="mt-6 pt-4 border-t border-gray-100">
+              <Link
+                href="/revenue-assurance"
+                className="flex items-center justify-center gap-2 text-sm text-green-600 hover:underline"
+              >
+                View Revenue Assurance Report →
+              </Link>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -298,12 +327,14 @@ export default function ShiftPage() {
           </p>
         </div>
 
-        <div className="space-y-3 text-sm mb-6">
-          <div className="flex justify-between py-2 border-b border-gray-100">
-            <span className="text-gray-500">Opening float</span>
-            <span className="font-medium text-gray-900">{formatZAR(shift.opening_float)}</span>
+        {!hideCashTotals && (
+          <div className="space-y-3 text-sm mb-6">
+            <div className="flex justify-between py-2 border-b border-gray-100">
+              <span className="text-gray-500">Opening float</span>
+              <span className="font-medium text-gray-900">{formatZAR(shift.opening_float)}</span>
+            </div>
           </div>
-        </div>
+        )}
 
         {/* Close shift section */}
         <div className="border-t border-gray-200 pt-6">
@@ -319,6 +350,7 @@ export default function ShiftPage() {
             setMethodTotals={setMethodTotals}
             openingFloat={parseFloat(shift.opening_float?.toString() || "0") || 0}
             closingCash={closingCash}
+            hideCashTotals={hideCashTotals}
           />
 
           {denomCountEnabled && (
@@ -432,13 +464,21 @@ function DenominationCounter({
 }
 
 function ReconciliationPanel({
-  loading, methodTotals, setMethodTotals, openingFloat, closingCash,
+  loading, methodTotals, setMethodTotals, openingFloat, closingCash, hideCashTotals,
 }: {
   loading: boolean;
   methodTotals: MethodTotal[];
   setMethodTotals: React.Dispatch<React.SetStateAction<MethodTotal[]>>;
   openingFloat: number;
   closingCash: string;
+  /**
+   * Blind cash-up. Hides every figure the cashier could work the expected
+   * till total back from: the cash takings, the day's total, and the
+   * expected/variance block. Card and mobile money stay visible because those
+   * are reconciled against the machine slip, not the drawer, and cannot be
+   * used to derive the cash figure once the overall total is hidden.
+   */
+  hideCashTotals: boolean;
 }) {
   if (loading) {
     return (
@@ -476,13 +516,24 @@ function ReconciliationPanel({
     setMethodTotals((prev) => prev.map((m) => m.method === method ? { ...m, confirmed: !m.confirmed } : m));
   }
 
+  // Cash rows are dropped entirely under blind cash-up rather than blanked,
+  // so there is nothing on screen to add up.
+  const visibleMethods = hideCashTotals
+    ? methodTotals.filter((m) => m.bucket !== "cash")
+    : methodTotals;
+
   return (
     <div className="bg-white border border-gray-200 rounded-xl p-4 mb-4">
       <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-3">
-        Today&apos;s sales by payment method
+        {hideCashTotals ? "Today's non-cash sales" : "Today's sales by payment method"}
       </p>
+      {hideCashTotals && visibleMethods.length === 0 && (
+        <p className="text-sm text-gray-500">
+          Count the cash in the till and enter the total below. Your manager will reconcile it.
+        </p>
+      )}
       <div className="space-y-2">
-        {methodTotals.map((m) => (
+        {visibleMethods.map((m) => (
           <div key={m.method} className="flex items-center justify-between py-1.5">
             <div className="flex items-center gap-2 min-w-0">
               {iconForBucket(m.bucket)}
@@ -511,6 +562,7 @@ function ReconciliationPanel({
         ))}
       </div>
 
+      {!hideCashTotals && (
       <div className="mt-4 pt-3 border-t border-gray-100 space-y-1.5">
         <div className="flex justify-between text-sm">
           <span className="text-gray-600">Total sales today</span>
@@ -544,6 +596,7 @@ function ReconciliationPanel({
           </div>
         )}
       </div>
+      )}
     </div>
   );
 }
