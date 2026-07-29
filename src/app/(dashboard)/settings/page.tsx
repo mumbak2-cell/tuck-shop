@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -33,6 +33,8 @@ export default function SettingsPage() {
   const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
   // Per-branch wholesale settings
   const [wholesaleByLocation, setWholesaleByLocation] = useState<Record<string, { enabled: boolean; discount: number }>>({});
+  // Per-branch cash denomination counter at shift close. Absence of a row = off.
+  const [denomCountByLocation, setDenomCountByLocation] = useState<Record<string, boolean>>({});
   const {
     locations,
     orgId,
@@ -94,6 +96,22 @@ export default function SettingsPage() {
           if (row.key === "wholesale_discount_pct") map[row.location_id].discount = parseFloat(row.value) || 15;
         });
         setWholesaleByLocation(map);
+      });
+  }, [locations]);
+
+  // Load the per-branch denomination-counter toggle for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, value")
+      .eq("key", "denomination_count_enabled")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = false));
+        (data || []).forEach((row) => {
+          map[row.location_id] = row.value === "true";
+        });
+        setDenomCountByLocation(map);
       });
   }, [locations]);
 
@@ -255,6 +273,25 @@ export default function SettingsPage() {
       if (wsErr) {
         setSaving(false);
         alert("Failed to save wholesale settings: " + (wsErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Denomination counter toggle — one row per branch.
+    if (locations.length > 0) {
+      const denomRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "denomination_count_enabled",
+        value: (denomCountByLocation[l.id] ?? false) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: denomErr } = await db
+        .from("location_settings")
+        .upsert(denomRows, { onConflict: "location_id,key" });
+      if (denomErr) {
+        setSaving(false);
+        alert("Failed to save cash count settings: " + (denomErr.message || "Unknown error"));
         return;
       }
     }
@@ -507,6 +544,37 @@ export default function SettingsPage() {
               </p>
             </div>
           </label>
+        </div>
+
+        {/* Cash denomination counter — per branch */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <Calculator className="w-5 h-5 text-gray-600" />
+            Cash Count at Shift Close
+            {locations.length > 1 && (
+              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
+            )}
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Tick a branch to give its cashiers a note-by-note counter when closing a shift.
+            They enter how many of each note and coin are in the till and the closing cash
+            total is worked out for them.
+          </p>
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={denomCountByLocation[l.id] ?? false}
+                  onChange={(e) =>
+                    setDenomCountByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
+          </div>
         </div>
 
         {/* Wholesale Mode — per branch */}

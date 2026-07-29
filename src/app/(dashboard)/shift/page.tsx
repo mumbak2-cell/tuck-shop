@@ -5,10 +5,10 @@ import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
 import { db } from "@/lib/supabase";
-import { formatZAR } from "@/lib/format";
+import { formatZAR, getActiveSymbol } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Play, Square, Check, Banknote, Smartphone, Users, RotateCcw, Trash2 } from "lucide-react";
+import { Clock, Play, Square, Check, Banknote, Smartphone, Users, RotateCcw, Trash2, Calculator, ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { localToday } from "@/lib/date-utils";
@@ -20,11 +20,26 @@ interface MethodTotal {
   confirmed: boolean;
 }
 
+/**
+ * Notes and coins a cashier can be holding, largest first, down to 1 unit.
+ * Only the currencies we actually trade in are listed; anything else falls
+ * back to the ZAR ladder so the counter still works, just with the wrong
+ * denominations — add a row here when a new country goes live.
+ */
+const DENOMINATIONS: Record<string, number[]> = {
+  ZAR: [200, 100, 50, 20, 10, 5, 2, 1],
+  ZMW: [500, 200, 100, 50, 20, 10, 5, 2, 1],
+};
+
+function sumDenominations(denominations: number[], counts: Record<number, string>): number {
+  return denominations.reduce((sum, d) => sum + d * (parseInt(counts[d] ?? "", 10) || 0), 0);
+}
+
 export default function ShiftPage() {
   const router = useRouter();
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift, deleteShift, reopenShift } = useShift();
-  const { currentLocationId, currentLocationName } = useOrg();
+  const { currentLocationId, currentLocationName, currency } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
@@ -34,6 +49,9 @@ export default function ShiftPage() {
   const [deleting, setDeleting] = useState(false);
   const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
   const [loadingTotals, setLoadingTotals] = useState(false);
+  // Per-branch denomination counter (location_settings). Absence of a row = off.
+  // Cached locally so a cashier closing a shift offline still gets the counter.
+  const [denomCountEnabled, setDenomCountEnabled] = useState(false);
 
   const isAdmin = role === "admin";
 
@@ -42,6 +60,33 @@ export default function ShiftPage() {
   useEffect(() => {
     setOpeningFloat("0");
     setClosingCash("");
+  }, [currentLocationId]);
+
+  // Read the branch's denomination-counter toggle. Cache first so the panel
+  // still appears offline; refresh from the server only when we have a line.
+  useEffect(() => {
+    if (!currentLocationId) return;
+    const cacheKey = "tilify_denom_count_" + currentLocationId;
+    try {
+      setDenomCountEnabled(window.localStorage.getItem(cacheKey) === "true");
+    } catch {
+      setDenomCountEnabled(false);
+    }
+    if (!navigator.onLine) return;
+    db.from("location_settings")
+      .select("value")
+      .eq("location_id", currentLocationId)
+      .eq("key", "denomination_count_enabled")
+      .maybeSingle()
+      .then(({ data }: { data: { value: string } | null }) => {
+        const enabled = data?.value === "true";
+        setDenomCountEnabled(enabled);
+        try {
+          window.localStorage.setItem(cacheKey, enabled ? "true" : "false");
+        } catch {
+          // ignore — cache is best-effort
+        }
+      });
   }, [currentLocationId]);
 
   const today = new Date().toLocaleDateString("en-ZA", {
@@ -276,6 +321,14 @@ export default function ShiftPage() {
             closingCash={closingCash}
           />
 
+          {denomCountEnabled && (
+            <DenominationCounter
+              key={currentLocationId ?? "none"}
+              currency={currency}
+              onTotal={(total) => setClosingCash(total > 0 ? total.toFixed(2) : "")}
+            />
+          )}
+
           <div className="space-y-4">
             <Input
               label="Closing Cash Counted in Till"
@@ -299,6 +352,81 @@ export default function ShiftPage() {
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Note-by-note cash counter. Writes the running total up to the close-shift
+ * form, which keeps the plain "Closing Cash" box editable — a cashier who
+ * would rather count in their head can still ignore this panel.
+ */
+function DenominationCounter({
+  currency,
+  onTotal,
+}: {
+  currency: string | null;
+  onTotal: (total: number) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [counts, setCounts] = useState<Record<number, string>>({});
+
+  const denominations = DENOMINATIONS[currency ?? ""] ?? DENOMINATIONS.ZAR;
+  const symbol = getActiveSymbol();
+  const total = sumDenominations(denominations, counts);
+
+  function setCount(denomination: number, value: string) {
+    const next = { ...counts, [denomination]: value };
+    setCounts(next);
+    onTotal(sumDenominations(denominations, next));
+  }
+
+  return (
+    <div className="mb-4">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="flex items-center gap-2 text-sm font-medium text-gray-700 hover:text-gray-900"
+      >
+        <Calculator className="w-4 h-4 text-gray-500" />
+        Count cash by denomination
+        <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open && (
+        <div className="mt-3 border border-gray-200 rounded-xl p-4">
+          <div className="space-y-2">
+            {denominations.map((d) => {
+              const qty = parseInt(counts[d] ?? "", 10) || 0;
+              return (
+                <div key={d} className="flex items-center gap-3">
+                  <span className="w-14 text-sm font-medium text-gray-900">{symbol}{d}</span>
+                  <span className="text-sm text-gray-400">×</span>
+                  <input
+                    type="number"
+                    min={0}
+                    inputMode="numeric"
+                    value={counts[d] ?? ""}
+                    onChange={(e) => setCount(d, e.target.value)}
+                    onFocus={(e) => e.target.select()}
+                    placeholder="0"
+                    aria-label={`How many ${symbol}${d}`}
+                    className="w-20 h-9 text-center text-sm border border-gray-200 rounded-lg focus:border-green-500 focus:ring-1 focus:ring-green-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                  />
+                  <span className="flex-1 text-right text-sm text-gray-600">
+                    {qty > 0 ? formatZAR(d * qty) : "—"}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex justify-between items-center pt-3 mt-3 border-t border-gray-200">
+            <span className="text-sm font-semibold text-gray-900">Total counted</span>
+            <span className="text-lg font-bold text-gray-900">{formatZAR(total)}</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
