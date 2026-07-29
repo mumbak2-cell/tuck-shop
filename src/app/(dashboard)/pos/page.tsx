@@ -42,7 +42,6 @@ export default function POSPage() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
-  const [wholesaleDiscountPct, setWholesaleDiscountPct] = useState(0);
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -197,15 +196,11 @@ export default function POSPage() {
     (async () => {
       const { data } = await db
         .from("location_settings")
-        .select("key, value")
+        .select("value")
         .eq("location_id", currentLocationId)
-        .in("key", ["wholesale_enabled", "wholesale_discount_pct"]);
-      if (data) {
-        for (const row of data as { key: string; value: string }[]) {
-          if (row.key === "wholesale_enabled") setWholesaleEnabled(row.value === "true");
-          if (row.key === "wholesale_discount_pct") setWholesaleDiscountPct(parseFloat(row.value) || 0);
-        }
-      }
+        .eq("key", "wholesale_enabled")
+        .maybeSingle();
+      setWholesaleEnabled((data as { value: string } | null)?.value === "true");
     })();
   }, [currentLocationId]);
 
@@ -266,16 +261,38 @@ export default function POSPage() {
     setCart([]);
   }
 
+  /** Wholesale price for a line, given the discount the cashier typed. */
+  function wholesalePrice(retailPrice: number, pct: string | undefined): number {
+    const discount = parseFloat(pct ?? "");
+    if (!isFinite(discount) || discount <= 0) return retailPrice;
+    const capped = Math.min(discount, 100);
+    return Math.round(retailPrice * (1 - capped / 100) * 100) / 100;
+  }
+
+  // Toggling wholesale off clears the negotiated discount, so re-ticking the
+  // box never silently re-applies a rate the cashier can no longer see.
   function toggleWholesale(productId: string) {
     setCart((prev) =>
       prev.map((item) => {
         if (item.productId !== productId) return item;
-        const newIsWholesale = !item.isWholesale;
         const retailPrice = item.retailPrice ?? item.unitPrice;
-        const newPrice = newIsWholesale && wholesaleDiscountPct > 0
-          ? Math.round(retailPrice * (1 - wholesaleDiscountPct / 100) * 100) / 100
-          : retailPrice;
-        return { ...item, isWholesale: newIsWholesale, unitPrice: newPrice };
+        const isWholesale = !item.isWholesale;
+        return {
+          ...item,
+          isWholesale,
+          wholesaleDiscountPct: isWholesale ? item.wholesaleDiscountPct : undefined,
+          unitPrice: isWholesale ? wholesalePrice(retailPrice, item.wholesaleDiscountPct) : retailPrice,
+        };
+      })
+    );
+  }
+
+  function setWholesaleDiscount(productId: string, pct: string) {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.productId !== productId) return item;
+        const retailPrice = item.retailPrice ?? item.unitPrice;
+        return { ...item, wholesaleDiscountPct: pct, unitPrice: wholesalePrice(retailPrice, pct) };
       })
     );
   }
@@ -291,10 +308,17 @@ export default function POSPage() {
         const product = products.find((p) => p.id === item.productId);
         if (!product) return item;
         const discountPct = latestDiscounts.get(item.productId) ?? 0;
-        const effectivePrice = discountPct > 0
+        const retailPrice = discountPct > 0
           ? Math.round(product.selling_price * (1 - discountPct / 100) * 100) / 100
           : product.selling_price;
-        return effectivePrice !== item.unitPrice ? { ...item, unitPrice: effectivePrice } : item;
+        // The wholesale rate is negotiated at the till, so it survives this
+        // refresh and re-applies on top of whatever the promo price now is.
+        const effectivePrice = item.isWholesale
+          ? wholesalePrice(retailPrice, item.wholesaleDiscountPct)
+          : retailPrice;
+        return effectivePrice !== item.unitPrice || retailPrice !== item.retailPrice
+          ? { ...item, unitPrice: effectivePrice, retailPrice }
+          : item;
       })
     );
     setShowPayment(true);
@@ -357,7 +381,7 @@ export default function POSPage() {
           onClear={clearCart}
           onCheckout={handleCheckout}
           onToggleWholesale={toggleWholesale}
-          wholesaleDiscountPct={wholesaleDiscountPct}
+          onSetWholesaleDiscount={setWholesaleDiscount}
           branchWholesaleEnabled={wholesaleEnabled}
         />
       </div>
@@ -400,7 +424,7 @@ export default function POSPage() {
                 onClear={clearCart}
                 onCheckout={() => { setMobileCartOpen(false); handleCheckout(); }}
                 onToggleWholesale={toggleWholesale}
-                wholesaleDiscountPct={wholesaleDiscountPct}
+                onSetWholesaleDiscount={setWholesaleDiscount}
                 branchWholesaleEnabled={wholesaleEnabled}
               />
             </div>

@@ -31,8 +31,9 @@ export default function SettingsPage() {
   const [requiresShift, setRequiresShift] = useState(false);
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
   const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
-  // Per-branch wholesale settings
-  const [wholesaleByLocation, setWholesaleByLocation] = useState<Record<string, { enabled: boolean; discount: number }>>({});
+  // Per-branch wholesale allow list. The discount itself is negotiated at the
+  // till, per line item, so it is deliberately not configured here.
+  const [wholesaleByLocation, setWholesaleByLocation] = useState<Record<string, boolean>>({});
   // Per-branch cash denomination counter at shift close. Absence of a row = off.
   const [denomCountByLocation, setDenomCountByLocation] = useState<Record<string, boolean>>({});
   const {
@@ -85,15 +86,13 @@ export default function SettingsPage() {
   useEffect(() => {
     if (locations.length === 0) return;
     db.from("location_settings")
-      .select("location_id, key, value")
-      .in("key", ["wholesale_enabled", "wholesale_discount_pct"])
-      .then(({ data }: { data: { location_id: string; key: string; value: string }[] | null }) => {
-        const map: Record<string, { enabled: boolean; discount: number }> = {};
-        locations.forEach((l) => (map[l.id] = { enabled: false, discount: 15 }));
+      .select("location_id, value")
+      .eq("key", "wholesale_enabled")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = false));
         (data || []).forEach((row) => {
-          if (!map[row.location_id]) map[row.location_id] = { enabled: false, discount: 15 };
-          if (row.key === "wholesale_enabled") map[row.location_id].enabled = row.value === "true";
-          if (row.key === "wholesale_discount_pct") map[row.location_id].discount = parseFloat(row.value) || 15;
+          map[row.location_id] = row.value === "true";
         });
         setWholesaleByLocation(map);
       });
@@ -247,26 +246,15 @@ export default function SettingsPage() {
       }
     }
 
-    // Wholesale settings — two rows per branch (enabled + discount).
+    // Wholesale allow list — one row per branch.
     if (locations.length > 0) {
-      const wholesaleRows: { org_id: string; location_id: string; key: string; value: string; updated_at: string }[] = [];
-      locations.forEach((l) => {
-        const ws = wholesaleByLocation[l.id] ?? { enabled: false, discount: 15 };
-        wholesaleRows.push({
-          org_id: orgId,
-          location_id: l.id,
-          key: "wholesale_enabled",
-          value: ws.enabled ? "true" : "false",
-          updated_at: new Date().toISOString(),
-        });
-        wholesaleRows.push({
-          org_id: orgId,
-          location_id: l.id,
-          key: "wholesale_discount_pct",
-          value: String(ws.discount),
-          updated_at: new Date().toISOString(),
-        });
-      });
+      const wholesaleRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "wholesale_enabled",
+        value: (wholesaleByLocation[l.id] ?? false) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
       const { error: wsErr } = await db
         .from("location_settings")
         .upsert(wholesaleRows, { onConflict: "location_id,key" });
@@ -587,52 +575,24 @@ export default function SettingsPage() {
             )}
           </h2>
           <p className="text-sm text-gray-500 mb-4">
-            Enable wholesale pricing for branches that sell in bulk. Products must also be
-            flagged as &ldquo;wholesale enabled&rdquo; to appear in wholesale mode.
+            Tick the branches allowed to sell in bulk. Products must also be flagged as
+            &ldquo;wholesale enabled&rdquo; to offer a wholesale price. The discount itself is
+            set by the cashier in the POS, per item, before charging.
           </p>
-          <div className="space-y-4">
-            {locations.map((l) => {
-              const ws = wholesaleByLocation[l.id] ?? { enabled: false, discount: 15 };
-              return (
-                <div key={l.id} className="border border-gray-200 rounded-lg p-4">
-                  <label className="flex items-center gap-3 cursor-pointer mb-3">
-                    <input
-                      type="checkbox"
-                      checked={ws.enabled}
-                      onChange={(e) =>
-                        setWholesaleByLocation((m) => ({
-                          ...m,
-                          [l.id]: { ...ws, enabled: e.target.checked },
-                        }))
-                      }
-                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                    />
-                    <span className="text-sm font-medium text-gray-900">{l.name}</span>
-                  </label>
-                  {ws.enabled && (
-                    <div className="ml-7">
-                      <label className="block text-sm text-gray-600 mb-1">Discount %</label>
-                      <input
-                        type="number"
-                        min="1"
-                        max="100"
-                        value={ws.discount}
-                        onChange={(e) =>
-                          setWholesaleByLocation((m) => ({
-                            ...m,
-                            [l.id]: { ...ws, discount: parseFloat(e.target.value) || 15 },
-                          }))
-                        }
-                        className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-                      />
-                      <p className="text-xs text-gray-500 mt-1">
-                        Wholesale price = selling price minus this percentage
-                      </p>
-                    </div>
-                  )}
-                </div>
-              );
-            })}
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={wholesaleByLocation[l.id] ?? false}
+                  onChange={(e) =>
+                    setWholesaleByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
           </div>
         </div>
 

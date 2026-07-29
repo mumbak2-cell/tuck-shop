@@ -16,6 +16,8 @@ export interface CartItem {
   wholesaleEnabled?: boolean;
   wholesaleMinQty?: number;
   isWholesale?: boolean;
+  /** Discount the cashier negotiated on this line, as a percentage. */
+  wholesaleDiscountPct?: string;
   retailPrice?: number;
 }
 
@@ -27,11 +29,11 @@ interface Props {
   onClear: () => void;
   onCheckout: () => void;
   onToggleWholesale?: (productId: string) => void;
-  wholesaleDiscountPct?: number;
+  onSetWholesaleDiscount?: (productId: string, pct: string) => void;
   branchWholesaleEnabled?: boolean;
 }
 
-export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onCheckout, onToggleWholesale, wholesaleDiscountPct, branchWholesaleEnabled }: Props) {
+export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onCheckout, onToggleWholesale, onSetWholesaleDiscount, branchWholesaleEnabled }: Props) {
   const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
@@ -78,26 +80,46 @@ export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onChecko
                   <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
                   <p className="text-xs text-gray-500">
                     {formatZAR(item.unitPrice)} each
-                    {item.isWholesale && wholesaleDiscountPct && (
-                      <span className="ml-1 text-green-600">(-{wholesaleDiscountPct}%)</span>
+                    {item.isWholesale && item.retailPrice != null && item.unitPrice < item.retailPrice && (
+                      <span className="ml-1 text-gray-400 line-through">{formatZAR(item.retailPrice)}</span>
                     )}
                   </p>
-                  {/* Wholesale toggle */}
+                  {/* Wholesale toggle, with the discount negotiated at the till */}
                   {branchWholesaleEnabled && item.wholesaleEnabled && onToggleWholesale && (
-                    <label className="flex items-center gap-1.5 mt-1 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={item.isWholesale ?? false}
-                        onChange={() => onToggleWholesale(item.productId)}
-                        className="h-3 w-3 text-green-600 rounded border-gray-300"
-                      />
-                      <span className="text-xs text-green-700">
-                        Wholesale {item.wholesaleMinQty && item.wholesaleMinQty > 1 && `(min ${item.wholesaleMinQty})`}
-                      </span>
-                      {item.isWholesale && item.wholesaleMinQty && item.quantity < item.wholesaleMinQty && (
-                        <span className="text-xs text-red-500 ml-1">Need {item.wholesaleMinQty - item.quantity} more</span>
+                    <>
+                      <label className="flex items-center gap-1.5 mt-1 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={item.isWholesale ?? false}
+                          onChange={() => onToggleWholesale(item.productId)}
+                          className="h-3 w-3 text-green-600 rounded border-gray-300"
+                        />
+                        <span className="text-xs text-green-700">
+                          Wholesale {item.wholesaleMinQty && item.wholesaleMinQty > 1 && `(min ${item.wholesaleMinQty})`}
+                        </span>
+                        {item.isWholesale && item.wholesaleMinQty && item.quantity < item.wholesaleMinQty && (
+                          <span className="text-xs text-red-500 ml-1">Need {item.wholesaleMinQty - item.quantity} more</span>
+                        )}
+                      </label>
+                      {item.isWholesale && onSetWholesaleDiscount && (
+                        <div className="flex items-center gap-1.5 mt-1 ml-5">
+                          <span className="text-xs text-gray-500">Discount</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={100}
+                            inputMode="decimal"
+                            value={item.wholesaleDiscountPct ?? ""}
+                            onChange={(e) => onSetWholesaleDiscount(item.productId, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            placeholder="0"
+                            aria-label={`Wholesale discount percent for ${item.name}`}
+                            className="w-14 h-7 text-center text-xs border border-gray-200 rounded-md focus:border-green-500 focus:ring-1 focus:ring-green-500 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          />
+                          <span className="text-xs text-gray-500">%</span>
+                        </div>
                       )}
-                    </label>
+                    </>
                   )}
                   {/* H8 fix: warn when cart quantity exceeds available stock */}
                   {item.availableStock != null && item.quantity > item.availableStock && (
