@@ -193,7 +193,7 @@ export default function POSPage() {
   }, [fetchProducts, fetchPromotions]);
 
   useEffect(() => {
-    if (!currentLocationId) return;
+    if (!currentLocationId || !navigator.onLine) return;
     (async () => {
       const { data } = await db
         .from("location_settings")
