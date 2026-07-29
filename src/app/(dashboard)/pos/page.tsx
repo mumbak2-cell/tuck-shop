@@ -149,7 +149,7 @@ export default function POSPage() {
   // updates are async and won't be visible in the same tick).
   const fetchPromotions = useCallback(async (): Promise<DiscountMap> => {
     const empty: DiscountMap = new Map();
-    if (!orgId) return empty;
+    if (!orgId || !navigator.onLine) return empty;
     try {
       const today = new Date().toLocaleDateString("en-CA"); // YYYY-MM-DD in local tz
       const { data: promos } = await db
