@@ -35,7 +35,7 @@ export default function ShiftPage() {
   const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
   const [loadingTotals, setLoadingTotals] = useState(false);
 
-  const isAdmin = role === "admin" || role === "owner";
+  const isAdmin = role === "admin";
 
   // Reset the local form inputs whenever the operator switches location so
   // values typed for one shop do not pre-fill at another shop.
