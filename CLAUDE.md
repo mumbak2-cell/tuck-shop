@@ -477,13 +477,30 @@ The P&L page shows an **"Inventory on Hand"** card (indigo theme) — point-in-t
 snapshot of current stock × `cost_per_unit`. Not period-dependent, always shows current
 stock. Products with NULL `cost_per_unit` are counted separately with a warning.
 
-## Shift opening (simplified)
+## Shifts
 
-Shift opening (`src/app/(dashboard)/shift/page.tsx`) now shows only the opening float
+Shift opening (`src/app/(dashboard)/shift/page.tsx`) shows only the opening float
 input and Open Shift button. No stock count info or prompts — operators open immediately.
 Stock count is still required for **closing** (if `requiresStockCountToClose` org setting
 is enabled). The previous day's closing stock carries forward automatically via
 `product_stock.quantity`.
+
+**One shift per location per day** — enforced by the UI, not by a DB constraint.
+`fetchShift` in `src/lib/shift-context.tsx` queries the most recent shift for today at
+the current location; if one exists (open or closed), the "Start Shift" form is hidden.
+
+**Admin shift controls** (`shift/page.tsx`): when a closed shift exists, admins see two
+buttons:
+
+- **Reopen Shift** — clears closing data (`closed_at`, `closed_by`, `closing_cash`) and
+  sets status back to `"open"`. The opening float is **not** reset — use this when the
+  float was correct but the shift was closed prematurely.
+- **Delete Shift** — removes the shift row entirely so a fresh one can be started with
+  the correct opening float. Use this when the cashier entered the wrong float or opened
+  by mistake.
+
+Both are gated on `role === "admin"` (the `UserRole` type is `"admin" | "cashier"` —
+there is no `"owner"` variant). Cashiers see only the closed-shift summary.
 
 ## Daily reconciliation (migration 070)
 
