@@ -12,6 +12,11 @@ export interface CartItem {
   costPrice: number;
   /** Available stock at the current location (H8: stock warning, not a block). */
   availableStock?: number;
+  /** Wholesale fields */
+  wholesaleEnabled?: boolean;
+  wholesaleMinQty?: number;
+  isWholesale?: boolean;
+  retailPrice?: number;
 }
 
 interface Props {
@@ -21,9 +26,12 @@ interface Props {
   onRemove: (productId: string) => void;
   onClear: () => void;
   onCheckout: () => void;
+  onToggleWholesale?: (productId: string) => void;
+  wholesaleDiscountPct?: number;
+  branchWholesaleEnabled?: boolean;
 }
 
-export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onCheckout }: Props) {
+export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onCheckout, onToggleWholesale, wholesaleDiscountPct, branchWholesaleEnabled }: Props) {
   const total = items.reduce((sum, i) => sum + i.unitPrice * i.quantity, 0);
   const itemCount = items.reduce((sum, i) => sum + i.quantity, 0);
 
@@ -70,7 +78,27 @@ export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onChecko
                   <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
                   <p className="text-xs text-gray-500">
                     {formatZAR(item.unitPrice)} each
+                    {item.isWholesale && wholesaleDiscountPct && (
+                      <span className="ml-1 text-green-600">(-{wholesaleDiscountPct}%)</span>
+                    )}
                   </p>
+                  {/* Wholesale toggle */}
+                  {branchWholesaleEnabled && item.wholesaleEnabled && onToggleWholesale && (
+                    <label className="flex items-center gap-1.5 mt-1 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={item.isWholesale ?? false}
+                        onChange={() => onToggleWholesale(item.productId)}
+                        className="h-3 w-3 text-green-600 rounded border-gray-300"
+                      />
+                      <span className="text-xs text-green-700">
+                        Wholesale {item.wholesaleMinQty && item.wholesaleMinQty > 1 && `(min ${item.wholesaleMinQty})`}
+                      </span>
+                      {item.isWholesale && item.wholesaleMinQty && item.quantity < item.wholesaleMinQty && (
+                        <span className="text-xs text-red-500 ml-1">Need {item.wholesaleMinQty - item.quantity} more</span>
+                      )}
+                    </label>
+                  )}
                   {/* H8 fix: warn when cart quantity exceeds available stock */}
                   {item.availableStock != null && item.quantity > item.availableStock && (
                     <p className="text-xs text-amber-600 flex items-center gap-1 mt-0.5">

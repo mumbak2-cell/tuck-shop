@@ -260,6 +260,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         unit_price: item.unitPrice,
         total_amount: item.unitPrice * item.quantity,
         cost_price: item.costPrice,
+        is_wholesale: item.isWholesale ?? false,
       })),
     });
 

@@ -94,6 +94,8 @@ export interface Product {
   reorder_level: number;
   discontinued: boolean;
   created_at: string;
+  wholesale_enabled: boolean;
+  wholesale_min_qty: number;
 }
 
 export interface Ingredient {

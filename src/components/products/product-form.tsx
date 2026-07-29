@@ -42,6 +42,8 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     opening_stock: product?.opening_stock?.toString() || "0",
     reorder_level: product?.reorder_level?.toString() || "0",
     units_per_batch: product?.units_per_batch?.toString() || "",
+    wholesale_enabled: product?.wholesale_enabled || false,
+    wholesale_min_qty: product?.wholesale_min_qty?.toString() || "1",
   });
 
   // Recipe lines for a prepared item. Held here rather than written directly so
@@ -128,6 +130,8 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       is_sellable: form.is_sellable,
       opening_stock: parseInt(form.opening_stock) || 0,
       reorder_level: parseInt(form.reorder_level) || 0,
+      wholesale_enabled: form.wholesale_enabled,
+      wholesale_min_qty: form.wholesale_enabled ? parseInt(form.wholesale_min_qty) || 1 : 1,
     };
 
     if (!payload.name || !payload.category || !payload.selling_price) {
@@ -442,6 +446,27 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           To stock this product at another location, switch in the sidebar and use Receive Stock.
         </p>
       )}
+
+      <div className="border-t pt-4 mt-4 space-y-4">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={form.wholesale_enabled}
+            onChange={(e) => update("wholesale_enabled", e.target.checked)}
+            className="h-4 w-4 text-blue-600 rounded border-gray-300"
+          />
+          <span className="text-sm font-medium text-gray-700">Enable wholesale pricing</span>
+        </label>
+        {form.wholesale_enabled && (
+          <Input
+            label="Minimum Qty for Wholesale"
+            type="number"
+            min={1}
+            value={form.wholesale_min_qty}
+            onChange={(e) => update("wholesale_min_qty", e.target.value)}
+          />
+        )}
+      </div>
 
       <div className="flex justify-end gap-3 pt-4 border-t">
         <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>

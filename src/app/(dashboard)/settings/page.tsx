@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -31,6 +31,8 @@ export default function SettingsPage() {
   const [requiresShift, setRequiresShift] = useState(false);
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
   const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
+  // Per-branch wholesale settings
+  const [wholesaleByLocation, setWholesaleByLocation] = useState<Record<string, { enabled: boolean; discount: number }>>({});
   const {
     locations,
     orgId,
@@ -74,6 +76,24 @@ export default function SettingsPage() {
           map[row.location_id] = row.value !== "false";
         });
         setReceiptsByLocation(map);
+      });
+  }, [locations]);
+
+  // Load per-branch wholesale settings.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, key, value")
+      .in("key", ["wholesale_enabled", "wholesale_discount_pct"])
+      .then(({ data }: { data: { location_id: string; key: string; value: string }[] | null }) => {
+        const map: Record<string, { enabled: boolean; discount: number }> = {};
+        locations.forEach((l) => (map[l.id] = { enabled: false, discount: 15 }));
+        (data || []).forEach((row) => {
+          if (!map[row.location_id]) map[row.location_id] = { enabled: false, discount: 15 };
+          if (row.key === "wholesale_enabled") map[row.location_id].enabled = row.value === "true";
+          if (row.key === "wholesale_discount_pct") map[row.location_id].discount = parseFloat(row.value) || 15;
+        });
+        setWholesaleByLocation(map);
       });
   }, [locations]);
 
@@ -205,6 +225,36 @@ export default function SettingsPage() {
       if (rcptErr) {
         setSaving(false);
         alert("Failed to save receipt settings: " + (rcptErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Wholesale settings — two rows per branch (enabled + discount).
+    if (locations.length > 0) {
+      const wholesaleRows: { org_id: string; location_id: string; key: string; value: string; updated_at: string }[] = [];
+      locations.forEach((l) => {
+        const ws = wholesaleByLocation[l.id] ?? { enabled: false, discount: 15 };
+        wholesaleRows.push({
+          org_id: orgId,
+          location_id: l.id,
+          key: "wholesale_enabled",
+          value: ws.enabled ? "true" : "false",
+          updated_at: new Date().toISOString(),
+        });
+        wholesaleRows.push({
+          org_id: orgId,
+          location_id: l.id,
+          key: "wholesale_discount_pct",
+          value: String(ws.discount),
+          updated_at: new Date().toISOString(),
+        });
+      });
+      const { error: wsErr } = await db
+        .from("location_settings")
+        .upsert(wholesaleRows, { onConflict: "location_id,key" });
+      if (wsErr) {
+        setSaving(false);
+        alert("Failed to save wholesale settings: " + (wsErr.message || "Unknown error"));
         return;
       }
     }
@@ -457,6 +507,65 @@ export default function SettingsPage() {
               </p>
             </div>
           </label>
+        </div>
+
+        {/* Wholesale Mode — per branch */}
+        <div className="bg-white border border-gray-200 rounded-xl p-6">
+          <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2 mb-4">
+            <ShoppingCart className="w-5 h-5 text-gray-600" />
+            Wholesale Mode
+            {locations.length > 1 && (
+              <span className="text-xs font-normal text-gray-400 ml-1">(per branch)</span>
+            )}
+          </h2>
+          <p className="text-sm text-gray-500 mb-4">
+            Enable wholesale pricing for branches that sell in bulk. Products must also be
+            flagged as &ldquo;wholesale enabled&rdquo; to appear in wholesale mode.
+          </p>
+          <div className="space-y-4">
+            {locations.map((l) => {
+              const ws = wholesaleByLocation[l.id] ?? { enabled: false, discount: 15 };
+              return (
+                <div key={l.id} className="border border-gray-200 rounded-lg p-4">
+                  <label className="flex items-center gap-3 cursor-pointer mb-3">
+                    <input
+                      type="checkbox"
+                      checked={ws.enabled}
+                      onChange={(e) =>
+                        setWholesaleByLocation((m) => ({
+                          ...m,
+                          [l.id]: { ...ws, enabled: e.target.checked },
+                        }))
+                      }
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <span className="text-sm font-medium text-gray-900">{l.name}</span>
+                  </label>
+                  {ws.enabled && (
+                    <div className="ml-7">
+                      <label className="block text-sm text-gray-600 mb-1">Discount %</label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="100"
+                        value={ws.discount}
+                        onChange={(e) =>
+                          setWholesaleByLocation((m) => ({
+                            ...m,
+                            [l.id]: { ...ws, discount: parseFloat(e.target.value) || 15 },
+                          }))
+                        }
+                        className="w-24 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                      />
+                      <p className="text-xs text-gray-500 mt-1">
+                        Wholesale price = selling price minus this percentage
+                      </p>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
 
         {/* Online Payment Link (generic) */}

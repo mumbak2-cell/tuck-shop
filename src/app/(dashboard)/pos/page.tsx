@@ -41,6 +41,8 @@ export default function POSPage() {
   const [showPayment, setShowPayment] = useState(false);
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
+  const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
+  const [wholesaleDiscountPct, setWholesaleDiscountPct] = useState(0);
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -190,6 +192,23 @@ export default function POSPage() {
     })();
   }, [fetchProducts, fetchPromotions]);
 
+  useEffect(() => {
+    if (!currentLocationId) return;
+    (async () => {
+      const { data } = await db
+        .from("location_settings")
+        .select("key, value")
+        .eq("location_id", currentLocationId)
+        .in("key", ["wholesale_enabled", "wholesale_discount_pct"]);
+      if (data) {
+        for (const row of data as { key: string; value: string }[]) {
+          if (row.key === "wholesale_enabled") setWholesaleEnabled(row.value === "true");
+          if (row.key === "wholesale_discount_pct") setWholesaleDiscountPct(parseFloat(row.value) || 0);
+        }
+      }
+    })();
+  }, [currentLocationId]);
+
   function addToCart(product: Product) {
     const discountPct = discountMap.get(product.id) ?? 0;
     const effectivePrice = discountPct > 0
@@ -211,7 +230,11 @@ export default function POSPage() {
           unitPrice: effectivePrice,
           quantity: 1,
           costPrice: product.cost_per_unit ?? 0,
-          availableStock: product.opening_stock ?? undefined, // H8: stock warning
+          availableStock: product.opening_stock ?? undefined,
+          wholesaleEnabled: product.wholesale_enabled,
+          wholesaleMinQty: product.wholesale_min_qty,
+          isWholesale: false,
+          retailPrice: effectivePrice,
         },
       ];
     });
@@ -241,6 +264,20 @@ export default function POSPage() {
 
   function clearCart() {
     setCart([]);
+  }
+
+  function toggleWholesale(productId: string) {
+    setCart((prev) =>
+      prev.map((item) => {
+        if (item.productId !== productId) return item;
+        const newIsWholesale = !item.isWholesale;
+        const retailPrice = item.retailPrice ?? item.unitPrice;
+        const newPrice = newIsWholesale && wholesaleDiscountPct > 0
+          ? Math.round(retailPrice * (1 - wholesaleDiscountPct / 100) * 100) / 100
+          : retailPrice;
+        return { ...item, isWholesale: newIsWholesale, unitPrice: newPrice };
+      })
+    );
   }
 
   /** Re-derive promo prices at checkout so stale discounts don't persist (M18). */
@@ -319,6 +356,9 @@ export default function POSPage() {
           onRemove={removeItem}
           onClear={clearCart}
           onCheckout={handleCheckout}
+          onToggleWholesale={toggleWholesale}
+          wholesaleDiscountPct={wholesaleDiscountPct}
+          branchWholesaleEnabled={wholesaleEnabled}
         />
       </div>
 
@@ -359,6 +399,9 @@ export default function POSPage() {
                 onRemove={removeItem}
                 onClear={clearCart}
                 onCheckout={() => { setMobileCartOpen(false); handleCheckout(); }}
+                onToggleWholesale={toggleWholesale}
+                wholesaleDiscountPct={wholesaleDiscountPct}
+                branchWholesaleEnabled={wholesaleEnabled}
               />
             </div>
           </div>
