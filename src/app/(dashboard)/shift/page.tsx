@@ -8,7 +8,7 @@ import { db } from "@/lib/supabase";
 import { formatZAR } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Clock, Play, Square, Check, Banknote, Smartphone, Users } from "lucide-react";
+import { Clock, Play, Square, Check, Banknote, Smartphone, Users, RotateCcw, Trash2 } from "lucide-react";
 import Link from "next/link";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { localToday } from "@/lib/date-utils";
@@ -23,15 +23,19 @@ interface MethodTotal {
 export default function ShiftPage() {
   const router = useRouter();
   const { name: userName, role } = useAuth();
-  const { shift, loading, isOpen, openShift, closeShift } = useShift();
+  const { shift, loading, isOpen, openShift, closeShift, deleteShift, reopenShift } = useShift();
   const { currentLocationId, currentLocationName } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
   const [opening, setOpening] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [reopening, setReopening] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
   const [loadingTotals, setLoadingTotals] = useState(false);
+
+  const isAdmin = role === "admin" || role === "owner";
 
   // Reset the local form inputs whenever the operator switches location so
   // values typed for one shop do not pre-fill at another shop.
@@ -182,6 +186,43 @@ export default function ShiftPage() {
               <span className="font-medium text-gray-900">{shift.closing_cash !== null ? formatZAR(shift.closing_cash) : "—"}</span>
             </div>
           </div>
+
+          {isAdmin && (
+            <div className="mt-6 pt-4 border-t border-gray-100 space-y-2">
+              <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">Admin actions</p>
+              <Button
+                onClick={async () => {
+                  if (!confirm("Reopen this shift? The cashier will be able to continue selling and close it again later.")) return;
+                  setReopening(true);
+                  const ok = await reopenShift();
+                  setReopening(false);
+                  if (ok) router.push("/pos");
+                }}
+                loading={reopening}
+                variant="secondary"
+                size="sm"
+                className="w-full"
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                Reopen Shift
+              </Button>
+              <Button
+                onClick={async () => {
+                  if (!confirm("Delete this shift entirely? This cannot be undone. The cashier will be able to start a fresh shift.")) return;
+                  setDeleting(true);
+                  await deleteShift(shift.id);
+                  setDeleting(false);
+                }}
+                loading={deleting}
+                variant="danger"
+                size="sm"
+                className="w-full"
+              >
+                <Trash2 className="w-4 h-4 mr-2" />
+                Delete Shift
+              </Button>
+            </div>
+          )}
 
           <div className="mt-6 pt-4 border-t border-gray-100">
             <Link

@@ -26,6 +26,8 @@ interface ShiftState {
   isOpen: boolean;
   openShift: (openedBy: string, openingFloat: number) => Promise<boolean>;
   closeShift: (closedBy: string, closingCash: number) => Promise<boolean>;
+  deleteShift: (shiftId: string) => Promise<boolean>;
+  reopenShift: () => Promise<boolean>;
   markStockCountDone: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -36,6 +38,8 @@ const ShiftContext = createContext<ShiftState>({
   isOpen: false,
   openShift: async () => false,
   closeShift: async () => false,
+  deleteShift: async () => false,
+  reopenShift: async () => false,
   markStockCountDone: async () => {},
   refresh: async () => {},
 });
@@ -169,6 +173,31 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
     return true;
   }
 
+  async function deleteShift(shiftId: string): Promise<boolean> {
+    if (!orgId) return false;
+    const { error } = await db.from("shifts").delete().eq("id", shiftId);
+    if (error) {
+      alert("Error deleting shift: " + error.message);
+      return false;
+    }
+    setShift(null);
+    return true;
+  }
+
+  async function reopenShift(): Promise<boolean> {
+    if (!shift || !orgId) return false;
+    const { error } = await db
+      .from("shifts")
+      .update({ closed_at: null, closed_by: null, closing_cash: null, status: "open" })
+      .eq("id", shift.id);
+    if (error) {
+      alert("Error reopening shift: " + error.message);
+      return false;
+    }
+    await fetchShift();
+    return true;
+  }
+
   async function markStockCountDone() {
     if (!shift || !orgId) return;
     const updated: Shift = { ...shift, stock_count_done: true };
@@ -198,6 +227,8 @@ export function ShiftProvider({ children }: { children: ReactNode }) {
         isOpen: shift?.status === "open",
         openShift,
         closeShift,
+        deleteShift,
+        reopenShift,
         markStockCountDone,
         refresh: fetchShift,
       }}
