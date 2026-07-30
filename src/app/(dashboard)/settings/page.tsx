@@ -964,6 +964,13 @@ export default function SettingsPage() {
             <span className="text-sm text-green-600 font-medium">Settings saved successfully.</span>
           )}
         </div>
+
+        {/* Legal / billing links */}
+        <nav className="flex flex-wrap gap-x-4 gap-y-1 pt-4 border-t border-gray-100 text-xs text-gray-500">
+          <a href="/pricing" className="hover:text-gray-700 hover:underline">Pricing</a>
+          <a href="/terms" className="hover:text-gray-700 hover:underline">Terms of Service</a>
+          <a href="/refund-policy" className="hover:text-gray-700 hover:underline">Refund &amp; Cancellation Policy</a>
+        </nav>
       </div>
     </div>
   );
