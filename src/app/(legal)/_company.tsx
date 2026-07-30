@@ -6,9 +6,10 @@ import Link from "next/link";
 export const COMPANY = {
   legalName: "MK Global SA (Pty) Ltd",
   regNo: "2025/522597/07",
-  managingDirector: "Mumba Kunda",
   phone: "+27 83 680 2141",
-  email: "mumba@mkglobal.co.za",
+  // Role-based addresses: general/billing enquiries vs refunds & returns.
+  infoEmail: "info@mkglobal.co.za",
+  supportEmail: "support@mkglobal.co.za",
   website: "https://www.mkglobal.co.za",
   address: "Unit 1 Shangri-La, Pierneef Road, Birchleigh, 1618, South Africa",
   product: "Tilify",
@@ -17,9 +18,11 @@ export const COMPANY = {
 
 export function PageShell({
   title,
+  contactEmail,
   children,
 }: {
   title: string;
+  contactEmail: string;
   children: React.ReactNode;
 }) {
   return (
@@ -51,7 +54,7 @@ export function PageShell({
           <p>Registration no. {COMPANY.regNo}</p>
           <p>{COMPANY.address}</p>
           <p>
-            <a href={`mailto:${COMPANY.email}`} className="text-green-700">{COMPANY.email}</a>
+            <a href={`mailto:${contactEmail}`} className="text-green-700">{contactEmail}</a>
             {" · "}
             {COMPANY.phone}
             {" · "}
