@@ -32,11 +32,19 @@ export interface CreditNoteData {
   /** Time of the original sale, printed as the reference. */
   originalReference?: string | null;
   issuedAt: Date;
-  productName: string;
-  /** Returned quantity, printed as a positive number. */
-  quantity: number;
-  unitPrice: number;
-  /** Total refunded / credited (positive). */
+  /**
+   * Every line covered by this note. A return of several items from one sale
+   * is a single refund event and is handed over as one note, so the printed
+   * note itemises rather than being issued once per product.
+   */
+  items: {
+    productName: string;
+    /** Returned quantity, printed as a positive number. */
+    quantity: number;
+    unitPrice: number;
+    lineTotal: number;
+  }[];
+  /** Total refunded / credited across all lines (positive). */
   refundAmount: number;
   /** Output VAT reversed by this credit note (positive). */
   vatReversed: number;
@@ -49,7 +57,7 @@ function buildCreditNoteLines(data: CreditNoteData): string[] {
   const {
     orgName, locationName, tpin, vatPercent,
     creditNoteNumber, originalReference, issuedAt,
-    productName, quantity, unitPrice, refundAmount,
+    items, refundAmount,
     vatReversed, reason, refundMode,
   } = data;
 
@@ -76,10 +84,12 @@ function buildCreditNoteLines(data: CreditNoteData): string[] {
 
   lines.push(dashes());
 
-  // ── Returned item ──
-  lines.push(...wrapText(productName));
-  const detail = "  " + quantity + " x " + formatMoney(unitPrice);
-  lines.push(leftRight(detail, formatMoney(refundAmount)));
+  // ── Returned items ──
+  for (const it of items) {
+    lines.push(...wrapText(it.productName));
+    const detail = "  " + it.quantity + " x " + formatMoney(it.unitPrice);
+    lines.push(leftRight(detail, formatMoney(it.lineTotal)));
+  }
 
   lines.push(equals());
 

@@ -7,13 +7,24 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
-import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw, Undo2, Printer } from "lucide-react";
+import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw, Undo2, Printer, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket, type PaymentBucket } from "@/lib/payment-buckets";
 import { CreditNote, generateCreditNoteNumber, type CreditNoteData } from "@/components/pos/credit-note";
 import { localToday } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
+import { receiptCode, normaliseReceiptCode } from "@/lib/receipt-code";
+
+/**
+ * Step a YYYY-MM-DD string by whole days. Parsed as UTC noon so a shift never
+ * lands on a different calendar day than intended in a non-UTC timezone.
+ */
+function shiftDate(date: string, days: number): string {
+  const d = new Date(date + "T12:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 interface SaleSummary {
   cash: number;
@@ -43,6 +54,24 @@ interface SaleRecord {
   // Set on a return row (migration 064); links to the original sale.
   return_of_sale_id: string | null;
   credit_note_number: string | null;
+  // Groups the lines of one basket (migration 074).
+  transaction_id: string | null;
+}
+
+/** One basket: the lines that were rung up and paid for together. */
+interface SaleGroup {
+  key: string;
+  /** Short code printed on the customer's receipt. */
+  code: string;
+  lines: SaleRecord[];
+  createdAt: string;
+  paymentMethod: string;
+  /** Non-voided value of the basket. */
+  total: number;
+  /** Units still on the sale, ignoring voided lines. */
+  itemCount: number;
+  allVoided: boolean;
+  anyVoided: boolean;
 }
 
 export default function SalesPage() {
@@ -61,14 +90,25 @@ export default function SalesPage() {
   const [transactions, setTransactions] = useState<SaleRecord[]>([]);
   const [filterMethod, setFilterMethod] = useState<"all" | "cash" | "card" | "credit">("all");
 
-  // Void modal state
-  const [voidTarget, setVoidTarget] = useState<SaleRecord | null>(null);
+  // Which baskets are expanded to show their lines.
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+
+  // Receipt lookup: a customer brings a receipt back, possibly days later.
+  const [codeInput, setCodeInput] = useState("");
+  const [lookingUp, setLookingUp] = useState(false);
+  const [lookupMiss, setLookupMiss] = useState("");
+  const [highlightKey, setHighlightKey] = useState<string | null>(null);
+
+  // Void modal — operates on a whole basket, with the lines individually
+  // selectable so part of a sale can be cancelled.
+  const [voidTarget, setVoidTarget] = useState<SaleGroup | null>(null);
+  const [voidSelection, setVoidSelection] = useState<Record<string, boolean>>({});
   const [voidReason, setVoidReason] = useState("");
   const [voiding, setVoiding] = useState(false);
 
-  // Return modal state
-  const [returnTarget, setReturnTarget] = useState<SaleRecord | null>(null);
-  const [returnQty, setReturnQty] = useState("1");
+  // Return modal — quantities per line, all under one credit note.
+  const [returnTarget, setReturnTarget] = useState<SaleGroup | null>(null);
+  const [returnQtys, setReturnQtys] = useState<Record<string, string>>({});
   const [returnReason, setReturnReason] = useState("");
   const [returning, setReturning] = useState(false);
   // Credit note to print once a return is recorded.
@@ -84,7 +124,62 @@ export default function SalesPage() {
   }, {} as Record<string, number>);
 
   const today = localToday();
+  // Which day's sales are on screen. Returns and voids frequently come in the
+  // day after the sale, so the page cannot be today-only.
+  const [viewDate, setViewDate] = useState(today);
+  const isToday = viewDate === today;
   const { lockedThrough, isLocked } = usePeriodLock();
+
+  // Baskets, newest first. Rows written before migration 074 have no
+  // transaction_id, so each falls back to standing alone rather than all
+  // NULLs collapsing into one giant "sale".
+  const saleGroups: SaleGroup[] = (() => {
+    const map = new Map<string, SaleRecord[]>();
+    for (const t of transactions) {
+      if (t.return_of_sale_id) continue; // credit notes are listed separately
+      const key = t.transaction_id ?? `single:${t.id}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    }
+    return [...map.entries()]
+      .map(([key, lines]) => {
+        const live = lines.filter((l) => !l.voided);
+        return {
+          key,
+          // Matches what was printed: from the transaction where there is one,
+          // otherwise from the line, exactly as the till numbered it.
+          code: receiptCode(lines[0].transaction_id ?? lines[0].id),
+          lines,
+          createdAt: lines[0].created_at,
+          paymentMethod: lines[0].payment_method,
+          total: live.reduce((s, l) => s + (Number(l.total_amount) || 0), 0),
+          itemCount: live.reduce((s, l) => s + l.quantity, 0),
+          allVoided: live.length === 0,
+          anyVoided: lines.some((l) => l.voided),
+        };
+      })
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  })();
+
+  // Credit notes, grouped so a multi-item return reads as one event.
+  const returnGroups = (() => {
+    const map = new Map<string, SaleRecord[]>();
+    for (const t of transactions) {
+      if (!t.return_of_sale_id) continue;
+      const key = t.credit_note_number ?? `single:${t.id}`;
+      if (!map.has(key)) map.set(key, []);
+      map.get(key)!.push(t);
+    }
+    return [...map.entries()]
+      .map(([key, lines]) => ({
+        key,
+        lines,
+        createdAt: lines[0].created_at,
+        creditNoteNumber: lines[0].credit_note_number,
+        total: lines.reduce((s, l) => s + (Number(l.total_amount) || 0), 0),
+      }))
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  })();
 
   const fetchSummary = useCallback(async () => {
     setLoading(true);
@@ -94,9 +189,9 @@ export default function SalesPage() {
     // before the migration is applied — retry without them rather than break
     // Today's Sales for the whole shop (same fallback shape as 059).
     const baseCols = "id, product_id, quantity, unit_price, total_amount, tax_amount, payment_method, customer_id, created_at, voided, products(name)";
-    const returnCols = "return_of_sale_id, credit_note_number";
+    const returnCols = "return_of_sale_id, credit_note_number, transaction_id";
     const runSalesQuery = (cols: string) => {
-      let q = db.from("sales").select(cols).eq("sale_date", today).order("created_at", { ascending: false });
+      let q = db.from("sales").select(cols).eq("sale_date", viewDate).order("created_at", { ascending: false });
       if (isFiltered) q = q.eq("location_id", effectiveLoc);
       return q;
     };
@@ -121,6 +216,7 @@ export default function SalesPage() {
       voided: s.voided || false,
       return_of_sale_id: s.return_of_sale_id ?? null,
       credit_note_number: s.credit_note_number ?? null,
+      transaction_id: s.transaction_id ?? null,
     }));
     setTransactions(txns);
 
@@ -139,7 +235,8 @@ export default function SalesPage() {
     const saleCount = activeSales.filter((s: any) => !s.return_of_sale_id).length;
     setSummary({ cash, card, credit, total: cash + card + credit, count: saleCount });
 
-    // Check if recon already exists for today
+    // Reconciliation always belongs to today — the panel is hidden when an
+    // earlier day is on screen, so a back-dated view can never overwrite it.
     const { data: existingRecon } = await db
       .from("daily_reconciliation")
       .select("*")
@@ -155,7 +252,7 @@ export default function SalesPage() {
     }
 
     setLoading(false);
-  }, [today, effectiveLoc, isFiltered]);
+  }, [viewDate, effectiveLoc, isFiltered]);
 
   useEffect(() => {
     fetchSummary();
@@ -207,53 +304,80 @@ export default function SalesPage() {
     setSaving(false);
   }
 
+  /** Find a receipt by its printed code and jump to the day it was sold. */
+  async function handleLookup() {
+    const code = normaliseReceiptCode(codeInput);
+    if (code.length < 4) {
+      setLookupMiss("Enter at least 4 characters of the receipt code.");
+      return;
+    }
+    setLookingUp(true);
+    setLookupMiss("");
+    try {
+      const { data, error } = await db.rpc("find_sale_by_receipt_code", { p_code: code });
+      if (error) throw error;
+      const hits = (data || []) as { transaction_id: string | null; sale_date: string }[];
+      if (hits.length === 0) {
+        setLookupMiss(`No receipt found for ${code}.`);
+        return;
+      }
+      const hit = hits[0];
+      const key = hit.transaction_id ? hit.transaction_id : null;
+      setViewDate(hit.sale_date);
+      if (key) {
+        setExpanded((m) => ({ ...m, [key]: true }));
+        setHighlightKey(key);
+      }
+      if (hits.length > 1) {
+        setLookupMiss(`${hits.length} receipts share that code — showing the most recent.`);
+      }
+    } catch (err) {
+      setLookupMiss("Lookup failed: " + (err instanceof Error ? err.message : "unknown error"));
+    } finally {
+      setLookingUp(false);
+    }
+  }
+
+  function openVoid(group: SaleGroup) {
+    setVoidTarget(group);
+    // Default to the whole sale — cancelling everything is the common case,
+    // and unticking is easier than hunting for the lines to tick.
+    const sel: Record<string, boolean> = {};
+    group.lines.filter((l) => !l.voided).forEach((l) => (sel[l.id] = true));
+    setVoidSelection(sel);
+    setVoidReason("");
+  }
+
   async function handleVoid() {
     if (!voidTarget) return;
 
-    if (isLocked(today)) {
+    // The sale's own date, not today's — voiding a back-dated sale must respect
+    // the lock covering the day it was made.
+    if (isLocked(viewDate)) {
       alert(`This sale is in a locked period (through ${lockedThrough}). Unlock the period in Settings first.`);
       return;
     }
 
+    const ids = voidTarget.lines.filter((l) => !l.voided && voidSelection[l.id]).map((l) => l.id);
+    if (ids.length === 0) {
+      alert("Select at least one item to void.");
+      return;
+    }
+
     setVoiding(true);
-
     try {
-      // 1. Mark the sale as voided
-      const { error: voidErr } = await db
-        .from("sales")
-        .update({
-          voided: true,
-          voided_at: new Date().toISOString(),
-          voided_by: userName,
-          void_reason: voidReason || "Customer return",
-        })
-        .eq("id", voidTarget.id);
-
-      if (voidErr) throw voidErr;
-
-      // 2. Return stock to the product
-      const { data: prod } = await db
-        .from("products")
-        .select("opening_stock")
-        .eq("id", voidTarget.product_id)
-        .single();
-
-      if (prod) {
-        await db
-          .from("products")
-          .update({ opening_stock: (prod.opening_stock || 0) + voidTarget.quantity })
-          .eq("id", voidTarget.product_id);
-      }
-
-      // 3. If it was a credit sale, reduce customer balance (atomic — H1 fix)
-      if (voidTarget.payment_method === "credit" && voidTarget.customer_id) {
-        await db.rpc("adjust_customer_balance", {
-          p_customer_id: voidTarget.customer_id,
-          p_delta: -voidTarget.total_amount,
-        });
-      }
+      // One RPC for the whole selection: it restocks the BRANCH and reverses
+      // any credit. The old client-side void bumped products.opening_stock,
+      // the pre-per-location field, so branch stock was never restored.
+      const { error } = await db.rpc("void_sale_lines", {
+        p_sale_ids: ids,
+        p_reason: voidReason || "Voided at till",
+        p_voided_by: userName,
+      });
+      if (error) throw error;
 
       setVoidTarget(null);
+      setVoidSelection({});
       setVoidReason("");
       fetchSummary();
     } catch (err) {
@@ -263,53 +387,88 @@ export default function SalesPage() {
     }
   }
 
+  /** Units of a line still available to return. */
+  function remainingOf(line: SaleRecord) {
+    return line.quantity - (returnedByOriginal[line.id] || 0);
+  }
+
+  function openReturn(group: SaleGroup) {
+    setReturnTarget(group);
+    // Start at zero so a return is always a deliberate choice per line.
+    const qtys: Record<string, string> = {};
+    group.lines.filter((l) => !l.voided && remainingOf(l) > 0).forEach((l) => (qtys[l.id] = "0"));
+    setReturnQtys(qtys);
+    setReturnReason("");
+  }
+
   async function handleReturn() {
     if (!returnTarget) return;
 
-    if (isLocked(today)) {
+    if (isLocked(viewDate)) {
       alert(`This sale is in a locked period (through ${lockedThrough}). Returns against locked periods are blocked.`);
       return;
     }
 
-    const remaining = returnTarget.quantity - (returnedByOriginal[returnTarget.id] || 0);
-    const qty = parseInt(returnQty, 10);
-    if (!qty || qty < 1 || qty > remaining) {
-      alert(`Enter a quantity between 1 and ${remaining}.`);
+    const picked = returnTarget.lines
+      .map((l) => ({ line: l, qty: parseInt(returnQtys[l.id] ?? "", 10) || 0 }))
+      .filter((p) => p.qty > 0);
+
+    if (picked.length === 0) {
+      alert("Enter a quantity on at least one item.");
       return;
     }
+    const overshoot = picked.find((p) => p.qty > remainingOf(p.line));
+    if (overshoot) {
+      alert(`${overshoot.line.product_name}: only ${remainingOf(overshoot.line)} can still be returned.`);
+      return;
+    }
+
     setReturning(true);
     try {
+      // One note covers the whole return, so every line is recorded against
+      // the same credit note number.
       const cnNumber = generateCreditNoteNumber();
-      const { error } = await db.rpc("record_sale_return", {
-        p_original_sale_id: returnTarget.id,
-        p_quantity: qty,
-        p_reason: returnReason || null,
-        p_credit_note_number: cnNumber,
-      });
-      if (error) throw error;
+      for (const { line, qty } of picked) {
+        const { error } = await db.rpc("record_sale_return", {
+          p_original_sale_id: line.id,
+          p_quantity: qty,
+          p_reason: returnReason || null,
+          p_credit_note_number: cnNumber,
+        });
+        if (error) throw error;
+      }
 
-      // Credit note from the original line's snapshot (per-unit VAT reversed).
-      const unitTax = returnTarget.quantity > 0 ? returnTarget.tax_amount / returnTarget.quantity : 0;
-      const isCredit = paymentBucket(returnTarget.payment_method) === "credit";
+      const refundAmount = picked.reduce(
+        (s, p) => s + Math.round(p.line.unit_price * p.qty * 100) / 100, 0
+      );
+      const vatReversed = picked.reduce((s, p) => {
+        const unitTax = p.line.quantity > 0 ? p.line.tax_amount / p.line.quantity : 0;
+        return s + Math.round(unitTax * p.qty * 100) / 100;
+      }, 0);
+      const isCredit = paymentBucket(returnTarget.paymentMethod) === "credit";
+
       setCreditNote({
         orgName: orgName || "Shop",
         locationName: currentLocationName || "",
         tpin,
         vatPercent,
         creditNoteNumber: cnNumber,
-        originalReference: new Date(returnTarget.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" }),
+        originalReference: new Date(returnTarget.createdAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" }),
         issuedAt: new Date(),
-        productName: returnTarget.product_name,
-        quantity: qty,
-        unitPrice: returnTarget.unit_price,
-        refundAmount: Math.round(returnTarget.unit_price * qty * 100) / 100,
-        vatReversed: Math.round(unitTax * qty * 100) / 100,
+        items: picked.map((p) => ({
+          productName: p.line.product_name,
+          quantity: p.qty,
+          unitPrice: p.line.unit_price,
+          lineTotal: Math.round(p.line.unit_price * p.qty * 100) / 100,
+        })),
+        refundAmount,
+        vatReversed,
         reason: returnReason || null,
         refundMode: isCredit ? "account" : "cash",
       });
 
       setReturnTarget(null);
-      setReturnQty("1");
+      setReturnQtys({});
       setReturnReason("");
       fetchSummary();
     } catch (err) {
@@ -333,7 +492,10 @@ export default function SalesPage() {
     setTimeout(() => w.print(), 200);
   }
 
-  const voidedCount = transactions.filter((t) => t.voided).length;
+  // Counted in baskets, matching the list below. Counting rows here would say
+  // "9 transactions" for what the shop experienced as three customers.
+  const liveSaleCount = saleGroups.filter((g) => !g.allVoided).length;
+  const voidedCount = saleGroups.filter((g) => g.allVoided).length;
 
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
@@ -343,13 +505,68 @@ export default function SalesPage() {
     <div className="max-w-4xl">
       <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
         <h1 className="text-2xl font-bold text-gray-900">
-          Today&apos;s Sales
+          {isToday ? "Today's Sales" : "Sales"}
           {isFiltered && filteredLocName && (
             <span className="ml-2 text-base font-normal text-gray-500">· {filteredLocName}</span>
           )}
         </h1>
         <LocationFilter value={locFilter} onChange={setLocFilter} />
       </div>
+
+      {/* Day being viewed. Returns and voids often happen the day after the
+          sale, so this has to reach back beyond today. */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <button
+          onClick={() => setViewDate(shiftDate(viewDate, -1))}
+          className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg"
+          aria-label="Previous day"
+        >
+          <ChevronLeft className="w-4 h-4" />
+        </button>
+        <input
+          type="date"
+          value={viewDate}
+          max={today}
+          onChange={(e) => { if (e.target.value) setViewDate(e.target.value); }}
+          aria-label="Date to show sales for"
+          className="border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+        />
+        <button
+          onClick={() => setViewDate(shiftDate(viewDate, 1))}
+          disabled={isToday}
+          className="p-2 text-gray-500 hover:text-gray-900 hover:bg-gray-100 rounded-lg disabled:opacity-30 disabled:hover:bg-transparent"
+          aria-label="Next day"
+        >
+          <ChevronRight className="w-4 h-4" />
+        </button>
+        {!isToday && (
+          <button onClick={() => setViewDate(today)} className="text-sm text-green-600 hover:underline">
+            Back to today
+          </button>
+        )}
+
+        <div className="flex items-center gap-2 ml-auto">
+          <input
+            type="text"
+            value={codeInput}
+            onChange={(e) => { setCodeInput(e.target.value); setLookupMiss(""); }}
+            onKeyDown={(e) => { if (e.key === "Enter") handleLookup(); }}
+            placeholder="Receipt code"
+            aria-label="Find a receipt by its code"
+            className="w-36 border border-gray-300 rounded-lg px-3 py-1.5 text-sm font-mono uppercase focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
+          <Button variant="secondary" onClick={handleLookup} loading={lookingUp}>
+            <Search className="w-4 h-4 mr-1.5" />
+            Find
+          </Button>
+        </div>
+      </div>
+
+      {lookupMiss && (
+        <div className="mb-4 text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-4 py-2">
+          {lookupMiss}
+        </div>
+      )}
 
       {/* Sales breakdown — clickable to filter */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">
@@ -361,12 +578,12 @@ export default function SalesPage() {
       <div className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
         <div className="flex justify-between items-center">
           <div>
-            <p className="text-sm text-gray-500">Total Sales Today</p>
+            <p className="text-sm text-gray-500">{isToday ? "Total Sales Today" : "Total Sales"}</p>
             <p className="text-3xl font-bold text-gray-900">{formatZAR(summary.total)}</p>
           </div>
           <div className="text-right">
             <p className="text-sm text-gray-500">Transactions</p>
-            <p className="text-3xl font-bold text-gray-900">{summary.count}</p>
+            <p className="text-3xl font-bold text-gray-900">{liveSaleCount}</p>
             {voidedCount > 0 && (
               <p className="text-xs text-red-500">{voidedCount} voided</p>
             )}
@@ -386,77 +603,135 @@ export default function SalesPage() {
             </button>
           )}
         </div>
-        {transactions.length === 0 ? (
+        {saleGroups.length === 0 && returnGroups.length === 0 ? (
           <div className="px-5 py-8 text-center text-gray-400 text-sm">No transactions today.</div>
         ) : (
           <div className="divide-y divide-gray-100">
-            {transactions.filter((txn) => filterMethod === "all" || paymentBucket(txn.payment_method) === filterMethod).map((txn) => {
-              const bucket: PaymentBucket = paymentBucket(txn.payment_method);
-              const isReturn = !!txn.return_of_sale_id;
-              const returnedQty = returnedByOriginal[txn.id] || 0;
-              const remaining = txn.quantity - returnedQty;
-              const time = new Date(txn.created_at).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
-              return (
-              <div
-                key={txn.id}
-                className={`px-5 py-3 flex items-center justify-between ${txn.voided ? "bg-red-50/50 opacity-60" : isReturn ? "bg-amber-50/40" : ""}`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className={`text-sm font-medium ${txn.voided ? "line-through text-gray-400" : "text-gray-900"}`}>
-                      {txn.product_name}
-                    </span>
-                    {isReturn ? (
-                      <Badge color="amber">Credit Note</Badge>
-                    ) : (
-                      <Badge color={bucket === "cash" ? "green" : bucket === "card" ? "blue" : "amber"}>
-                        {txn.payment_method || "—"}
-                      </Badge>
-                    )}
-                    {txn.voided && <Badge color="red">Voided</Badge>}
-                    {!isReturn && !txn.voided && returnedQty > 0 && (
-                      <span className="text-xs text-amber-600">{returnedQty} returned</span>
+            {saleGroups
+              .filter((g) => filterMethod === "all" || paymentBucket(g.paymentMethod) === filterMethod)
+              .map((g) => {
+                const bucket: PaymentBucket = paymentBucket(g.paymentMethod);
+                const time = new Date(g.createdAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+                const isOpen = !!expanded[g.key];
+                const returnable = g.lines.some((l) => !l.voided && remainingOf(l) > 0);
+                const lineWord = g.lines.length === 1 ? "item" : "items";
+                return (
+                  <div
+                    key={g.key}
+                    className={
+                      highlightKey === g.key
+                        ? "bg-green-50 ring-2 ring-green-300"
+                        : g.allVoided
+                        ? "bg-red-50/50"
+                        : ""
+                    }
+                  >
+                    <div className="px-5 py-3 flex items-center gap-3">
+                      <button
+                        onClick={() => setExpanded((m) => ({ ...m, [g.key]: !isOpen }))}
+                        className="flex-1 min-w-0 text-left"
+                        aria-expanded={isOpen}
+                      >
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <ChevronDown
+                            className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`}
+                          />
+                          <span className="text-sm font-mono font-semibold text-gray-900">{g.code}</span>
+                          <span className={`text-sm ${g.allVoided ? "line-through text-gray-400" : "text-gray-500"}`}>
+                            {time}
+                          </span>
+                          <Badge color={bucket === "cash" ? "green" : bucket === "card" ? "blue" : "amber"}>
+                            {g.paymentMethod || "—"}
+                          </Badge>
+                          {g.allVoided && <Badge color="red">Voided</Badge>}
+                          {!g.allVoided && g.anyVoided && (
+                            <span className="text-xs text-red-500">part voided</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500 ml-6">
+                          {g.lines.length} {lineWord} · {g.itemCount} unit{g.itemCount === 1 ? "" : "s"}
+                        </p>
+                      </button>
+                      <span className={`text-base font-bold ${g.allVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
+                        {formatZAR(g.total)}
+                      </span>
+                      {!g.allVoided && role === "admin" && (
+                        <div className="flex items-center gap-1">
+                          {returnable && (
+                            <button
+                              onClick={() => openReturn(g)}
+                              className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
+                              title="Return items from this sale"
+                            >
+                              <Undo2 className="w-4 h-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={() => openVoid(g)}
+                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
+                            title="Void items from this sale"
+                          >
+                            <XCircle className="w-4 h-4" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {isOpen && (
+                      <div className="px-5 pb-3 pl-11 space-y-1">
+                        {g.lines.map((l) => {
+                          const returned = returnedByOriginal[l.id] || 0;
+                          return (
+                            <div key={l.id} className="flex items-center justify-between text-sm">
+                              <div className="min-w-0 flex items-center gap-2">
+                                <span className={l.voided ? "line-through text-gray-400" : "text-gray-700"}>
+                                  {l.quantity} × {l.product_name}
+                                </span>
+                                {l.voided && <Badge color="red">Voided</Badge>}
+                                {!l.voided && returned > 0 && (
+                                  <span className="text-xs text-amber-600">{returned} returned</span>
+                                )}
+                              </div>
+                              <span className={l.voided ? "line-through text-gray-400" : "text-gray-700"}>
+                                {formatZAR(l.total_amount)}
+                              </span>
+                            </div>
+                          );
+                        })}
+                      </div>
                     )}
                   </div>
-                  <p className="text-xs text-gray-500">
-                    {isReturn
-                      ? `Returned ${Math.abs(txn.quantity)} × ${formatZAR(txn.unit_price)}${txn.credit_note_number ? ` · ${txn.credit_note_number}` : ""} · ${time}`
-                      : `Qty ${txn.quantity} × ${formatZAR(txn.unit_price)} · ${time}`}
-                  </p>
+                );
+              })}
+
+            {returnGroups.map((r) => {
+              const time = new Date(r.createdAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+              return (
+                <div key={r.key} className="px-5 py-3 bg-amber-50/40">
+                  <div className="flex items-center justify-between">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <Badge color="amber">Credit Note</Badge>
+                        <span className="text-sm font-medium text-gray-900">{time}</span>
+                      </div>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        {r.lines.map((l) => `${Math.abs(l.quantity)} × ${l.product_name}`).join(", ")}
+                        {r.creditNoteNumber ? ` · ${r.creditNoteNumber}` : ""}
+                      </p>
+                    </div>
+                    <span className="text-sm font-semibold text-amber-700">{formatZAR(r.total)}</span>
+                  </div>
                 </div>
-                <div className="flex items-center gap-3">
-                  <span className={`text-sm font-semibold ${txn.voided ? "line-through text-gray-400" : isReturn ? "text-amber-700" : "text-gray-900"}`}>
-                    {formatZAR(txn.total_amount)}
-                  </span>
-                  {!txn.voided && !isReturn && role === "admin" && (
-                    <>
-                      {remaining > 0 && (
-                        <button
-                          onClick={() => { setReturnTarget(txn); setReturnQty(String(remaining)); setReturnReason(""); }}
-                          className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
-                          title="Return / credit note"
-                        >
-                          <Undo2 className="w-4 h-4" />
-                        </button>
-                      )}
-                      <button
-                        onClick={() => setVoidTarget(txn)}
-                        className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Void this sale"
-                      >
-                        <XCircle className="w-4 h-4" />
-                      </button>
-                    </>
-                  )}
-                </div>
-              </div>
               );
             })}
           </div>
         )}
       </div>
 
-      {/* Till reconciliation */}
+      {/* Till reconciliation — today only. It records the state of the drawer
+          right now, so showing it against an earlier day would invite saving
+          today's count against the wrong date. */}
+      {isToday && (
       <div className="bg-white rounded-xl border border-gray-200 p-6">
         <div className="flex items-center gap-2 mb-4">
           <Calculator className="w-5 h-5 text-green-600" />
@@ -521,74 +796,122 @@ export default function SalesPage() {
           </Button>
         </div>
       </div>
+      )}
 
-      {/* Void confirmation modal */}
-      <Modal open={!!voidTarget} onClose={() => { setVoidTarget(null); setVoidReason(""); }} title="Void Sale">
-        {voidTarget && (
-          <div className="space-y-4">
-            <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
-              <p className="text-sm text-red-800">
-                You are about to void the sale of <strong>{voidTarget.quantity}× {voidTarget.product_name}</strong> for <strong>{formatZAR(voidTarget.total_amount)}</strong>.
-              </p>
-              <p className="text-xs text-red-600 mt-1">
-                This will return {voidTarget.quantity} unit(s) to stock
-                {voidTarget.payment_method === "credit" ? " and reduce the customer's balance" : ""}.
-              </p>
-            </div>
+      {/* Void modal — pick which items of the sale to cancel */}
+      <Modal open={!!voidTarget} onClose={() => { setVoidTarget(null); setVoidReason(""); }} title="Void Items">
+        {voidTarget && (() => {
+          const active = voidTarget.lines.filter((l) => !l.voided);
+          const chosen = active.filter((l) => voidSelection[l.id]);
+          const chosenTotal = chosen.reduce((s, l) => s + (Number(l.total_amount) || 0), 0);
+          const isCredit = paymentBucket(voidTarget.paymentMethod) === "credit";
+          return (
+            <div className="space-y-4">
+              <div className="bg-red-50 border border-red-100 rounded-lg px-4 py-3">
+                <p className="text-sm text-red-800">
+                  Voiding puts the items back on the shelf and removes them from today&apos;s takings
+                  {isCredit ? ", and reduces the customer's balance" : ""}.
+                </p>
+              </div>
 
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Reason (optional)</label>
-              <input
-                type="text"
-                value={voidReason}
-                onChange={(e) => setVoidReason(e.target.value)}
-                placeholder="e.g. Customer changed mind, wrong item"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-              />
-            </div>
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                {active.map((l) => (
+                  <label key={l.id} className="flex items-center gap-3 px-3 py-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!voidSelection[l.id]}
+                      onChange={(e) => setVoidSelection((m) => ({ ...m, [l.id]: e.target.checked }))}
+                      className="w-4 h-4 text-red-600 border-gray-300 rounded focus:ring-red-500"
+                    />
+                    <span className="flex-1 text-sm text-gray-800">
+                      {l.quantity} × {l.product_name}
+                    </span>
+                    <span className="text-sm text-gray-600">{formatZAR(l.total_amount)}</span>
+                  </label>
+                ))}
+              </div>
 
-            <div className="flex gap-3">
-              <Button variant="secondary" onClick={() => { setVoidTarget(null); setVoidReason(""); }} className="flex-1">
-                Cancel
-              </Button>
-              <Button variant="danger" onClick={handleVoid} loading={voiding} className="flex-1">
-                <RotateCcw className="w-4 h-4 mr-2" />
-                Void Sale
-              </Button>
+              <div className="flex items-center justify-between bg-gray-50 rounded-lg px-4 py-3 text-sm">
+                <span className="text-gray-600">
+                  Voiding {chosen.length} of {active.length}
+                </span>
+                <span className="font-bold text-gray-900">{formatZAR(chosenTotal)}</span>
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Reason (optional)</label>
+                <input
+                  type="text"
+                  value={voidReason}
+                  onChange={(e) => setVoidReason(e.target.value)}
+                  placeholder="e.g. Customer changed mind, wrong item"
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                />
+              </div>
+
+              <div className="flex gap-3">
+                <Button variant="secondary" onClick={() => { setVoidTarget(null); setVoidReason(""); }} className="flex-1">
+                  Cancel
+                </Button>
+                <Button variant="danger" onClick={handleVoid} loading={voiding} disabled={chosen.length === 0} className="flex-1">
+                  <RotateCcw className="w-4 h-4 mr-2" />
+                  {chosen.length === active.length ? "Void Sale" : `Void ${chosen.length} Item${chosen.length === 1 ? "" : "s"}`}
+                </Button>
+              </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
       </Modal>
 
       {/* Return / credit note modal */}
       <Modal open={!!returnTarget} onClose={() => { setReturnTarget(null); setReturnReason(""); }} title="Return / Credit Note">
         {returnTarget && (() => {
-          const remaining = returnTarget.quantity - (returnedByOriginal[returnTarget.id] || 0);
-          const qty = Math.min(Math.max(parseInt(returnQty, 10) || 0, 0), remaining);
-          const isCredit = paymentBucket(returnTarget.payment_method) === "credit";
-          const refund = Math.round(returnTarget.unit_price * qty * 100) / 100;
+          const lines = returnTarget.lines.filter((l) => !l.voided && remainingOf(l) > 0);
+          const isCredit = paymentBucket(returnTarget.paymentMethod) === "credit";
+          const refund = lines.reduce((s, l) => {
+            const q = Math.min(Math.max(parseInt(returnQtys[l.id] ?? "", 10) || 0, 0), remainingOf(l));
+            return s + Math.round(l.unit_price * q * 100) / 100;
+          }, 0);
+          const anyPicked = lines.some((l) => (parseInt(returnQtys[l.id] ?? "", 10) || 0) > 0);
           return (
             <div className="space-y-4">
               <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
                 <p className="text-sm text-amber-900">
-                  Return <strong>{returnTarget.product_name}</strong> — sold {returnTarget.quantity}, {remaining} returnable.
+                  Sale of <strong>{formatZAR(returnTarget.total)}</strong> at{" "}
+                  {new Date(returnTarget.createdAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" })}.
+                  Set how many of each item are coming back.
                 </p>
                 <p className="text-xs text-amber-700 mt-1">
-                  Goes back to stock.{" "}
+                  Goes back to stock under one credit note.{" "}
                   {isCredit ? "The customer's account balance will be reduced." : "Refund the customer in cash from the till."}
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Quantity to return</label>
-                <input
-                  type="number"
-                  min={1}
-                  max={remaining}
-                  value={returnQty}
-                  onChange={(e) => setReturnQty(e.target.value)}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-                />
+              <div className="border border-gray-200 rounded-lg divide-y divide-gray-100">
+                {lines.map((l) => {
+                  const max = remainingOf(l);
+                  return (
+                    <div key={l.id} className="flex items-center gap-3 px-3 py-2">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm text-gray-800 truncate">{l.product_name}</p>
+                        <p className="text-xs text-gray-500">
+                          sold {l.quantity} · {max} returnable · {formatZAR(l.unit_price)} each
+                        </p>
+                      </div>
+                      <input
+                        type="number"
+                        min={0}
+                        max={max}
+                        inputMode="numeric"
+                        value={returnQtys[l.id] ?? "0"}
+                        onChange={(e) => setReturnQtys((m) => ({ ...m, [l.id]: e.target.value }))}
+                        onFocus={(e) => e.target.select()}
+                        aria-label={`Quantity of ${l.product_name} to return`}
+                        className="w-16 h-9 text-center text-sm border border-gray-200 rounded-lg focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                      />
+                    </div>
+                  );
+                })}
               </div>
 
               <div>
@@ -611,7 +934,7 @@ export default function SalesPage() {
                 <Button variant="secondary" onClick={() => { setReturnTarget(null); setReturnReason(""); }} className="flex-1">
                   Cancel
                 </Button>
-                <Button onClick={handleReturn} loading={returning} disabled={qty < 1 || qty > remaining} className="flex-1">
+                <Button onClick={handleReturn} loading={returning} disabled={!anyPicked} className="flex-1">
                   <Undo2 className="w-4 h-4 mr-2" />
                   Record Return
                 </Button>

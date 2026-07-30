@@ -71,6 +71,17 @@ hung, with `localhost:3000` timing out entirely.
 - **Sales snapshot price.** `sales.unit_price` and `sales.cost_price` are captured at
   sale time (via `submit_sale_batch`), so reporting must read those, never recompute
   revenue from `products.selling_price`.
+- **A `sales` row is one CART LINE, not a transaction.** One basket writes N rows.
+  Anything transaction-level therefore needs care: `sales.cash_back` (073) is written
+  **once, on the first line only**, and summed — writing it per line would multiply it
+  by basket size. `sales.transaction_id` (074) groups a basket, generated inside
+  `submit_sale_batch`. Count baskets, not rows, when reporting "transactions".
+- **Widening `submit_sale_batch` needs the old signature DROPPED first.** Adding an
+  argument otherwise leaves two overloads and PostgREST cannot choose between them:
+  *"Could not choose the best candidate function"*, and **every till stops selling**.
+  This happened in production on migration 072. Give new arguments a DEFAULT so the
+  migration can be applied ahead of the deploy, and always apply the migration
+  **before** pushing the frontend that uses it — never the reverse.
 - **`REVOKE … FROM PUBLIC` does not lock down a function on Supabase.** Supabase's
   default privileges grant EXECUTE on every new function to `anon`, `authenticated` and
   `service_role` **by name**. `PUBLIC` is a different grantee, so revoking it leaves all
@@ -95,7 +106,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **070**.
+number, never reuse a prefix. Latest applied: **075**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -410,7 +421,35 @@ automatically with no changes to reporting queries.
   negative row, restocks the branch via `restock_at_location`, and for credit sales
   reduces the customer balance via `adjust_customer_balance`.
 - **`src/components/pos/credit-note.tsx`** renders a printable credit note. Handles
-  both `refundMode: "cash"` and `"account"`.
+  both `refundMode: "cash"` and `"account"`. It takes an **`items[]` array**: a return
+  of several products from one sale is one refund event under one credit note number,
+  not one note per product.
+
+## Receipt-level sales, void and returns (migrations 074–075)
+
+The Sales page works in **receipts, not line items**. `src/app/(dashboard)/sales/page.tsx`
+groups rows by `transaction_id` into a `SaleGroup` showing time, method, item count and
+**total**, expandable to its lines.
+
+- **Receipt code** — `src/lib/receipt-code.ts` derives a six-hex-digit code
+  (`3F9A2C`) from a UUID. Printed on the receipt and used to find the sale again.
+  Deliberately **derived, not stored**, so no column or RPC argument was needed.
+- **Numbered from the transaction where possible**, falling back to the first line's id
+  for a receipt printed while offline (no transaction exists until the queued sale
+  reaches the server). `find_sale_by_receipt_code` (075) matches **either**, and is
+  SECURITY INVOKER so RLS scopes the search to the caller's own shop.
+- Before this, `generateReceiptNumber()` was called inside `buildReceiptData` and
+  **never persisted** — so no receipt could be looked up, and it minted a *fresh random
+  number on every render*, meaning the printed receipt, the WhatsApp image and the ZRA
+  submission each carried a different number for the same sale. It is now generated once
+  into `receiptNo` state after the sale is recorded.
+- **`void_sale_lines` RPC (074)** voids a selected set of lines in one call and restocks
+  via `restock_at_location`. The old client-side void bumped `products.opening_stock`,
+  the pre-per-location field, so **voids at multi-branch shops never restored branch
+  stock** — historic branch counts may be understated by past voids.
+- The date picker reaches back beyond today, so period-lock checks test the **sale's own
+  date**, not today's. Till Reconciliation is hidden on past days: it records the drawer
+  as it is now, and showing it against an earlier date invites saving to the wrong day.
 
 ## P&L ex-VAT
 

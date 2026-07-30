@@ -25,7 +25,8 @@ import {
   Printer,
   Gift,
 } from "lucide-react";
-import { Receipt, ReceiptData, ZraFiscalData, generateReceiptNumber, buildReceiptLines, LINE_WIDTH } from "./receipt";
+import { Receipt, ReceiptData, ZraFiscalData, buildReceiptLines, LINE_WIDTH } from "./receipt";
+import { receiptCode } from "@/lib/receipt-code";
 
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
@@ -90,6 +91,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [whatsAppPhone, setWhatsAppPhone] = useState("");
   const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
   const [zraFiscal, setZraFiscal] = useState<ZraFiscalData | null>(null);
+  // The code printed on the receipt, set once the sale is recorded. Held in
+  // state rather than generated inside buildReceiptData, which used to mint a
+  // fresh random number on every render — so the printed receipt, the
+  // WhatsApp image and the ZRA submission each carried a different number.
+  const [receiptNo, setReceiptNo] = useState<string>("");
   // Per-branch receipts toggle (location_settings, key receipts_enabled).
   // Absence of a row = enabled; cached locally so the offline POS honours it.
   const [receiptsEnabled, setReceiptsEnabled] = useState(true);
@@ -118,6 +124,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setShowWhatsAppInput(false);
       setWhatsAppPhone("");
       setZraFiscal(null);
+      setReceiptNo("");
 
       // Per-branch till settings. Receipts default ON when no row exists,
       // cash back defaults OFF — it is opt-in per shop, not a default till
@@ -310,10 +317,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       saleDate: new Date(),
       tpin: orgState.tpin,
       vatPercent: orgState.vatPercent,
-      receiptNumber: generateReceiptNumber(),
+      receiptNumber: receiptNo || null,
       zra: zraFiscal,
     };
-  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, cashBackAmount, customers, selectedCustomer, linesForSale, total, paymentReference, zraFiscal]);
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, cashBackAmount, customers, selectedCustomer, linesForSale, total, paymentReference, zraFiscal, receiptNo]);
 
   function handlePrintReceipt() {
     const el = receiptRef.current;
@@ -381,6 +388,21 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setQueuedToast(true);
     }
 
+    // Number the receipt from the transaction where we can, since that is what
+    // the lookup keys on. A queued sale has no transaction yet, so it falls
+    // back to the first line's id — find_sale_by_receipt_code matches either.
+    let code = receiptCode(result.sale_ids[0]);
+    if (!result.queued && navigator.onLine) {
+      const { data: row } = await db
+        .from("sales")
+        .select("transaction_id")
+        .eq("id", result.sale_ids[0])
+        .maybeSingle();
+      const txn = (row as { transaction_id: string | null } | null)?.transaction_id;
+      if (txn) code = receiptCode(txn);
+    }
+    setReceiptNo(code);
+
     setSuccess(true);
 
     // --- ZRA Smart Invoice submission (non-blocking) ---
@@ -388,7 +410,6 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     // stands — the ZRA invoice can be retried from the admin panel.
     if (online && !result.queued && result.sale_ids?.[0]) {
       const saleId = result.sale_ids[0];
-      const receiptNo = generateReceiptNumber();
       submitToZra({
         saleId,
         items: items.map((item) => ({
