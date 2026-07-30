@@ -49,6 +49,9 @@ export default function ShiftPage() {
   const [deleting, setDeleting] = useState(false);
   const [methodTotals, setMethodTotals] = useState<MethodTotal[]>([]);
   const [loadingTotals, setLoadingTotals] = useState(false);
+  // Cash handed to customers as cash back today — left the drawer without
+  // being a sale, so expected cash must come down by it.
+  const [cashBackPaidOut, setCashBackPaidOut] = useState(0);
   // Per-branch denomination counter (location_settings). Absence of a row = off.
   // Cached locally so a cashier closing a shift offline still gets the counter.
   const [denomCountEnabled, setDenomCountEnabled] = useState(false);
@@ -129,15 +132,20 @@ export default function ShiftPage() {
       const today = localToday();
       const { data } = await db
         .from("sales")
-        .select("total_amount, payment_method, location_id")
+        .select("total_amount, payment_method, location_id, cash_back")
         .eq("sale_date", today)
         .eq("voided", false)
         .eq("location_id", currentLocationId);
       const sums = new Map<string, number>();
-      ((data as { total_amount: number; payment_method: string }[]) || []).forEach((s) => {
+      let paidOut = 0;
+      ((data as { total_amount: number; payment_method: string; cash_back: number | null }[]) || []).forEach((s) => {
         const m = (s.payment_method || "Unknown").trim() || "Unknown";
         sums.set(m, (sums.get(m) || 0) + (Number(s.total_amount) || 0));
+        // Recorded once per transaction, on its first line, so a plain sum is
+        // the day's total rather than a multiple of it.
+        paidOut += Number(s.cash_back) || 0;
       });
+      setCashBackPaidOut(paidOut);
       const rows: MethodTotal[] = Array.from(sums.entries())
         .map(([method, total]) => ({
           method,
@@ -351,6 +359,7 @@ export default function ShiftPage() {
             openingFloat={parseFloat(shift.opening_float?.toString() || "0") || 0}
             closingCash={closingCash}
             hideCashTotals={hideCashTotals}
+            cashBackPaidOut={cashBackPaidOut}
           />
 
           {denomCountEnabled && (
@@ -464,13 +473,15 @@ function DenominationCounter({
 }
 
 function ReconciliationPanel({
-  loading, methodTotals, setMethodTotals, openingFloat, closingCash, hideCashTotals,
+  loading, methodTotals, setMethodTotals, openingFloat, closingCash, hideCashTotals, cashBackPaidOut,
 }: {
   loading: boolean;
   methodTotals: MethodTotal[];
   setMethodTotals: React.Dispatch<React.SetStateAction<MethodTotal[]>>;
   openingFloat: number;
   closingCash: string;
+  /** Cash back handed out today, which the till no longer holds. */
+  cashBackPaidOut: number;
   /**
    * Blind cash-up. Hides every figure the cashier could work the expected
    * till total back from: the cash takings, the day's total, and the
@@ -508,7 +519,7 @@ function ReconciliationPanel({
   const creditSales = methodTotals.filter((m) => m.bucket === "credit").reduce((s, m) => s + m.total, 0);
   const totalSales = cashSales + electronicSales + creditSales;
 
-  const expectedCash = openingFloat + cashSales;
+  const expectedCash = openingFloat + cashSales - cashBackPaidOut;
   const actualCash = parseFloat(closingCash) || 0;
   const cashVariance = closingCash ? actualCash - expectedCash : null;
 
@@ -576,6 +587,12 @@ function ReconciliationPanel({
           <span className="text-gray-600">+ Cash sales</span>
           <span className="text-gray-700">{formatZAR(cashSales)}</span>
         </div>
+        {cashBackPaidOut > 0 && (
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">− Cash back paid out</span>
+            <span className="text-gray-700">{formatZAR(cashBackPaidOut)}</span>
+          </div>
+        )}
         <div className="flex justify-between text-sm font-semibold pt-1 border-t border-gray-100">
           <span className="text-gray-900">Expected cash in till</span>
           <span className="text-gray-900">{formatZAR(expectedCash)}</span>

@@ -60,6 +60,11 @@ export interface SaleBatchInput {
   created_at: string;
   /** YYYY-MM-DD */
   sale_date: string;
+  /**
+   * Physical cash handed to the customer on top of the goods, funded by
+   * charging it to their card. Transaction-level, not per line.
+   */
+  cash_back?: number;
 }
 
 export interface SaleBatchResult {
@@ -92,6 +97,7 @@ export async function submitSaleBatch(input: SaleBatchInput): Promise<SaleBatchR
     p_created_at: input.created_at,
     p_cost_prices: input.lines.map((l) => l.cost_price),
     p_is_wholesale: input.lines.map((l) => l.is_wholesale ?? false),
+    p_cash_back: input.cash_back ?? 0,
   };
 
   if (navigator.onLine) {

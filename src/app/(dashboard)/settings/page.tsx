@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -39,6 +39,8 @@ export default function SettingsPage() {
   const [denomCountByLocation, setDenomCountByLocation] = useState<Record<string, boolean>>({});
   // Per-branch blind cash-up: hides expected cash from cashiers at shift close.
   const [blindCashUpByLocation, setBlindCashUpByLocation] = useState<Record<string, boolean>>({});
+  // Per-branch cash back: lets the till hand out cash against a card payment.
+  const [cashBackByLocation, setCashBackByLocation] = useState<Record<string, boolean>>({});
   const {
     locations,
     orgId,
@@ -130,6 +132,22 @@ export default function SettingsPage() {
           map[row.location_id] = row.value === "true";
         });
         setBlindCashUpByLocation(map);
+      });
+  }, [locations]);
+
+  // Load the per-branch cash back toggle for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, value")
+      .eq("key", "cash_back_enabled")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = false));
+        (data || []).forEach((row) => {
+          map[row.location_id] = row.value === "true";
+        });
+        setCashBackByLocation(map);
       });
   }, [locations]);
 
@@ -318,6 +336,25 @@ export default function SettingsPage() {
       if (blindErr) {
         setSaving(false);
         alert("Failed to save blind cash-up settings: " + (blindErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Cash back toggle — one row per branch.
+    if (locations.length > 0) {
+      const cashBackRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "cash_back_enabled",
+        value: (cashBackByLocation[l.id] ?? false) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: cbErr } = await db
+        .from("location_settings")
+        .upsert(cashBackRows, { onConflict: "location_id,key" });
+      if (cbErr) {
+        setSaving(false);
+        alert("Failed to save cash back settings: " + (cbErr.message || "Unknown error"));
         return;
       }
     }
@@ -562,6 +599,31 @@ export default function SettingsPage() {
                   checked={denomCountByLocation[l.id] ?? false}
                   onChange={(e) =>
                     setDenomCountByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleSection>
+
+        {/* Cash back — per branch */}
+        <CollapsibleSection title="Cash Back" icon={HandCoins} badge={perBranchBadge}>
+          <p className="text-sm text-gray-500 mb-4">
+            Tick a branch that hands customers cash against a card payment. Its cashiers
+            get a Cash Back field on card, EFT and mobile money sales — the amount is added
+            to the card charge and taken off the expected cash at shift close, so the till
+            still balances.
+          </p>
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={cashBackByLocation[l.id] ?? false}
+                  onChange={(e) =>
+                    setCashBackByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
                   }
                   className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
                 />

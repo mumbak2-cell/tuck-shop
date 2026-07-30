@@ -31,6 +31,8 @@ export interface ReceiptData {
   paymentMethod: string;
   cashTendered?: number | null;
   change?: number | null;
+  /** Physical cash handed over, funded by the card charge. Not revenue. */
+  cashBack?: number | null;
   paymentReference?: string | null;
   customerName?: string | null;
   customerTpin?: string | null;
@@ -129,7 +131,7 @@ export function wrapLeft(text: string): string[] {
 export function buildReceiptLines(data: ReceiptData): string[] {
   const {
     orgName, locationName, locationAddress, locationPhone,
-    items, total, paymentMethod, cashTendered, change,
+    items, total, paymentMethod, cashTendered, change, cashBack,
     paymentReference, customerName, customerTpin,
     saleDate, tpin, vatPercent, receiptNumber, zra,
   } = data;
@@ -189,6 +191,12 @@ export function buildReceiptLines(data: ReceiptData): string[] {
 
   // ── Payment ──
   lines.push(leftRight("Payment:", paymentMethod));
+  // Cash back is not revenue, so it sits below TOTAL and is shown alongside
+  // the larger figure actually charged to the card.
+  if (cashBack != null && cashBack > 0) {
+    lines.push(leftRight("Cash back:", formatMoney(cashBack)));
+    lines.push(leftRight("Card charge:", formatMoney(total + cashBack)));
+  }
   if (cashTendered != null && cashTendered > 0) {
     lines.push(leftRight("Tendered:", formatMoney(cashTendered)));
   }

@@ -73,6 +73,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
   const [cashTendered, setCashTendered] = useState<string>("");
+  const [cashBack, setCashBack] = useState<string>("");
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [processing, setProcessing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -85,12 +86,16 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   // Per-branch receipts toggle (location_settings, key receipts_enabled).
   // Absence of a row = enabled; cached locally so the offline POS honours it.
   const [receiptsEnabled, setReceiptsEnabled] = useState(true);
+  // Per-branch cash back (location_settings). Absence of a row = off, so no
+  // shop gets a cash-out field it did not ask for.
+  const [cashBackEnabled, setCashBackEnabled] = useState(false);
 
   useEffect(() => {
     if (open) {
       setSelectedMethodId(null);
       setSelectedCustomer("");
       setCashTendered("");
+      setCashBack("");
       setPaymentReference("");
       setSuccess(false);
       setError("");
@@ -101,23 +106,32 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setWhatsAppPhone("");
       setZraFiscal(null);
 
+      // Per-branch till settings. Receipts default ON when no row exists,
+      // cash back defaults OFF — it is opt-in per shop, not a default till
+      // behaviour.
       const receiptsCacheKey = "tilify_receipts_enabled_" + (currentLocationId ?? "");
+      const cashBackCacheKey = "tilify_cash_back_enabled_" + (currentLocationId ?? "");
       try {
         setReceiptsEnabled(window.localStorage.getItem(receiptsCacheKey) !== "false");
+        setCashBackEnabled(window.localStorage.getItem(cashBackCacheKey) === "true");
       } catch {
         setReceiptsEnabled(true);
+        setCashBackEnabled(false);
       }
       if (navigator.onLine && currentLocationId) {
         db.from("location_settings")
-          .select("value")
+          .select("key, value")
           .eq("location_id", currentLocationId)
-          .eq("key", "receipts_enabled")
-          .maybeSingle()
-          .then(({ data }: { data: { value: string } | null }) => {
-            const enabled = data?.value !== "false";
-            setReceiptsEnabled(enabled);
+          .in("key", ["receipts_enabled", "cash_back_enabled"])
+          .then(({ data }: { data: { key: string; value: string }[] | null }) => {
+            const byKey = new Map((data || []).map((r) => [r.key, r.value]));
+            const receipts = byKey.get("receipts_enabled") !== "false";
+            const cashBackOn = byKey.get("cash_back_enabled") === "true";
+            setReceiptsEnabled(receipts);
+            setCashBackEnabled(cashBackOn);
             try {
-              window.localStorage.setItem(receiptsCacheKey, enabled ? "true" : "false");
+              window.localStorage.setItem(receiptsCacheKey, receipts ? "true" : "false");
+              window.localStorage.setItem(cashBackCacheKey, cashBackOn ? "true" : "false");
             } catch {
               // ignore — cache is best-effort
             }
@@ -180,6 +194,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const selectedMethod = methods.find((m) => m.id === selectedMethodId) || null;
   const selectedKind = selectedMethod?.kind ?? null;
 
+  // Cash back only makes sense where the customer is paying electronically —
+  // the card funds the cash handed over. Never on a cash or credit sale.
+  const allowsCashBack =
+    cashBackEnabled &&
+    (selectedKind === "card" || selectedKind === "eft" || selectedKind === "mobile_money");
+  const cashBackAmount = allowsCashBack ? Math.max(0, parseFloat(cashBack) || 0) : 0;
+  const amountToCharge = total + cashBackAmount;
+
   const buildReceiptData = useCallback((): ReceiptData | null => {
     const loc = (currentLocationId && orgState.locations)
       ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
@@ -199,6 +221,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       paymentMethod: selectedMethod.name,
       cashTendered: tendered,
       change: tendered != null && tendered > total ? tendered - total : null,
+      cashBack: cashBackAmount > 0 ? cashBackAmount : null,
       paymentReference: paymentReference || null,
       customerName: customer?.name ?? null,
       customerTpin: (customer as { tpin?: string | null } | null | undefined)?.tpin ?? null,
@@ -208,7 +231,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       receiptNumber: generateReceiptNumber(),
       zra: zraFiscal,
     };
-  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, customers, selectedCustomer, items, total, paymentReference, zraFiscal]);
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, cashBackAmount, customers, selectedCustomer, items, total, paymentReference, zraFiscal]);
 
   function handlePrintReceipt() {
     const el = receiptRef.current;
@@ -254,6 +277,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       customer_id: selectedKind === "credit" ? selectedCustomer : null,
       sale_date: localToday(),
       created_at: new Date().toISOString(),
+      cash_back: cashBackAmount,
       lines: items.map((item) => ({
         product_id: item.productId,
         quantity: item.quantity,
@@ -454,10 +478,16 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
             <Check className="w-8 h-8 text-green-600" />
           </div>
-          <p className="text-xl font-bold text-gray-900">{formatMoney(total)}</p>
+          <p className="text-xl font-bold text-gray-900">{formatMoney(amountToCharge)}</p>
           <p className="text-sm text-gray-500 mt-1">
             Paid by {selectedMethod?.name ?? "—"}
           </p>
+          {cashBackAmount > 0 && (
+            <div className="mt-3 bg-blue-50 border border-blue-200 rounded-xl px-6 py-3 text-center">
+              <p className="text-sm text-blue-600">Cash back to hand over</p>
+              <p className="text-3xl font-bold text-blue-700">{formatMoney(cashBackAmount)}</p>
+            </div>
+          )}
           {queuedToast && (
             <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
               <CloudOff className="w-4 h-4 text-amber-700" />
@@ -608,6 +638,45 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         )}
 
+        {allowsCashBack && (
+          <div>
+            <p className="text-sm font-medium text-gray-700 mb-2">Cash back (optional)</p>
+            <input
+              type="number"
+              inputMode="decimal"
+              step="0.01"
+              min="0"
+              value={cashBack}
+              onChange={(e) => setCashBack(e.target.value)}
+              placeholder="0.00"
+              className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Cash handed to the customer on top of the goods. It is added to the card
+              charge and taken out of the till.
+            </p>
+            {cashBackAmount > 0 && (
+              <div className="mt-3 bg-blue-50 border border-blue-200 rounded-lg px-4 py-3 text-sm space-y-1">
+                <div className="flex justify-between text-blue-900">
+                  <span>Goods</span>
+                  <span>{formatMoney(total)}</span>
+                </div>
+                <div className="flex justify-between text-blue-900">
+                  <span>+ Cash back</span>
+                  <span>{formatMoney(cashBackAmount)}</span>
+                </div>
+                <div className="flex justify-between font-semibold text-blue-900 pt-1 border-t border-blue-200">
+                  <span>Charge to card</span>
+                  <span>{formatMoney(amountToCharge)}</span>
+                </div>
+                <p className="text-xs text-blue-700 pt-1">
+                  Hand over {formatMoney(cashBackAmount)} in cash.
+                </p>
+              </div>
+            )}
+          </div>
+        )}
+
         {(selectedKind === "card" || selectedKind === "eft") && (
           <div>
             <p className="text-sm font-medium text-gray-700 mb-2">
@@ -662,7 +731,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           size="lg"
           className="w-full text-base py-4"
         >
-          {"Complete Sale — " + formatMoney(total)}
+          {"Complete Sale — " + formatMoney(amountToCharge)}
         </Button>
       </div>
     </Modal>
