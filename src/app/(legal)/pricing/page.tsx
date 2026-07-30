@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 import { PLANS, BILLING_CURRENCY } from "@/lib/plans";
-import { PageShell } from "../_company";
+import { COMPANY, PageShell } from "../_company";
 
 export const metadata: Metadata = {
   title: "Pricing — Tilify",
@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 
 export default function PricingPage() {
   return (
-    <PageShell title="Pricing">
+    <PageShell title="Pricing" contactEmail={COMPANY.infoEmail}>
       <p>
         Tilify is a subscription service for retail point-of-sale, inventory and
         revenue-assurance. All plans are billed in South African Rand (ZAR) through
@@ -61,7 +61,7 @@ export default function PricingPage() {
 
       <p>
         Questions about pricing or billing? Contact us at{" "}
-        <a href="mailto:mumba@mkglobal.co.za">mumba@mkglobal.co.za</a>.
+        <a href={`mailto:${COMPANY.infoEmail}`}>{COMPANY.infoEmail}</a>.
       </p>
     </PageShell>
   );

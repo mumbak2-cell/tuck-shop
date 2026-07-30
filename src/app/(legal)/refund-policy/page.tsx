@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function RefundPolicyPage() {
   return (
-    <PageShell title="Refund & Cancellation Policy">
+    <PageShell title="Refund & Cancellation Policy" contactEmail={COMPANY.supportEmail}>
       <p>
         This policy explains how cancellations and refunds work for {COMPANY.product}, a
         subscription service provided by {COMPANY.legalName}. It forms part of our{" "}
@@ -32,7 +32,7 @@ export default function RefundPolicyPage() {
       <p>
         You can cancel your subscription at any time from Settings → Plan &amp; Billing inside
         the app, or by emailing{" "}
-        <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a>. When you cancel:
+        <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a>. When you cancel:
       </p>
       <ul>
         <li>your subscription stops renewing, so you are not charged again;</li>
@@ -64,7 +64,7 @@ export default function RefundPolicyPage() {
 
       <h2>How to request a refund</h2>
       <p>
-        Email <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a> with the account email and
+        Email <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> with the account email and
         the charge date. Approved refunds are returned to the original payment method via
         Paystack, normally within 5–10 business days.
       </p>
@@ -73,7 +73,7 @@ export default function RefundPolicyPage() {
       <p>
         {COMPANY.legalName}<br />
         {COMPANY.address}<br />
-        <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a> · {COMPANY.phone}
+        <a href={`mailto:${COMPANY.supportEmail}`}>{COMPANY.supportEmail}</a> · {COMPANY.phone}
       </p>
     </PageShell>
   );

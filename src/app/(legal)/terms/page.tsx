@@ -8,7 +8,7 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <PageShell title="Terms of Service">
+    <PageShell title="Terms of Service" contactEmail={COMPANY.infoEmail}>
       <p>
         These Terms of Service (&quot;Terms&quot;) govern your access to and use of {COMPANY.product},
         a software service provided by {COMPANY.legalName} (registration no. {COMPANY.regNo}),
@@ -99,7 +99,7 @@ export default function TermsPage() {
       <p>
         {COMPANY.legalName}<br />
         {COMPANY.address}<br />
-        <a href={`mailto:${COMPANY.email}`}>{COMPANY.email}</a> · {COMPANY.phone}
+        <a href={`mailto:${COMPANY.infoEmail}`}>{COMPANY.infoEmail}</a> · {COMPANY.phone}
       </p>
     </PageShell>
   );
