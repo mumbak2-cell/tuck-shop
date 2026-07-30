@@ -177,6 +177,23 @@ Billing is visible only to owners with an active subscription.
 (plan-code validity + key mode) kept for the live cutover. **Delete it once live billing
 is verified.**
 
+## Public legal pages (Paystack compliance)
+
+Paystack business activation requires terms, a refund/cancellation policy, and a visible
+pricing structure on the website. Three **public** routes live under the `(legal)` route
+group — deliberately outside `(dashboard)`, so no auth is needed (there is no
+`middleware.ts`; gating is client-side in the route-group layouts, so a top-level route
+is public by default):
+
+- `/pricing` — tiers × cycles rendered from `PLANS` (source of truth), ZAR.
+- `/terms` — Terms of Service (South-Africa-governed, POPIA, names Paystack as processor).
+- `/refund-policy` — cancellation + refund policy.
+
+`src/app/(legal)/_company.tsx` holds the `COMPANY` constants (MK Global SA (Pty) Ltd
+details) and the shared `PageShell`. The pages are linked from the `(auth)` layout footer
+(login/signup/forgot) and the Settings page footer. **The legal copy is a working draft,
+not lawyer-reviewed** — treat wording as provisional.
+
 ## Suppliers (master list)
 
 `suppliers` (migration **050**) — org-scoped list (name, phone, email, notes, active),
