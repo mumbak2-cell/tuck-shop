@@ -23,6 +23,7 @@ import {
   CircleDollarSign,
   CloudOff,
   Printer,
+  Gift,
 } from "lucide-react";
 import { Receipt, ReceiptData, ZraFiscalData, generateReceiptNumber, buildReceiptLines, LINE_WIDTH } from "./receipt";
 
@@ -33,6 +34,12 @@ interface PaymentMethodRow {
   name: string;
   kind: PaymentKind;
   sort_order: number;
+}
+
+interface RewardProduct {
+  id: string;
+  name: string;
+  cost_per_unit: number | null;
 }
 
 interface Props {
@@ -89,6 +96,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   // Per-branch cash back (location_settings). Absence of a row = off, so no
   // shop gets a cash-out field it did not ask for.
   const [cashBackEnabled, setCashBackEnabled] = useState(false);
+  // Per-branch card incentive: a free item on electronic sales over a spend.
+  const [cardReward, setCardReward] = useState<{
+    enabled: boolean;
+    threshold: number;
+    productId: string | null;
+  }>({ enabled: false, threshold: 0, productId: null });
 
   useEffect(() => {
     if (open) {
@@ -118,20 +131,40 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
         setReceiptsEnabled(true);
         setCashBackEnabled(false);
       }
+      const rewardCacheKey = "tilify_card_reward_" + (currentLocationId ?? "");
+      try {
+        const raw = window.localStorage.getItem(rewardCacheKey);
+        setCardReward(raw ? JSON.parse(raw) : { enabled: false, threshold: 0, productId: null });
+      } catch {
+        setCardReward({ enabled: false, threshold: 0, productId: null });
+      }
       if (navigator.onLine && currentLocationId) {
         db.from("location_settings")
           .select("key, value")
           .eq("location_id", currentLocationId)
-          .in("key", ["receipts_enabled", "cash_back_enabled"])
+          .in("key", [
+            "receipts_enabled",
+            "cash_back_enabled",
+            "card_reward_enabled",
+            "card_reward_threshold",
+            "card_reward_product_id",
+          ])
           .then(({ data }: { data: { key: string; value: string }[] | null }) => {
             const byKey = new Map((data || []).map((r) => [r.key, r.value]));
             const receipts = byKey.get("receipts_enabled") !== "false";
             const cashBackOn = byKey.get("cash_back_enabled") === "true";
+            const reward = {
+              enabled: byKey.get("card_reward_enabled") === "true",
+              threshold: parseFloat(byKey.get("card_reward_threshold") ?? "") || 0,
+              productId: byKey.get("card_reward_product_id") || null,
+            };
             setReceiptsEnabled(receipts);
             setCashBackEnabled(cashBackOn);
+            setCardReward(reward);
             try {
               window.localStorage.setItem(receiptsCacheKey, receipts ? "true" : "false");
               window.localStorage.setItem(cashBackCacheKey, cashBackOn ? "true" : "false");
+              window.localStorage.setItem(rewardCacheKey, JSON.stringify(reward));
             } catch {
               // ignore — cache is best-effort
             }
@@ -202,6 +235,55 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const cashBackAmount = allowsCashBack ? Math.max(0, parseFloat(cashBack) || 0) : 0;
   const amountToCharge = total + cashBackAmount;
 
+  const paysElectronically =
+    selectedKind === "card" || selectedKind === "eft" || selectedKind === "mobile_money";
+
+  // The nominated freebie. Cache first so the incentive survives a till going
+  // offline, but fall back to a lookup — the cache is only written once the
+  // background sync has run, and without this the panel silently never shows.
+  const [rewardProduct, setRewardProduct] = useState<RewardProduct | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    if (!cardReward.enabled || !cardReward.productId) {
+      setRewardProduct(null);
+      return;
+    }
+    const cached = orgId ? readCache<RewardProduct>(orgId, "products") ?? [] : [];
+    const hit = cached.find((p) => p.id === cardReward.productId);
+    if (hit) {
+      setRewardProduct(hit);
+      return;
+    }
+    if (!navigator.onLine) {
+      setRewardProduct(null);
+      return;
+    }
+    db.from("products")
+      .select("id, name, cost_per_unit")
+      .eq("id", cardReward.productId)
+      .maybeSingle()
+      .then(({ data }: { data: RewardProduct | null }) => setRewardProduct(data ?? null));
+  }, [open, cardReward.enabled, cardReward.productId, orgId]);
+
+  // Earned on the goods total only — cash back must not buy a free snack.
+  const rewardEarned =
+    cardReward.enabled && paysElectronically && rewardProduct !== null && total >= cardReward.threshold;
+
+  const rewardLine: CartItem | null = rewardEarned && rewardProduct
+    ? {
+        productId: rewardProduct.id,
+        name: rewardProduct.name,
+        unitPrice: 0,
+        quantity: 1,
+        costPrice: rewardProduct.cost_per_unit ?? 0,
+      }
+    : null;
+
+  // The freebie rides along as a zero-price line: stock comes down and its
+  // cost lands in COGS, while revenue is untouched.
+  const linesForSale = rewardLine ? [...items, rewardLine] : items;
+
   const buildReceiptData = useCallback((): ReceiptData | null => {
     const loc = (currentLocationId && orgState.locations)
       ? orgState.locations.find((l: { id: string }) => l.id === currentLocationId)
@@ -216,7 +298,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       locationName: loc?.name ?? "",
       locationAddress: loc?.address,
       locationPhone: loc?.phone,
-      items,
+      items: linesForSale,
       total,
       paymentMethod: selectedMethod.name,
       cashTendered: tendered,
@@ -231,7 +313,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       receiptNumber: generateReceiptNumber(),
       zra: zraFiscal,
     };
-  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, cashBackAmount, customers, selectedCustomer, items, total, paymentReference, zraFiscal]);
+  }, [currentLocationId, orgState, selectedMethod, selectedKind, cashTendered, cashBackAmount, customers, selectedCustomer, linesForSale, total, paymentReference, zraFiscal]);
 
   function handlePrintReceipt() {
     const el = receiptRef.current;
@@ -278,7 +360,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       sale_date: localToday(),
       created_at: new Date().toISOString(),
       cash_back: cashBackAmount,
-      lines: items.map((item) => ({
+      lines: linesForSale.map((item) => ({
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
@@ -488,6 +570,12 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
               <p className="text-3xl font-bold text-blue-700">{formatMoney(cashBackAmount)}</p>
             </div>
           )}
+          {rewardLine && (
+            <div className="mt-3 bg-green-50 border border-green-200 rounded-xl px-6 py-3 text-center">
+              <p className="text-sm text-green-600">Free item to hand over</p>
+              <p className="text-lg font-bold text-green-700">{rewardLine.name}</p>
+            </div>
+          )}
           {queuedToast && (
             <div className="mt-3 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
               <CloudOff className="w-4 h-4 text-amber-700" />
@@ -636,6 +724,27 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
               </p>
             )}
           </div>
+        )}
+
+        {rewardEarned && rewardProduct && (
+          <div className="bg-green-50 border border-green-200 rounded-lg px-4 py-3 flex items-center gap-3">
+            <Gift className="w-5 h-5 text-green-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-medium text-green-900">
+                Free {rewardProduct.name}
+              </p>
+              <p className="text-xs text-green-700">
+                Added to this sale at no charge — hand it over with the goods.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {cardReward.enabled && paysElectronically && rewardProduct && !rewardEarned && (
+          <p className="text-xs text-gray-500">
+            {formatMoney(cardReward.threshold - total)} more on card earns a free{" "}
+            {rewardProduct.name}.
+          </p>
         )}
 
         {allowsCashBack && (

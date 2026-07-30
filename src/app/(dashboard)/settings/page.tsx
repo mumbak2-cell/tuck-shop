@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -41,6 +41,12 @@ export default function SettingsPage() {
   const [blindCashUpByLocation, setBlindCashUpByLocation] = useState<Record<string, boolean>>({});
   // Per-branch cash back: lets the till hand out cash against a card payment.
   const [cashBackByLocation, setCashBackByLocation] = useState<Record<string, boolean>>({});
+  // Per-branch card incentive: free item on electronic sales over a spend.
+  const [cardRewardByLocation, setCardRewardByLocation] = useState<
+    Record<string, { enabled: boolean; threshold: string; productId: string }>
+  >({});
+  // Sellable products, for choosing the freebie.
+  const [rewardProducts, setRewardProducts] = useState<{ id: string; name: string }[]>([]);
   const {
     locations,
     orgId,
@@ -150,6 +156,36 @@ export default function SettingsPage() {
         setCashBackByLocation(map);
       });
   }, [locations]);
+
+  // Load the per-branch card incentive for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, key, value")
+      .in("key", ["card_reward_enabled", "card_reward_threshold", "card_reward_product_id"])
+      .then(({ data }: { data: { location_id: string; key: string; value: string }[] | null }) => {
+        const map: Record<string, { enabled: boolean; threshold: string; productId: string }> = {};
+        locations.forEach((l) => (map[l.id] = { enabled: false, threshold: "", productId: "" }));
+        (data || []).forEach((row) => {
+          if (!map[row.location_id]) map[row.location_id] = { enabled: false, threshold: "", productId: "" };
+          if (row.key === "card_reward_enabled") map[row.location_id].enabled = row.value === "true";
+          if (row.key === "card_reward_threshold") map[row.location_id].threshold = row.value;
+          if (row.key === "card_reward_product_id") map[row.location_id].productId = row.value;
+        });
+        setCardRewardByLocation(map);
+      });
+  }, [locations]);
+
+  // Product list for the freebie picker.
+  useEffect(() => {
+    db.from("products")
+      .select("id, name")
+      .eq("discontinued", false)
+      .order("name")
+      .then(({ data }: { data: { id: string; name: string }[] | null }) => {
+        setRewardProducts(data || []);
+      });
+  }, []);
 
   async function loadSettings() {
     const { data } = await db.from("app_settings").select("*");
@@ -355,6 +391,33 @@ export default function SettingsPage() {
       if (cbErr) {
         setSaving(false);
         alert("Failed to save cash back settings: " + (cbErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Card incentive — three rows per branch (enabled, threshold, product).
+    if (locations.length > 0) {
+      const rewardRows: { org_id: string; location_id: string; key: string; value: string; updated_at: string }[] = [];
+      for (const l of locations) {
+        const r = cardRewardByLocation[l.id] ?? { enabled: false, threshold: "", productId: "" };
+        if (r.enabled && (!r.productId || !(parseFloat(r.threshold) > 0))) {
+          setSaving(false);
+          alert(`Card incentive at ${l.name}: choose a free item and a spend over 0, or untick the branch.`);
+          return;
+        }
+        const now = new Date().toISOString();
+        rewardRows.push(
+          { org_id: orgId, location_id: l.id, key: "card_reward_enabled", value: r.enabled ? "true" : "false", updated_at: now },
+          { org_id: orgId, location_id: l.id, key: "card_reward_threshold", value: r.threshold || "0", updated_at: now },
+          { org_id: orgId, location_id: l.id, key: "card_reward_product_id", value: r.productId || "", updated_at: now }
+        );
+      }
+      const { error: rwErr } = await db
+        .from("location_settings")
+        .upsert(rewardRows, { onConflict: "location_id,key" });
+      if (rwErr) {
+        setSaving(false);
+        alert("Failed to save card incentive settings: " + (rwErr.message || "Unknown error"));
         return;
       }
     }
@@ -605,6 +668,65 @@ export default function SettingsPage() {
                 <span className="text-sm font-medium text-gray-700">{l.name}</span>
               </label>
             ))}
+          </div>
+        </CollapsibleSection>
+
+        {/* Card incentive — per branch */}
+        <CollapsibleSection title="Card Incentive" icon={Gift} badge={perBranchBadge}>
+          <p className="text-sm text-gray-500 mb-4">
+            Give a free item on card, EFT and mobile money sales over a set amount, to push
+            customers off cash. The item is added to the sale at no charge, so its stock comes
+            down and its cost is counted, but it adds nothing to the takings. Cash back does not
+            count towards the spend.
+          </p>
+          <div className="space-y-4">
+            {locations.map((l) => {
+              const r = cardRewardByLocation[l.id] ?? { enabled: false, threshold: "", productId: "" };
+              const update = (patch: Partial<typeof r>) =>
+                setCardRewardByLocation((m) => ({ ...m, [l.id]: { ...r, ...patch } }));
+              return (
+                <div key={l.id} className="border border-gray-200 rounded-lg p-4">
+                  <label className="flex items-center gap-3 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={r.enabled}
+                      onChange={(e) => update({ enabled: e.target.checked })}
+                      className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                    />
+                    <span className="text-sm font-medium text-gray-900">{l.name}</span>
+                  </label>
+                  {r.enabled && (
+                    <div className="mt-3 ml-7 space-y-3">
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Spend at least</label>
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.01"
+                          value={r.threshold}
+                          onChange={(e) => update({ threshold: e.target.value })}
+                          placeholder="0.00"
+                          className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-sm text-gray-600 mb-1">Free item</label>
+                        <select
+                          value={r.productId}
+                          onChange={(e) => update({ productId: e.target.value })}
+                          className="w-full border border-gray-300 rounded-lg px-3 py-1.5 text-sm bg-white focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                        >
+                          <option value="">Choose a product...</option>
+                          {rewardProducts.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </CollapsibleSection>
 
