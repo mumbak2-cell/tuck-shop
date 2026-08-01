@@ -4,6 +4,9 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
   return (
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center p-4">
       <div className="w-full max-w-md">
+        <div className="flex justify-center mb-6">
+          <img src="/logo.png" alt="Tilify" className="h-20 w-auto rounded-xl" />
+        </div>
         {children}
         <nav className="mt-6 flex justify-center gap-4 text-xs text-gray-500">
           <Link href="/pricing" className="hover:text-gray-700 hover:underline">Pricing</Link>
