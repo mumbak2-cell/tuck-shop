@@ -1,6 +1,8 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { formatZAR } from "@/lib/format";
 import Link from "next/link";
 import {
@@ -50,11 +52,19 @@ interface DashboardData {
 }
 
 export default function DashboardPage() {
+  const router = useRouter();
+  const { role: pinRole } = useAuth();
   const { role, assignedLocationId, currentLocationId } = useOrg();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const [showComparison, setShowComparison] = useState(false);
+
+  // Dashboard is admin-only in the menu now; cashiers who land here directly
+  // (e.g. the default post-login route) get bounced to the POS instead.
+  useEffect(() => {
+    if (pinRole === "cashier") router.replace("/pos");
+  }, [pinRole, router]);
 
   const today = localToday();
   const yesterday = localYesterday();
@@ -197,6 +207,8 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchDashboard();
   }, [fetchDashboard]);
+
+  if (pinRole === "cashier") return null;
 
   if (loading || !data) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
