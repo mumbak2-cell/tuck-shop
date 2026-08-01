@@ -54,10 +54,10 @@ interface NavItem {
 }
 
 const navItems: NavItem[] = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin", "cashier"] },
+  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard, roles: ["admin"] },
   { href: "/shift", label: "Shift", icon: Clock, roles: ["admin", "cashier"], retailOnly: true, group: "shop" },
   { href: "/pos", label: "Point of Sale", icon: ShoppingCart, roles: ["admin", "cashier"], retailOnly: true, group: "shop" },
-  { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin", "cashier"], retailOnly: true, group: "shop" },
+  { href: "/sales", label: "Today's Sales", icon: BarChart3, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/stock", label: "Stock Count", icon: ClipboardList, roles: ["admin", "cashier"], retailOnly: true, group: "shop" },
   { href: "/receive-stock", label: "Receive Stock", icon: PackagePlus, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/suppliers", label: "Suppliers", icon: Truck, roles: ["admin"], group: "shop" },
@@ -217,7 +217,7 @@ export function Sidebar() {
         }`}
       >
         <div className="flex items-center justify-between h-16 px-6 border-b border-gray-200">
-          <h1 className="text-lg font-bold text-green-700">Tilify</h1>
+          <img src="/logo.png" alt="Tilify" className="h-8 w-auto" />
           <button onClick={() => setOpen(false)} aria-label="Close navigation menu" className="lg:hidden p-1">
             <X className="w-5 h-5" />
           </button>

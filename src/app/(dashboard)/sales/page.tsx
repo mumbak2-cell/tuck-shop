@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR } from "@/lib/format";
@@ -75,8 +76,16 @@ interface SaleGroup {
 }
 
 export default function SalesPage() {
+  const router = useRouter();
   const { role, name: userName } = useAuth();
   const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId } = useOrg();
+
+  // Today's Sales is admin-only in the menu now; cashiers who land here
+  // directly (bookmark, back button) get bounced to the POS instead.
+  useEffect(() => {
+    if (role === "cashier") router.replace("/pos");
+  }, [role, router]);
+
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = orgRole === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
   const isFiltered = effectiveLoc !== LOCATION_FILTER_ALL;
@@ -496,6 +505,8 @@ export default function SalesPage() {
   // "9 transactions" for what the shop experienced as three customers.
   const liveSaleCount = saleGroups.filter((g) => !g.allVoided).length;
   const voidedCount = saleGroups.filter((g) => g.allVoided).length;
+
+  if (role === "cashier") return null;
 
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
