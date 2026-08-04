@@ -29,7 +29,7 @@ interface DashboardData {
   totalProducts: number;
   inStockProducts: number;
   lowStockCount: number;
-  lowStockItems: { name: string; stock: number; reorder: number }[];
+  lowStockItems: { name: string; stock: number }[];
   todaySales: number;
   todayTransactions: number;
   todayCash: number;
@@ -54,7 +54,7 @@ interface DashboardData {
 export default function DashboardPage() {
   const router = useRouter();
   const { role: pinRole } = useAuth();
-  const { role, assignedLocationId, currentLocationId } = useOrg();
+  const { role, assignedLocationId, currentLocationId, lowStockThreshold } = useOrg();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
@@ -94,7 +94,7 @@ export default function DashboardPage() {
       expensesQ = expensesQ.eq("location_id", effectiveLoc);
     }
 
-    const [products, salesRes, customersRes, recentRes, topSellersRes, expensesRes, everSoldRes] = await Promise.all([
+    const [products, stockRows, salesRes, customersRes, recentRes, topSellersRes, expensesRes, everSoldRes] = await Promise.all([
       // Paginated: Supabase's server-side max_rows ceiling (default 1000)
       // silently truncates a plain select, which is why a 1,329-SKU catalogue
       // reported exactly "1000 products" and why low-stock alerts for anything
@@ -105,6 +105,15 @@ export default function DashboardPage() {
           .eq("discontinued", false)
           .order("inventory_id")
       ),
+      // Per-location stock, aggregated below, so the alert respects the same
+      // branch filter as the rest of the dashboard and the Settings low-stock
+      // threshold — products.opening_stock is org-wide and goes stale outside
+      // the POS render path.
+      fetchAllPaged<any>(() => {
+        let q = db.from("product_stock").select("product_id, quantity, products(name, discontinued)");
+        if (isFiltered) q = q.eq("location_id", effectiveLoc);
+        return q;
+      }),
       salesQ,
       customersQ,
       recentQ,
@@ -118,11 +127,18 @@ export default function DashboardPage() {
     const customers: any[] = customersRes.data || [];
     const recent = (recentRes.data || []) as { id: string; quantity: number; total_amount: number; payment_method: string; created_at: string; products: { name: string } | null }[];
 
-    const lowStockItems = products
-      .filter((p: any) => p.opening_stock <= p.reorder_level && p.reorder_level > 0)
-      .sort((a: any, b: any) => a.opening_stock - b.opening_stock)
+    const stockByProduct = new Map<string, { name: string; quantity: number }>();
+    (stockRows as any[]).forEach((r: any) => {
+      if (r.products?.discontinued) return;
+      const cur = stockByProduct.get(r.product_id) ?? { name: r.products?.name || "—", quantity: 0 };
+      cur.quantity += Number(r.quantity) || 0;
+      stockByProduct.set(r.product_id, cur);
+    });
+    const lowStockItems = [...stockByProduct.values()]
+      .filter((s) => s.quantity > 0 && s.quantity <= lowStockThreshold)
+      .sort((a, b) => a.quantity - b.quantity)
       .slice(0, 8)
-      .map((p: any) => ({ name: p.name, stock: p.opening_stock, reorder: p.reorder_level }));
+      .map((s) => ({ name: s.name, stock: s.quantity }));
 
     let cash = 0, card = 0, credit = 0;
     sales.forEach((s: any) => {
@@ -202,7 +218,7 @@ export default function DashboardPage() {
     });
 
     setLoading(false);
-  }, [today, yesterday, effectiveLoc, isFiltered, showComparison]);
+  }, [today, yesterday, effectiveLoc, isFiltered, showComparison, lowStockThreshold]);
 
   useEffect(() => {
     fetchDashboard();
@@ -373,18 +389,13 @@ export default function DashboardPage() {
             </Link>
           </div>
           {data.lowStockItems.length === 0 ? (
-            <p className="text-sm text-gray-400 py-4 text-center">All products are above reorder level.</p>
+            <p className="text-sm text-gray-400 py-4 text-center">Nothing at or below {lowStockThreshold} units.</p>
           ) : (
             <div className="space-y-2">
               {data.lowStockItems.map((item) => (
                 <div key={item.name} className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
                   <span className="text-sm text-gray-900 truncate flex-1">{item.name}</span>
-                  <div className="flex items-center gap-3 text-sm">
-                    <span className={`font-semibold ${item.stock === 0 ? "text-red-600" : "text-amber-600"}`}>
-                      {item.stock} left
-                    </span>
-                    <span className="text-gray-400 text-xs">min {item.reorder}</span>
-                  </div>
+                  <span className="text-sm font-semibold text-amber-600">{item.stock} left</span>
                 </div>
               ))}
             </div>
