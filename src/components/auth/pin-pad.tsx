@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
-import { Lock, Delete } from "lucide-react";
+import { Delete } from "lucide-react";
 
 export function PinPad() {
   const { login } = useAuth();
@@ -51,10 +51,7 @@ export function PinPad() {
     <div className="min-h-screen bg-gradient-to-br from-green-50 to-green-100 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-            <Lock className="w-8 h-8 text-green-600" />
-          </div>
-          <h1 className="text-2xl font-bold text-gray-900">Tilify</h1>
+          <img src="/logo.png" alt="Tilify" className="h-16 w-auto rounded-xl mx-auto mb-4" />
           <p className="text-sm text-gray-500 mt-1">Enter your PIN to continue</p>
         </div>
 
