@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -30,6 +30,8 @@ export default function SettingsPage() {
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
   const [requiresShift, setRequiresShift] = useState(false);
+  // Low stock report threshold (units). "5" default, admin can set 0+.
+  const [lowStockThreshold, setLowStockThreshold] = useState("5");
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
   const [receiptsByLocation, setReceiptsByLocation] = useState<Record<string, boolean>>({});
   // Per-branch wholesale allow list. The discount itself is negotiated at the
@@ -201,6 +203,7 @@ export default function SettingsPage() {
     setPreparesFood(map.prepares_food === "true");
     setStockMode(map.stock_mode === "central" ? "central" : "per_location");
     setRequiresShift(map.requires_shift === "true");
+    setLowStockThreshold(map.low_stock_threshold ?? "5");
     setLoading(false);
   }
 
@@ -255,6 +258,10 @@ export default function SettingsPage() {
       { key: "prepares_food", value: preparesFood ? "true" : "false" },
       { key: "stock_mode", value: stockMode },
       { key: "requires_shift", value: requiresShift ? "true" : "false" },
+      {
+        key: "low_stock_threshold",
+        value: String(Math.max(0, Number(lowStockThreshold) || 0)),
+      },
     ];
 
     if (!orgId) {
@@ -645,6 +652,27 @@ export default function SettingsPage() {
               </p>
             </div>
           </label>
+        </CollapsibleSection>
+
+        {/* Low stock report threshold — org-wide */}
+        <CollapsibleSection title="Low Stock Alert" icon={AlertTriangle}>
+          <p className="text-sm text-gray-500 mb-4">
+            The Reports page flags a product as low stock once its quantity at a branch
+            falls to or below this number (and it still has stock — out-of-stock items
+            show separately). Set to 0 to only flag items with none left.
+          </p>
+          <div>
+            <label className="block text-sm text-gray-600 mb-1">Low stock at or below</label>
+            <input
+              type="number"
+              min="0"
+              step="1"
+              value={lowStockThreshold}
+              onChange={(e) => setLowStockThreshold(e.target.value)}
+              className="w-32 border border-gray-300 rounded-lg px-3 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            <span className="ml-2 text-sm text-gray-500">units</span>
+          </div>
         </CollapsibleSection>
 
         {/* Cash denomination counter — per branch */}
