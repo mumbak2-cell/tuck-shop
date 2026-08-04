@@ -36,8 +36,6 @@ import { localToday, localMonthStart, localWeekStart } from "@/lib/date-utils";
 
 type Period = "today" | "week" | "month" | "custom";
 
-const LOW_STOCK_THRESHOLD = 5;
-
 interface SellerRow {
   productId: string;
   name: string;
@@ -88,7 +86,7 @@ interface IntakeRow {
 }
 
 export default function ReportsPage() {
-  const { role, assignedLocationId, currentLocationId, currentLocationName, locations } = useOrg();
+  const { role, assignedLocationId, currentLocationId, currentLocationName, locations, lowStockThreshold } = useOrg();
   const isManager = role === "owner" || role === "admin"; // cashiers are role "member"
 
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
@@ -124,7 +122,7 @@ export default function ReportsPage() {
   useEffect(() => {
     loadReports();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, customFrom, customTo, effectiveLoc, isFiltered, isManager]);
+  }, [period, customFrom, customTo, effectiveLoc, isFiltered, isManager, lowStockThreshold]);
 
   function getDateRange(): { from: string; to: string } {
     const today = localToday();
@@ -158,7 +156,9 @@ export default function ReportsPage() {
     });
     const stockList = [...stockByProduct.values()];
     setLowStock(
-      stockList.filter((r) => r.quantity <= LOW_STOCK_THRESHOLD).sort((a, b) => a.quantity - b.quantity)
+      stockList
+        .filter((r) => r.quantity > 0 && r.quantity <= lowStockThreshold)
+        .sort((a, b) => a.quantity - b.quantity)
     );
 
     // --- Sales (managers only) — revenue, profit, trend, movers, branch mix.
@@ -479,7 +479,6 @@ export default function ReportsPage() {
   // of the stock_receipts rows.
   const totalSpent = stockCashOut + stockElectronic + totalOperatingSpend;
   const zeroSellers = slowestMovers.filter((m) => m.sold === 0).length;
-  const outOfStock = lowStock.filter((r) => r.quantity <= 0).length;
 
   return (
     <div>
@@ -836,16 +835,12 @@ export default function ReportsPage() {
             icon={PackageX}
             iconColor="text-amber-600"
             title="Low stock"
-            summary={
-              lowStock.length === 0
-                ? "All good"
-                : `${lowStock.length} low${outOfStock > 0 ? ` · ${outOfStock} out` : ""}`
-            }
-            summaryTone={outOfStock > 0 ? "warn" : "muted"}
+            summary={lowStock.length === 0 ? "All good" : `${lowStock.length} low`}
+            summaryTone={lowStock.length > 0 ? "warn" : "muted"}
             action={<CsvButton onClick={exportLowStock} disabled={lowStock.length === 0} />}
           >
             <p className="text-xs text-gray-500 mb-3">
-              Products at or below {LOW_STOCK_THRESHOLD} units at {scopeLabel}.
+              In-stock products at or below {lowStockThreshold} units at {scopeLabel}.
             </p>
             {lowStock.length === 0 ? (
               <p className="text-sm text-gray-400 py-2">Nothing is running low — good stock levels.</p>
@@ -854,11 +849,7 @@ export default function ReportsPage() {
                 {lowStock.map((r) => (
                   <div key={r.productId} className="flex items-center justify-between py-2.5">
                     <p className="text-sm font-medium text-gray-900 truncate">{r.name}</p>
-                    <span
-                      className={`text-sm font-semibold shrink-0 ml-3 ${
-                        r.quantity <= 0 ? "text-red-600" : "text-amber-600"
-                      }`}
-                    >
+                    <span className="text-sm font-semibold shrink-0 ml-3 text-amber-600">
                       {r.quantity} left
                     </span>
                   </div>

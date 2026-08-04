@@ -66,6 +66,8 @@ export interface OrgState {
   // Tax fields (displayed on receipts)
   tpin: string | null;
   vatPercent: number | null;
+  // Admin-configurable low-stock threshold (units). 0 or above. Default 5.
+  lowStockThreshold: number;
   // Currency code (ISO 4217, e.g. "ZAR", "ZMW") — used for phone country code derivation
   currency: string | null;
   // WMS module (parallel warehouse-system integration)
@@ -147,6 +149,7 @@ const DEFAULT_STATE: OrgState = {
   stockMode: "per_location",
   tpin: null,
   vatPercent: null,
+  lowStockThreshold: 5,
   currency: null,
   wmsEnabled: false,
   wmsOnly: false,
@@ -258,6 +261,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         "wms_enabled",
         "wms_only",
         "currency",
+        "low_stock_threshold",
       ]);
 
     const settingsMap: Record<string, string> = {};
@@ -306,6 +310,10 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       stockMode: settingsMap.stock_mode === "central" ? "central" : "per_location",
       tpin: org?.tpin ?? null,
       vatPercent: org?.vat_percent != null ? Number(org.vat_percent) : null,
+      lowStockThreshold:
+        settingsMap.low_stock_threshold != null && Number(settingsMap.low_stock_threshold) >= 0
+          ? Number(settingsMap.low_stock_threshold)
+          : 5,
       currency: settingsMap.currency ?? null,
       wmsEnabled: settingsMap.wms_enabled === "true",
       wmsOnly: settingsMap.wms_only === "true",
