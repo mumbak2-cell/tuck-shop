@@ -17,7 +17,6 @@ import {
   Search,
   Plus,
   Edit2,
-  AlertTriangle,
   Package,
   Filter,
   Upload,
@@ -222,11 +221,6 @@ export default function WarehousePage() {
     return matchSearch && matchCategory;
   });
 
-  const alerts = rows.filter(
-    (r: StockRow) =>
-      r.inventory && r.inventory.physical_qty <= r.inventory.reorder_level
-  );
-
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
@@ -256,23 +250,6 @@ export default function WarehousePage() {
           </div>
         )}
       </div>
-
-      {alerts.length > 0 && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
-          <h2 className="text-sm font-semibold text-amber-800 flex items-center gap-2 mb-2">
-            <AlertTriangle className="w-4 h-4" />
-            Reorder Alerts ({alerts.length})
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {alerts.map((r: StockRow) => (
-              <Badge key={r.catalog.id} variant="amber">
-                {r.catalog.item_name}: {r.inventory!.physical_qty} left
-                (min {r.inventory!.reorder_level})
-              </Badge>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div className="flex flex-col sm:flex-row gap-3">
         <div className="relative flex-1">
