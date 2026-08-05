@@ -42,7 +42,9 @@ export type PermissionKey =
   | "manage_payment_methods"
   | "view_reports"
   | "void_sales"
-  | "manage_blind_cashup";
+  | "manage_blind_cashup"
+  | "manage_warehouse"
+  | "manage_shift_admin";
 
 export interface LocationRow {
   id: string;

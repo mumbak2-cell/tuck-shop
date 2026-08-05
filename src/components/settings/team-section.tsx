@@ -36,6 +36,8 @@ const PERMISSION_LABELS: { key: PermissionKey; label: string }[] = [
   { key: "view_reports", label: "Reports" },
   { key: "void_sales", label: "Void sales" },
   { key: "manage_blind_cashup", label: "Blind cash-up setting" },
+  { key: "manage_warehouse", label: "Warehouse (WMS)" },
+  { key: "manage_shift_admin", label: "Reopen/delete shifts" },
 ];
 
 interface NewCredential {

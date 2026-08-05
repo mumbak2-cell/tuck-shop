@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
-import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncate";
@@ -57,7 +57,7 @@ interface StockRow {
 }
 
 export default function WarehousePage() {
-  const { role } = useAuth();
+  const { can } = useOrg();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<RetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -239,7 +239,7 @@ export default function WarehousePage() {
             {rows.length} items in catalog
           </p>
         </div>
-        {role === "admin" && (
+        {can("manage_warehouse") && (
           <div className="flex gap-2">
             <Button onClick={openAddForm}>
               <Plus className="w-4 h-4 mr-1" />
@@ -326,7 +326,7 @@ export default function WarehousePage() {
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Qty on Hand</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Reorder Level</th>
                   <th className="text-right px-4 py-3 font-medium text-gray-600">Status</th>
-                  {role === "admin" && (
+                  {can("manage_warehouse") && (
                     <th className="text-center px-4 py-3 font-medium text-gray-600">Actions</th>
                   )}
                 </tr>
@@ -386,7 +386,7 @@ export default function WarehousePage() {
                           <span className="text-xs text-gray-400">OK</span>
                         )}
                       </td>
-                      {role === "admin" && (
+                      {can("manage_warehouse") && (
                         <td className="px-4 py-3 text-center">
                           <div className="inline-flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
                             <Tooltip label="Edit item">

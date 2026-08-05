@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { abcClassColor } from "@/lib/wms-status";
@@ -80,7 +81,8 @@ function nextDueDate(item: WmsCatalogItem): string | null {
 }
 
 export default function WmsStockCountPage() {
-  const { name: userName, role } = useAuth();
+  const { name: userName } = useAuth();
+  const { can } = useOrg();
 
   const [rows, setRows] = useState<CountRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -380,7 +382,7 @@ export default function WmsStockCountPage() {
           </p>
         </div>
         <div className="flex gap-2">
-          {savedCount > 0 && role === "admin" && (
+          {savedCount > 0 && can("manage_warehouse") && (
             <Button variant="secondary" onClick={applyCountToInventory} disabled={applying}>
               <RefreshCw className={"w-4 h-4 mr-1" + (applying ? " animate-spin" : "")} />
               {applying ? "Applying..." : "Apply to Inventory"}

@@ -39,7 +39,7 @@ export default function ShiftPage() {
   const router = useRouter();
   const { name: userName, role } = useAuth();
   const { shift, loading, isOpen, openShift, closeShift, deleteShift, reopenShift } = useShift();
-  const { currentLocationId, currentLocationName, currency } = useOrg();
+  const { currentLocationId, currentLocationName, currency, can } = useOrg();
 
   const [openingFloat, setOpeningFloat] = useState("0");
   const [closingCash, setClosingCash] = useState("");
@@ -62,6 +62,9 @@ export default function ShiftPage() {
   const isAdmin = role === "admin";
   // Managers always see the full reconciliation — they are the ones checking it.
   const hideCashTotals = blindCashUpEnabled && !isAdmin;
+  // Reopen/Delete Shift is a named-account permission (Settings → Team), not
+  // the shared till PIN — separate from hideCashTotals above.
+  const canManageShift = can("manage_shift_admin");
 
   // Reset the local form inputs whenever the operator switches location so
   // values typed for one shop do not pre-fill at another shop.
@@ -265,7 +268,7 @@ export default function ShiftPage() {
             </div>
           </div>
 
-          {isAdmin && (
+          {canManageShift && (
             <div className="mt-6 pt-4 border-t border-gray-100 space-y-2">
               <p className="text-xs text-gray-400 uppercase tracking-wide font-medium mb-2">Admin actions</p>
               <Button

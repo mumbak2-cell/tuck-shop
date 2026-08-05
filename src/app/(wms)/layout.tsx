@@ -11,7 +11,7 @@ import { signOutSafely } from "@/lib/sign-out";
 
 export default function WmsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { authenticated, role } = useAuth();
+  const { authenticated } = useAuth();
   const org = useOrg();
 
   useEffect(() => {
@@ -67,10 +67,12 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
     return <PinPad />;
   }
 
-  // Warehouse operations are admin/owner only. The sidebar hides these links
-  // for cashiers, but that is presentational — guard the route itself so a
-  // cashier cannot reach a warehouse write page by typing the URL.
-  if (role !== "admin") {
+  // Warehouse operations need the owner, or a manager granted the
+  // "Warehouse (WMS)" permission (Settings → Team) — a named-account check,
+  // not the shared till PIN. The sidebar hides these links for cashiers, but
+  // that is presentational — guard the route itself so nobody can reach a
+  // warehouse write page by typing the URL.
+  if (!org.can("manage_warehouse")) {
     return (
       <div className="min-h-screen flex items-center justify-center p-6">
         <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">
@@ -78,8 +80,8 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
             Warehouse access is restricted
           </h2>
           <p className="text-sm text-gray-500 mt-2">
-            Only owners and admins can manage warehouse stock. Ask an admin if
-            you need access.
+            Only the owner or a manager granted warehouse access can manage
+            warehouse stock. Ask the owner if you need access.
           </p>
           <button
             onClick={() => router.replace("/dashboard")}
