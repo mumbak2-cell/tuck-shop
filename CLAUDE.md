@@ -477,6 +477,50 @@ per-product threshold; a flat 5 was chosen deliberately.
 - `product_stock` (migration 024) — per-branch quantity, `UNIQUE(product_id, location_id)`.
   POS shows only items with stock > 0 at the current location.
 
+## Per-manager admin permissions (migration 077)
+
+`org_members.permissions` (JSONB, default `{}`) lets an owner grant or withhold
+individual admin functions from a manager (`role = 'admin'`), in Settings → Team
+(`team-section.tsx`). **Absence of a key, or anything but `false`, means granted** —
+so every existing manager kept full access the moment this shipped; only an explicit
+`false` revokes one. Owners are unaffected (always full access); cashiers
+(`role = 'member'`) are unaffected too (never had these functions).
+
+- `org-context.tsx` exposes `can(key: PermissionKey)`: `true` for owner, checks the
+  permissions object for manager, always `false` for cashier. Nine keys:
+  `manage_suppliers`, `manage_locations`, `manage_stock_transfers`, `manage_expenses`,
+  `manage_payment_methods`, `view_reports`, `void_sales`, `manage_blind_cashup`, plus
+  role-switching (below) is a separate owner-only action, not a permission key.
+- **`void_sales` and `manage_blind_cashup` were deliberately moved off the shared till
+  PIN.** Before this, voiding a sale and seeing the full cash-up reconciliation were
+  gated on `useAuth().role === "admin"` — the till's shared admin PIN, unrelated to
+  which named person is logged in. Anyone who knew the branch PIN could void a sale
+  regardless of their actual org role. Both are now gated on the named manager's own
+  `can(...)` check instead. Every other admin-only screen was already gated on
+  `useOrg().role`, not the till PIN, so those just swapped `role === "owner" ||
+  role === "admin"` for `can("...")`.
+- Editing permissions is owner-only, enforced server-side in
+  `PATCH /api/team/[id]` (`requireOrgOwner`, not `requireOrgManager` — a manager
+  cannot grant themselves access). Branch reassignment on that same endpoint stays
+  open to managers (`requireOrgManager`) since it's day-to-day floor management.
+- **Role switching** (`PATCH /api/team/[id]` with `{ role }`) lets an owner flip
+  someone between Cashier and Manager in place instead of remove-and-re-add.
+  Promoting to Manager requires 2+ locations (same floor as adding one fresh) and
+  clears `assigned_location_id` (managers are never location-locked). Demoting to
+  Cashier does **not** guess a branch — the row shows "No branch — cannot sell"
+  until the owner picks one from the existing per-cashier location dropdown. The
+  owner's own role can never be changed via this endpoint.
+
+## Stock Count requires owner approval
+
+`stock/page.tsx`'s `canApplyToStock` is `role === "owner"` only — nobody else's
+stock count, cashier or manager, ever writes to `product_stock` on save. Everyone
+else's save is left with `confirmed_by: null` and shows up as a pending session for
+the owner to review and apply via "Confirm and apply to stock". Before this, a
+manager's own save applied instantly (gated on the now-removed
+`manage_stock_adjustments` permission) — a manager could self-approve their own
+count with no second set of eyes on it.
+
 ## Branch pricing (per-location price overrides)
 
 Chichi's-driven feature (multi-branch shops charging different prices for some items).
