@@ -68,12 +68,12 @@ async function planLimitAndCount(admin: SupabaseClient, orgId: string) {
 }
 
 export async function GET(req: Request) {
+  try {
   // Managers may view the team (and change a cashier's branch via PATCH);
   // adding and removing staff below stays owner-only.
   const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  try {
     const admin = getSupabaseAdmin();
     const { data: membersData, error } = await admin
       .from("org_members")
