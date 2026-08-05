@@ -75,41 +75,52 @@ export async function GET(req: Request) {
   const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const admin = getSupabaseAdmin();
-  const { data: membersData, error } = await admin
-    .from("org_members")
-    .select("id, user_id, role, created_at, assigned_location_id, permissions")
-    .eq("org_id", auth.orgId!)
-    .order("created_at", { ascending: true });
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  try {
+    const admin = getSupabaseAdmin();
+    const { data: membersData, error } = await admin
+      .from("org_members")
+      .select("id, user_id, role, created_at, assigned_location_id, permissions")
+      .eq("org_id", auth.orgId!)
+      .order("created_at", { ascending: true });
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const members = (membersData as MemberRow[] | null) || [];
-  const emails = await emailsFor(admin, members.map((m) => m.user_id));
-  const { maxUsers, memberCount } = await planLimitAndCount(admin, auth.orgId!);
+    const members = (membersData as MemberRow[] | null) || [];
+    const emails = await emailsFor(admin, members.map((m) => m.user_id));
+    const { maxUsers, memberCount } = await planLimitAndCount(admin, auth.orgId!);
 
-  // Location names for the "assigned to <branch>" label on each cashier.
-  const { data: locRows } = await admin
-    .from("locations")
-    .select("id, name")
-    .eq("org_id", auth.orgId!);
-  const locationNames = new Map<string, string>(
-    ((locRows as { id: string; name: string }[] | null) || []).map((l) => [l.id, l.name])
-  );
+    // Location names for the "assigned to <branch>" label on each cashier.
+    const { data: locRows } = await admin
+      .from("locations")
+      .select("id, name")
+      .eq("org_id", auth.orgId!);
+    const locationNames = new Map<string, string>(
+      ((locRows as { id: string; name: string }[] | null) || []).map((l) => [l.id, l.name])
+    );
 
-  return NextResponse.json({
-    members: members.map((m) => ({
-      id: m.id,
-      email: emails.get(m.user_id) ?? "(unknown)",
-      role: m.role,
-      isSelf: m.user_id === auth.userId,
-      isOwner: m.role === "owner",
-      joinedAt: m.created_at,
-      assignedLocationId: m.assigned_location_id,
-      assignedLocationName: m.assigned_location_id ? locationNames.get(m.assigned_location_id) ?? null : null,
-      permissions: m.permissions ?? {},
-    })),
-    seats: { used: memberCount, max: maxUsers },
-  });
+    return NextResponse.json({
+      members: members.map((m) => ({
+        id: m.id,
+        email: emails.get(m.user_id) ?? "(unknown)",
+        role: m.role,
+        isSelf: m.user_id === auth.userId,
+        isOwner: m.role === "owner",
+        joinedAt: m.created_at,
+        assignedLocationId: m.assigned_location_id,
+        assignedLocationName: m.assigned_location_id ? locationNames.get(m.assigned_location_id) ?? null : null,
+        permissions: m.permissions ?? {},
+      })),
+      seats: { used: memberCount, max: maxUsers },
+    });
+  } catch (e) {
+    // emailsFor throws on an admin.auth.admin.listUsers failure (rate limit,
+    // transient network error); without this, that crashed the whole route
+    // with an empty response body — the client's res.json() then failed with
+    // "Unexpected end of JSON input", masking the real cause.
+    return NextResponse.json(
+      { error: e instanceof Error ? e.message : "Could not load team" },
+      { status: 500 }
+    );
+  }
 }
 
 interface InviteBody {
