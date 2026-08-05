@@ -28,18 +28,16 @@ interface MemberRow {
   permissions: Record<string, boolean> | null;
 }
 
-/** Map user ids to emails via the paginated admin API. */
+/** Map user ids to emails by looking up each user individually. */
 async function emailsFor(admin: SupabaseClient, ids: string[]): Promise<Map<string, string>> {
-  const want = new Set(ids);
   const out = new Map<string, string>();
-  const perPage = 1000;
-  for (let page = 1; page <= 20 && out.size < want.size; page++) {
-    const { data, error } = await admin.auth.admin.listUsers({ page, perPage });
-    if (error) throw new Error(error.message);
-    const users = data?.users || [];
-    for (const u of users) if (u.email && want.has(u.id)) out.set(u.id, u.email);
-    if (users.length < perPage) break;
-  }
+  const results = await Promise.allSettled(
+    ids.map(async (id) => {
+      const { data, error } = await admin.auth.admin.getUserById(id);
+      if (error || !data.user?.email) return;
+      out.set(id, data.user.email);
+    })
+  );
   return out;
 }
 
