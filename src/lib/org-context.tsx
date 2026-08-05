@@ -28,6 +28,22 @@ export class PendingSyncError extends Error {
   }
 }
 
+/**
+ * Admin-gated functions an owner can grant to or withhold from a manager
+ * (org_members.role = 'admin') individually. Absence of a key, or a key set
+ * to anything other than `false`, means granted — see org_members.permissions
+ * (migration 077).
+ */
+export type PermissionKey =
+  | "manage_suppliers"
+  | "manage_locations"
+  | "manage_stock_transfers"
+  | "manage_expenses"
+  | "manage_payment_methods"
+  | "view_reports"
+  | "void_sales"
+  | "manage_blind_cashup";
+
 export interface LocationRow {
   id: string;
   name: string;
@@ -43,6 +59,9 @@ export interface OrgState {
   orgId: string | null;
   orgName: string | null;
   role: "owner" | "admin" | "member" | null;
+  // Per-manager permission toggles (org_members.permissions). Only meaningful
+  // when role === "admin" — see `can`.
+  permissions: Record<string, boolean>;
   trialEndsAt: string | null;
   subscriptionPlan: string | null;
   subscriptionStatus: string | null;
@@ -81,6 +100,9 @@ export interface OrgState {
   canSwitchLocation: boolean;
   assignedLocationId: string | null;
   switchLocation: (locationId: string) => void;
+  /** Owners can do everything; a manager (role "admin") needs the matching
+   *  permission key not explicitly revoked; cashiers can do none of these. */
+  can: (key: PermissionKey) => boolean;
   refresh: () => Promise<void>;
   /**
    * Signs the user out and clears their offline data. Throws PendingSyncError
@@ -135,6 +157,7 @@ const DEFAULT_STATE: OrgState = {
   orgId: null,
   orgName: null,
   role: null,
+  permissions: {},
   trialEndsAt: null,
   subscriptionPlan: null,
   subscriptionStatus: null,
@@ -159,6 +182,7 @@ const DEFAULT_STATE: OrgState = {
   canSwitchLocation: false,
   assignedLocationId: null,
   switchLocation: () => {},
+  can: () => false,
   refresh: async () => {},
   signOut: async () => {},
 };
@@ -223,7 +247,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // Pull the user's org membership and the org row (RLS scoped automatically).
     const { data: membership } = await db
       .from("org_members")
-      .select("org_id, role, assigned_location_id, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end, tpin, vat_percent)")
+      .select("org_id, role, assigned_location_id, permissions, organizations(id, name, trial_ends_at, subscription_plan, subscription_status, current_period_end, tpin, vat_percent)")
       .eq("user_id", session.user.id)
       .limit(1)
       .maybeSingle();
@@ -246,6 +270,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     const currentPeriodEnd = org?.current_period_end ?? null;
     const role = (membership.role as OrgState["role"]) ?? null;
     const assignedLocationId = (membership as { assigned_location_id?: string | null }).assigned_location_id ?? null;
+    const permissions = (membership as { permissions?: Record<string, boolean> }).permissions ?? {};
 
     // Pull setup + workflow + WMS settings (single round-trip, RLS-scoped)
     const { data: settingsRows } = await db
@@ -296,6 +321,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       orgId: membership.org_id,
       orgName: org?.name ?? null,
       role,
+      permissions,
       trialEndsAt,
       subscriptionPlan: org?.subscription_plan ?? null,
       subscriptionStatus: status,
@@ -385,9 +411,16 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     });
   }
 
+  function can(key: PermissionKey): boolean {
+    if (state.role === "owner") return true;
+    if (state.role === "admin") return state.permissions[key] !== false;
+    return false;
+  }
+
   const value: OrgState = {
     ...state,
     switchLocation,
+    can,
     refresh: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       await loadOrg(session);

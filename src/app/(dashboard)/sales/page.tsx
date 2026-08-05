@@ -78,7 +78,7 @@ interface SaleGroup {
 export default function SalesPage() {
   const router = useRouter();
   const { role, name: userName } = useAuth();
-  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId } = useOrg();
+  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId, can } = useOrg();
 
   // Today's Sales is admin-only in the menu now; cashiers who land here
   // directly (bookmark, back button) get bounced to the POS instead.
@@ -666,7 +666,7 @@ export default function SalesPage() {
                       <span className={`text-base font-bold ${g.allVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
                         {formatZAR(g.total)}
                       </span>
-                      {!g.allVoided && role === "admin" && (
+                      {!g.allVoided && can("void_sales") && (
                         <div className="flex items-center gap-1">
                           {returnable && (
                             <button

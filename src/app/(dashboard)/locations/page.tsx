@@ -7,7 +7,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Store, Plus, Pencil, Power, Trash2, Check, X } from "lucide-react";
 
 export default function LocationsPage() {
-  const { role, refresh, canSwitchLocation } = useOrg();
+  const { refresh, canSwitchLocation, can } = useOrg();
   const [locations, setLocations] = useState<LocationRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState<LocationRow | null>(null);
@@ -18,7 +18,7 @@ export default function LocationsPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canManage = role === "owner" || role === "admin";
+  const canManage = can("manage_locations");
 
   async function load() {
     setLoading(true);

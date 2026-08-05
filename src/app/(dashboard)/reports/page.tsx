@@ -86,8 +86,8 @@ interface IntakeRow {
 }
 
 export default function ReportsPage() {
-  const { role, assignedLocationId, currentLocationId, currentLocationName, locations, lowStockThreshold } = useOrg();
-  const isManager = role === "owner" || role === "admin"; // cashiers are role "member"
+  const { role, assignedLocationId, currentLocationId, currentLocationName, locations, lowStockThreshold, can } = useOrg();
+  const isManager = can("view_reports");
 
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = role === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;

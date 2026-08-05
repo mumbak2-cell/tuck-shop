@@ -65,8 +65,8 @@ interface SavedReceipt {
 }
 
 export default function StockTransfersPage() {
-  const { role, locations, currentLocationId, orgName } = useOrg();
-  const canTransfer = role === "owner" || role === "admin";
+  const { locations, currentLocationId, orgName, can } = useOrg();
+  const canTransfer = can("manage_stock_transfers");
   const hasMultipleLocations = locations.length > 1;
 
   // Form state

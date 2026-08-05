@@ -43,7 +43,7 @@ const KIND_SHORT: Record<PaymentKind, string> = {
 };
 
 export function PaymentMethodsSection() {
-  const { role } = useOrg();
+  const { can } = useOrg();
   const [methods, setMethods] = useState<PaymentMethod[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -69,7 +69,7 @@ export function PaymentMethodsSection() {
   }
 
   // Shop configuration — owners and managers, not cashiers.
-  if (role !== "owner" && role !== "admin") return null;
+  if (!can("manage_payment_methods")) return null;
 
   function openNew() {
     setEditing(null);

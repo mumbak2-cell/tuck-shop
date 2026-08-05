@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
-import { useOrg } from "@/lib/org-context";
+import { useOrg, type PermissionKey } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
@@ -22,7 +22,21 @@ interface Member {
   joinedAt: string;
   assignedLocationId: string | null;
   assignedLocationName: string | null;
+  permissions: Record<string, boolean>;
 }
+
+/** Admin functions an owner can grant to or withhold from a manager.
+ *  Absence of a key, or anything but `false`, means granted. */
+const PERMISSION_LABELS: { key: PermissionKey; label: string }[] = [
+  { key: "manage_suppliers", label: "Suppliers" },
+  { key: "manage_locations", label: "Locations" },
+  { key: "manage_stock_transfers", label: "Stock transfers" },
+  { key: "manage_expenses", label: "Expenses" },
+  { key: "manage_payment_methods", label: "Payment methods" },
+  { key: "view_reports", label: "Reports" },
+  { key: "void_sales", label: "Void sales" },
+  { key: "manage_blind_cashup", label: "Blind cash-up setting" },
+];
 
 interface NewCredential {
   email: string;
@@ -154,6 +168,45 @@ export function TeamSection() {
     }
   }
 
+  /** Switch someone between Cashier and Manager. Owner only; promoting to
+   *  manager is blocked below two locations, mirroring the add-form rule. */
+  async function changeRole(m: Member, role: "admin" | "member") {
+    if (role === "member" && !confirm(`Change ${m.email} to Cashier? They'll need a branch assigned below.`)) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ role }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not change role");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not change role");
+    }
+  }
+
+  /** Grant or withdraw one admin function for a manager. Owner only. */
+  async function togglePermission(m: Member, key: PermissionKey, granted: boolean) {
+    const nextPermissions = { ...m.permissions, [key]: granted };
+    // Optimistic update so the checkbox doesn't lag a round-trip.
+    setMembers((prev) => prev.map((mem) => (mem.id === m.id ? { ...mem, permissions: nextPermissions } : mem)));
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ permissions: nextPermissions }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not update permission");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not update permission");
+      await reload();
+    }
+  }
+
   async function handleRemove(m: Member) {
     if (!confirm(`Remove ${m.email} from your shop? They will lose access on their next sign-in. Their login itself is not deleted.`)) return;
     setError(null);
@@ -233,7 +286,8 @@ export function TeamSection() {
           <div className="px-4 py-6 text-center text-sm text-gray-500">Just you so far.</div>
         ) : (
           members.map((m) => (
-            <div key={m.id} className="flex items-center justify-between px-4 py-3">
+            <div key={m.id} className="px-4 py-3">
+            <div className="flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-900 truncate">
                   {m.email}
@@ -269,6 +323,27 @@ export function TeamSection() {
                   {ROLE_LABEL[m.role]}
                 </Badge>
                 {!m.isOwner && !m.isSelf && canManageStaff && (
+                  m.role === "member" ? (
+                    canAddManager && (
+                      <button
+                        type="button"
+                        onClick={() => changeRole(m, "admin")}
+                        className="text-xs text-blue-700 hover:underline whitespace-nowrap"
+                      >
+                        Make manager
+                      </button>
+                    )
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => changeRole(m, "member")}
+                      className="text-xs text-gray-500 hover:underline whitespace-nowrap"
+                    >
+                      Make cashier
+                    </button>
+                  )
+                )}
+                {!m.isOwner && !m.isSelf && canManageStaff && (
                   <button
                     type="button"
                     onClick={() => handleRemove(m)}
@@ -279,6 +354,25 @@ export function TeamSection() {
                   </button>
                 )}
               </div>
+            </div>
+            {m.role === "admin" && canManageStaff && (
+              <div className="mt-2 pt-2 border-t border-gray-100">
+                <p className="text-xs text-gray-500 mb-1.5">Admin functions this manager can use:</p>
+                <div className="flex flex-wrap gap-x-4 gap-y-1.5">
+                  {PERMISSION_LABELS.map(({ key, label }) => (
+                    <label key={key} className="flex items-center gap-1.5 text-xs text-gray-700 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={m.permissions[key] !== false}
+                        onChange={(e) => void togglePermission(m, key, e.target.checked)}
+                        className="w-3.5 h-3.5 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                      />
+                      {label}
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
             </div>
           ))
         )}

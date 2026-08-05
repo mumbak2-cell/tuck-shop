@@ -57,6 +57,7 @@ export default function SettingsPage() {
     subscriptionStatus,
     currentPeriodEnd,
     refresh: refreshOrg,
+    can,
   } = useOrg();
   // PINs are per-location (location_settings). `pinLocationId` is the branch the
   // owner has explicitly picked to edit; until then we fall back to the active
@@ -783,30 +784,33 @@ export default function SettingsPage() {
           </div>
         </CollapsibleSection>
 
-        {/* Blind cash-up — per branch */}
-        <CollapsibleSection title="Blind Cash-Up" icon={EyeOff} badge={perBranchBadge}>
-          <p className="text-sm text-gray-500 mb-4">
-            Tick a branch to hide the expected cash, cash takings and variance from its
-            cashiers when they close a shift. They count the till and enter the total
-            without being shown what it should be, so you reconcile against an unprompted
-            figure. Admins always see the full reconciliation.
-          </p>
-          <div className="space-y-3">
-            {locations.map((l) => (
-              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={blindCashUpByLocation[l.id] ?? false}
-                  onChange={(e) =>
-                    setBlindCashUpByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
-                  }
-                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
-                />
-                <span className="text-sm font-medium text-gray-700">{l.name}</span>
-              </label>
-            ))}
-          </div>
-        </CollapsibleSection>
+        {/* Blind cash-up — per branch. A manager without manage_blind_cashup
+            can't see or change this section at all. */}
+        {can("manage_blind_cashup") && (
+          <CollapsibleSection title="Blind Cash-Up" icon={EyeOff} badge={perBranchBadge}>
+            <p className="text-sm text-gray-500 mb-4">
+              Tick a branch to hide the expected cash, cash takings and variance from its
+              cashiers when they close a shift. They count the till and enter the total
+              without being shown what it should be, so you reconcile against an unprompted
+              figure. Admins always see the full reconciliation.
+            </p>
+            <div className="space-y-3">
+              {locations.map((l) => (
+                <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={blindCashUpByLocation[l.id] ?? false}
+                    onChange={(e) =>
+                      setBlindCashUpByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                    }
+                    className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700">{l.name}</span>
+                </label>
+              ))}
+            </div>
+          </CollapsibleSection>
+        )}
 
         {/* Wholesale Mode — per branch */}
         <CollapsibleSection title="Wholesale Mode" icon={ShoppingCart} badge={perBranchBadge}>

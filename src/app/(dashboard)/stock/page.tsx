@@ -40,9 +40,10 @@ export default function StockCountPage() {
   const { name: userName } = useAuth();
   const { markStockCountDone } = useShift();
   const { currentLocationId, currentLocationName, locations, role } = useOrg();
-  // Cashiers ("member") record a count but never apply it to stock levels —
-  // otherwise a count could quietly erase the very variance it exists to expose.
-  const canApplyToStock = role === "owner" || role === "admin";
+  // Cashiers and managers record a count but never apply it to stock levels —
+  // only the owner can approve and apply a count, so a mis-count (or a
+  // deliberate one) can't quietly erase the variance it exists to expose.
+  const canApplyToStock = role === "owner";
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -223,8 +224,9 @@ export default function StockCountPage() {
         counted_at: now, // always update timestamp so RA shows accurate time
         updated_at: now,
         update_count: existing ? (existing.update_count || 1) + 1 : 1,
-        // A manager's save writes product_stock below, so it is applied the
-        // moment it is saved. A cashier's is left unconfirmed for review.
+        // Only the owner's save writes product_stock below, applied the
+        // moment it is saved. Everyone else's is left unconfirmed for the
+        // owner to review.
         confirmed_by: canApplyToStock ? userName : null,
         confirmed_at: canApplyToStock ? now : null,
       };
@@ -366,8 +368,9 @@ export default function StockCountPage() {
   ).length;
 
   const activeSession = todaySessions.find((s) => s.sessionId === sessionId) ?? null;
-  // Only a saved-but-unapplied session can be confirmed. A manager's own save
-  // stamps itself, so anything pending here was recorded by a cashier.
+  // Only a saved-but-unapplied session can be confirmed. Only the owner's own
+  // save stamps itself, so anything pending here was recorded by a cashier
+  // or a manager.
   const canConfirmSession =
     canApplyToStock && activeSession !== null && activeSession.confirmedAt === null;
 
@@ -435,7 +438,7 @@ export default function StockCountPage() {
         <div className="flex items-start gap-3 bg-green-50 border border-green-200 rounded-xl px-4 py-3 mb-6">
           <Check className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
           <p className="text-sm text-green-800">
-            Applied to stock by {activeSession.confirmedBy || "a manager"} on{" "}
+            Applied to stock by {activeSession.confirmedBy || "the owner"} on{" "}
             {new Date(activeSession.confirmedAt).toLocaleString("en-ZA", {
               day: "numeric", month: "short", hour: "2-digit", minute: "2-digit",
             })}
@@ -448,7 +451,7 @@ export default function StockCountPage() {
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-6">
           <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <p className="text-sm text-blue-800">
-            Your count is recorded for the manager to review. It does not change the
+            Your count is recorded for the owner to review. It does not change the
             stock levels in the system, so any difference stays visible on the Revenue
             Assurance report.
           </p>

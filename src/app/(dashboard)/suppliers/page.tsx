@@ -20,7 +20,7 @@ interface Supplier {
 }
 
 export default function SuppliersPage() {
-  const { role } = useOrg();
+  const { can } = useOrg();
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -32,7 +32,7 @@ export default function SuppliersPage() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const canManage = role === "owner" || role === "admin";
+  const canManage = can("manage_suppliers");
 
   useEffect(() => {
     load();

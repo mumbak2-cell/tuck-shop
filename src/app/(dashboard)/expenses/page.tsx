@@ -19,7 +19,7 @@ import { usePeriodLock } from "@/lib/use-period-lock";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
-  const { currentLocationId, currentLocationName, orgId, role } = useOrg();
+  const { currentLocationId, currentLocationName, orgId, role, can } = useOrg();
   const { lockedThrough, isLocked } = usePeriodLock();
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [showAdd, setShowAdd] = useState(false);
@@ -79,7 +79,7 @@ export default function ExpensesPage() {
 
   async function loadCashierReport() {
     // Owner or manager (admin) may see who spent what; cashiers may not.
-    if (role !== "owner" && role !== "admin") {
+    if (!can("manage_expenses")) {
       setCashierReport([]);
       return;
     }
@@ -266,7 +266,7 @@ export default function ExpensesPage() {
       </div>
 
       {/* Owner/manager: per-cashier breakdown for the selected period/branch */}
-      {(role === "owner" || role === "admin") && (
+      {can("manage_expenses") && (
         <div className="bg-white border border-gray-200 rounded-xl p-5 mb-6">
           <h2 className="text-sm font-semibold text-gray-900 flex items-center gap-2 mb-1">
             <Users className="w-4 h-4 text-green-600" />

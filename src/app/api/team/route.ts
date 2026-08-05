@@ -25,6 +25,7 @@ interface MemberRow {
   role: "owner" | "admin" | "member";
   created_at: string;
   assigned_location_id: string | null;
+  permissions: Record<string, boolean> | null;
 }
 
 /** Map user ids to emails via the paginated admin API. */
@@ -77,7 +78,7 @@ export async function GET(req: Request) {
   const admin = getSupabaseAdmin();
   const { data: membersData, error } = await admin
     .from("org_members")
-    .select("id, user_id, role, created_at, assigned_location_id")
+    .select("id, user_id, role, created_at, assigned_location_id, permissions")
     .eq("org_id", auth.orgId!)
     .order("created_at", { ascending: true });
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -105,6 +106,7 @@ export async function GET(req: Request) {
       joinedAt: m.created_at,
       assignedLocationId: m.assigned_location_id,
       assignedLocationName: m.assigned_location_id ? locationNames.get(m.assigned_location_id) ?? null : null,
+      permissions: m.permissions ?? {},
     })),
     seats: { used: memberCount, max: maxUsers },
   });
