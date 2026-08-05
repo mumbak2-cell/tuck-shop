@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
+import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg, type LocationRow } from "@/lib/org-context";
 import { formatDate } from "@/lib/format";
@@ -95,10 +96,10 @@ export default function WmsDispatchPage() {
   const [detailLoading, setDetailLoading] = useState(false);
 
   const loadData = useCallback(async () => {
-    const [{ data: catalog }, { data: inventory }, { data: dispatches }] =
+    const [catalog, inventory, { data: dispatches }] =
       await Promise.all([
-        db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name"),
-        db.from("wms_inventory").select("wms_item_id, physical_qty"),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name")),
+        fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
         db
           .from("wms_dispatches")
           .select("*")
@@ -106,15 +107,16 @@ export default function WmsDispatchPage() {
           .limit(50),
       ]);
 
-    setCatalogItems((catalog || []) as any[]);
+    setCatalogItems(catalog as any[]);
 
     const invMap = new Map<number, number>();
-    ((inventory || []) as any[]).forEach((row: any) => {
+    (inventory as any[]).forEach((row: any) => {
       invMap.set(row.wms_item_id, row.physical_qty);
     });
     setInventoryMap(invMap);
 
     setHistory((dispatches || []) as any[]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => {
