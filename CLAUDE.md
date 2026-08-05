@@ -487,18 +487,20 @@ so every existing manager kept full access the moment this shipped; only an expl
 (`role = 'member'`) are unaffected too (never had these functions).
 
 - `org-context.tsx` exposes `can(key: PermissionKey)`: `true` for owner, checks the
-  permissions object for manager, always `false` for cashier. Nine keys:
+  permissions object for manager, always `false` for cashier. Eleven keys:
   `manage_suppliers`, `manage_locations`, `manage_stock_transfers`, `manage_expenses`,
-  `manage_payment_methods`, `view_reports`, `void_sales`, `manage_blind_cashup`, plus
-  role-switching (below) is a separate owner-only action, not a permission key.
-- **`void_sales` and `manage_blind_cashup` were deliberately moved off the shared till
-  PIN.** Before this, voiding a sale and seeing the full cash-up reconciliation were
-  gated on `useAuth().role === "admin"` — the till's shared admin PIN, unrelated to
-  which named person is logged in. Anyone who knew the branch PIN could void a sale
-  regardless of their actual org role. Both are now gated on the named manager's own
-  `can(...)` check instead. Every other admin-only screen was already gated on
-  `useOrg().role`, not the till PIN, so those just swapped `role === "owner" ||
-  role === "admin"` for `can("...")`.
+  `manage_payment_methods`, `view_reports`, `void_sales`, `manage_blind_cashup`,
+  `manage_warehouse`, `manage_shift_admin`, plus role-switching (below) is a separate
+  owner-only action, not a permission key.
+- **`void_sales`, `manage_blind_cashup`, `manage_warehouse`, and `manage_shift_admin`
+  were deliberately moved off the shared till PIN.** Before this, voiding a sale,
+  seeing the full cash-up reconciliation, reaching the Warehouse (WMS) module, and
+  Reopen/Delete Shift were all gated on `useAuth().role === "admin"` — the till's
+  shared admin PIN, unrelated to which named person is logged in. Anyone who knew the
+  branch PIN got in, regardless of their actual org role. All four are now gated on
+  the named manager's own `can(...)` check instead. Every other admin-only screen was
+  already gated on `useOrg().role`, not the till PIN, so those just swapped
+  `role === "owner" || role === "admin"` for `can("...")`.
 - Editing permissions is owner-only, enforced server-side in
   `PATCH /api/team/[id]` (`requireOrgOwner`, not `requireOrgManager` — a manager
   cannot grant themselves access). Branch reassignment on that same endpoint stays
