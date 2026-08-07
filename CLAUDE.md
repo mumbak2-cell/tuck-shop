@@ -93,6 +93,16 @@ hung, with `localhost:3000` timing out entirely.
   an anonymous caller before touching data. Never drop that guard on the assumption the
   grant covers it. Check an ACL with:
   `SELECT proname, array_to_string(proacl,' ') FROM pg_proc WHERE proname = '…';`
+- **Billing columns are trigger-protected (migration 078).** `trg_protect_billing`
+  silently restores 10 billing columns (`subscription_plan`, `subscription_status`,
+  `trial_ends_at`, `billing_*`, `last_charge_*`, `current_period_end`) to their
+  OLD values when the caller is `authenticated`. Only service-role (webhooks) can
+  write them. Do not remove or weaken this trigger.
+- **Sales rows are immutable to clients (migration 078).** The `sales_org_update`
+  and `sales_org_delete` RLS policies were dropped. No authenticated user can
+  UPDATE or DELETE sales rows via PostgREST. All mutations go through SECURITY
+  DEFINER RPCs (`void_sale_lines`, `record_sale_return`) which bypass RLS. Do
+  not re-add UPDATE/DELETE policies on sales.
 - **PostgREST `.upsert({ onConflict })` cannot target a PARTIAL unique index.** It can't
   emit the index's `WHERE` predicate, so Postgres raises `42P10` — and if the error is
   destructured away (`const { data } = await …`), the write silently no-ops.
@@ -106,7 +116,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **076**.
+number, never reuse a prefix. Latest applied: **078**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
