@@ -6,6 +6,15 @@ Revenue-Assurance PWA for SADC retailers. Next.js (App Router) + Supabase + Tail
 Setup, migration numbering, and the Supabase CLI baseline caveats live in `README.md` —
 read it before running anything that writes to the database.
 
+## Security headers
+
+`next.config.ts` sets response headers on all routes: CSP (self + Supabase
+origins, inline styles/scripts for Tailwind/Next.js, blob/data URIs for
+receipts), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
+disabling camera/mic/geo. If a new external origin is needed (e.g. analytics,
+CDN), add it to the CSP `connect-src` or `script-src` directive there.
+
 ## Health Stack
 
 - typecheck: `node node_modules/typescript/bin/tsc --noEmit`
@@ -103,6 +112,14 @@ hung, with `localhost:3000` timing out entirely.
   UPDATE or DELETE sales rows via PostgREST. All mutations go through SECURITY
   DEFINER RPCs (`void_sale_lines`, `record_sale_return`) which bypass RLS. Do
   not re-add UPDATE/DELETE policies on sales.
+- **Audit log (migration 079).** `audit_logs` is append-only for org members
+  (SELECT via RLS, no INSERT/UPDATE/DELETE policies). Writes come only from
+  SECURITY DEFINER triggers (e.g. `trg_log_sale_void`) and service-role. Do not
+  add client write policies.
+- **Location limits are trigger-enforced (migration 079).** `trg_check_location_limit`
+  fires BEFORE INSERT on `locations` and checks the org's `subscription_plan` against
+  hardcoded limits: trial/starter = 1, growth = 3, pro = unlimited. Only active
+  locations count. The limit map must stay in sync with `src/lib/plans.ts`.
 - **PostgREST `.upsert({ onConflict })` cannot target a PARTIAL unique index.** It can't
   emit the index's `WHERE` predicate, so Postgres raises `42P10` — and if the error is
   destructured away (`const { data } = await …`), the write silently no-ops.
@@ -116,7 +133,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **078**.
+number, never reuse a prefix. Latest applied: **079**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
