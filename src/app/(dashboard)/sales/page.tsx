@@ -16,6 +16,8 @@ import { CreditNote, generateCreditNoteNumber, type CreditNoteData } from "@/com
 import { localToday } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
 import { receiptCode, normaliseReceiptCode } from "@/lib/receipt-code";
+import { Receipt, type ReceiptData } from "@/components/pos/receipt";
+import type { CartItem } from "@/components/pos/cart";
 
 /**
  * Step a YYYY-MM-DD string by whole days. Parsed as UTC noon so a shift never
@@ -57,6 +59,8 @@ interface SaleRecord {
   credit_note_number: string | null;
   // Groups the lines of one basket (migration 074).
   transaction_id: string | null;
+  location_id: string | null;
+  cash_back: number;
 }
 
 /** One basket: the lines that were rung up and paid for together. */
@@ -73,6 +77,8 @@ interface SaleGroup {
   itemCount: number;
   allVoided: boolean;
   anyVoided: boolean;
+  locationId: string | null;
+  cashBack: number;
 }
 
 export default function SalesPage() {
@@ -124,6 +130,10 @@ export default function SalesPage() {
   const [creditNote, setCreditNote] = useState<CreditNoteData | null>(null);
   const creditNoteRef = useRef<HTMLDivElement>(null);
 
+  // Reprint receipt
+  const [reprintTarget, setReprintTarget] = useState<SaleGroup | null>(null);
+  const reprintRef = useRef<HTMLDivElement>(null);
+
   // Units already returned per original sale, so the modal can cap the input.
   const returnedByOriginal = transactions.reduce((map, t) => {
     if (t.return_of_sale_id && !t.voided) {
@@ -165,6 +175,8 @@ export default function SalesPage() {
           itemCount: live.reduce((s, l) => s + l.quantity, 0),
           allVoided: live.length === 0,
           anyVoided: lines.some((l) => l.voided),
+          locationId: lines[0].location_id,
+          cashBack: lines.reduce((s, l) => s + (Number(l.cash_back) || 0), 0),
         };
       })
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
@@ -197,7 +209,7 @@ export default function SalesPage() {
     // return columns (migration 064) may not exist yet if the code deploys
     // before the migration is applied — retry without them rather than break
     // Today's Sales for the whole shop (same fallback shape as 059).
-    const baseCols = "id, product_id, quantity, unit_price, total_amount, tax_amount, payment_method, customer_id, created_at, voided, products(name)";
+    const baseCols = "id, product_id, quantity, unit_price, total_amount, tax_amount, payment_method, customer_id, created_at, voided, location_id, cash_back, products(name)";
     const returnCols = "return_of_sale_id, credit_note_number, transaction_id";
     const runSalesQuery = (cols: string) => {
       let q = db.from("sales").select(cols).eq("sale_date", viewDate).order("created_at", { ascending: false });
@@ -226,6 +238,8 @@ export default function SalesPage() {
       return_of_sale_id: s.return_of_sale_id ?? null,
       credit_note_number: s.credit_note_number ?? null,
       transaction_id: s.transaction_id ?? null,
+      location_id: s.location_id ?? null,
+      cash_back: Number(s.cash_back) || 0,
     }));
     setTransactions(txns);
 
@@ -501,6 +515,59 @@ export default function SalesPage() {
     setTimeout(() => w.print(), 200);
   }
 
+  /** Rebuilds a ReceiptData from a stored SaleGroup so it can be reprinted. */
+  function buildReprintData(group: SaleGroup): ReceiptData {
+    const loc = group.locationId
+      ? locations.find((l) => l.id === group.locationId)
+      : locations.find((l) => l.id === currentLocationId);
+
+    const items: CartItem[] = group.lines
+      .filter((l) => !l.voided)
+      .map((l) => ({
+        productId: l.product_id,
+        name: l.product_name,
+        unitPrice: Number(l.unit_price),
+        quantity: l.quantity,
+        costPrice: 0, // not needed for receipt display
+      }));
+
+    return {
+      orgName: orgName ?? "Shop",
+      locationName: loc?.name ?? currentLocationName ?? "",
+      locationAddress: loc?.address ?? null,
+      locationPhone: loc?.phone ?? null,
+      items,
+      total: group.total,
+      paymentMethod: group.paymentMethod || "—",
+      cashTendered: null,
+      change: null,
+      cashBack: group.cashBack > 0 ? group.cashBack : null,
+      paymentReference: null,
+      customerName: null,
+      saleDate: new Date(group.createdAt),
+      tpin: tpin ?? null,
+      vatPercent: vatPercent ?? null,
+      receiptNumber: group.code,
+    };
+  }
+
+  function handleReprintPrint() {
+    const el = reprintRef.current;
+    if (!el) return;
+    const printWindow = window.open("", "_blank", "width=350,height=600");
+    if (!printWindow) return;
+    printWindow.document.write(
+      "<!DOCTYPE html><html><head><title>Receipt</title>" +
+      "<style>body{margin:0;padding:0}@page{size:80mm auto;margin:0}</style>" +
+      "</head><body>" + el.innerHTML + "</body></html>"
+    );
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
+  }
+
   // Counted in baskets, matching the list below. Counting rows here would say
   // "9 transactions" for what the shop experienced as three customers.
   const liveSaleCount = saleGroups.filter((g) => !g.allVoided).length;
@@ -666,6 +733,15 @@ export default function SalesPage() {
                       <span className={`text-base font-bold ${g.allVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
                         {formatZAR(g.total)}
                       </span>
+                      {!g.allVoided && (
+                        <button
+                          onClick={() => setReprintTarget(g)}
+                          className="p-1.5 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors"
+                          title="Reprint receipt"
+                        >
+                          <Printer className="w-4 h-4" />
+                        </button>
+                      )}
                       {!g.allVoided && can("void_sales") && (
                         <div className="flex items-center gap-1">
                           {returnable && (
@@ -982,6 +1058,32 @@ export default function SalesPage() {
       <div style={{ position: "absolute", left: "-9999px", top: 0 }} aria-hidden>
         {creditNote && <CreditNote ref={creditNoteRef} data={creditNote} />}
       </div>
+
+      {/* Reprint receipt modal */}
+      {reprintTarget && (
+        <Modal open={!!reprintTarget} onClose={() => setReprintTarget(null)} title="Reprint Receipt">
+          <div className="flex flex-col items-center py-4">
+            <div className="mb-4 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
+              <RotateCcw className="w-4 h-4 text-amber-700" />
+              <span className="text-xs font-semibold text-amber-900 uppercase tracking-wider">Reprint</span>
+            </div>
+
+            <div className="border border-gray-200 rounded-lg p-2 mb-4 max-h-[60vh] overflow-y-auto">
+              <Receipt ref={reprintRef} data={buildReprintData(reprintTarget)} />
+            </div>
+
+            <div className="flex gap-2">
+              <Button onClick={handleReprintPrint} variant="secondary">
+                <Printer className="w-4 h-4 mr-2" />
+                Print
+              </Button>
+              <Button onClick={() => setReprintTarget(null)} variant="secondary">
+                Close
+              </Button>
+            </div>
+          </div>
+        </Modal>
+      )}
     </div>
   );
 }
