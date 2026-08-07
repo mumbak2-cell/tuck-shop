@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
-import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw, Undo2, Printer, ChevronDown, ChevronLeft, ChevronRight, Search } from "lucide-react";
+import { Banknote, CreditCard, Users, Calculator, XCircle, RotateCcw, Undo2, Printer, ChevronDown, ChevronLeft, ChevronRight, Search, MessageCircle } from "lucide-react";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { paymentBucket, type PaymentBucket } from "@/lib/payment-buckets";
@@ -16,8 +16,9 @@ import { CreditNote, generateCreditNoteNumber, type CreditNoteData } from "@/com
 import { localToday } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
 import { receiptCode, normaliseReceiptCode } from "@/lib/receipt-code";
-import { Receipt, type ReceiptData } from "@/components/pos/receipt";
+import { Receipt, type ReceiptData, buildReceiptLines, LINE_WIDTH } from "@/components/pos/receipt";
 import type { CartItem } from "@/components/pos/cart";
+import { toInternationalPhone } from "@/lib/currency";
 
 /**
  * Step a YYYY-MM-DD string by whole days. Parsed as UTC noon so a shift never
@@ -84,7 +85,7 @@ interface SaleGroup {
 export default function SalesPage() {
   const router = useRouter();
   const { role, name: userName } = useAuth();
-  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId, can } = useOrg();
+  const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId, can, currency } = useOrg();
 
   // Today's Sales is admin-only in the menu now; cashiers who land here
   // directly (bookmark, back button) get bounced to the POS instead.
@@ -133,6 +134,8 @@ export default function SalesPage() {
   // Reprint receipt
   const [reprintTarget, setReprintTarget] = useState<SaleGroup | null>(null);
   const reprintRef = useRef<HTMLDivElement>(null);
+  const [whatsAppPhone, setWhatsAppPhone] = useState("");
+  const [showWhatsAppInput, setShowWhatsAppInput] = useState(false);
 
   // Units already returned per original sale, so the modal can cap the input.
   const returnedByOriginal = transactions.reduce((map, t) => {
@@ -567,6 +570,77 @@ export default function SalesPage() {
       printWindow.print();
       printWindow.close();
     }, 300);
+  }
+
+  function generateReprintImage(): Promise<Blob | null> {
+    return new Promise((resolve) => {
+      if (!reprintTarget) { resolve(null); return; }
+      const rd = buildReprintData(reprintTarget);
+      const lines = buildReceiptLines(rd);
+
+      const FONT = "12px 'Courier New', monospace";
+      const PD = 16;
+      const LH = 18;
+
+      const mc = document.createElement("canvas");
+      const mx = mc.getContext("2d");
+      if (!mx) { resolve(null); return; }
+      mx.font = FONT;
+      const textW = Math.ceil(mx.measureText("M".repeat(LINE_WIDTH)).width);
+      const CW = textW + PD * 2;
+      const CH = PD * 2 + lines.length * LH;
+
+      const canvas = document.createElement("canvas");
+      canvas.width = CW;
+      canvas.height = CH;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) { resolve(null); return; }
+
+      ctx.fillStyle = "#fff";
+      ctx.fillRect(0, 0, CW, CH);
+      ctx.font = FONT;
+      ctx.fillStyle = "#000";
+      ctx.textAlign = "left";
+      ctx.textBaseline = "top";
+
+      let y = PD;
+      for (const line of lines) {
+        ctx.fillText(line, PD, y);
+        y += LH;
+      }
+
+      canvas.toBlob((blob) => resolve(blob), "image/png");
+    });
+  }
+
+  function sendReprintWhatsApp(phone?: string) {
+    const rawPhone = phone || "";
+    if (!rawPhone) {
+      setShowWhatsAppInput(true);
+      return;
+    }
+
+    const intlPhone = toInternationalPhone(rawPhone, currency);
+    const waWindow = window.open("about:blank", "_blank");
+
+    generateReprintImage().then((blob) => {
+      if (!blob) return;
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "receipt-" + Date.now() + ".png";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      const shortMsg = "Please find your receipt attached.";
+      const waUrl = "https://wa.me/" + intlPhone + "?text=" + encodeURIComponent(shortMsg);
+      if (waWindow) {
+        waWindow.location.href = waUrl;
+      } else {
+        window.location.href = waUrl;
+      }
+    });
   }
 
   // Counted in baskets, matching the list below. Counting rows here would say
@@ -1062,7 +1136,7 @@ export default function SalesPage() {
 
       {/* Reprint receipt modal */}
       {reprintTarget && (
-        <Modal open={!!reprintTarget} onClose={() => setReprintTarget(null)} title="Reprint Receipt">
+        <Modal open={!!reprintTarget} onClose={() => { setReprintTarget(null); setShowWhatsAppInput(false); setWhatsAppPhone(""); }} title="Reprint Receipt">
           <div className="flex flex-col items-center py-4">
             <div className="mb-4 inline-flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-full px-3 py-1.5">
               <RotateCcw className="w-4 h-4 text-amber-700" />
@@ -1073,12 +1147,38 @@ export default function SalesPage() {
               <Receipt ref={reprintRef} data={buildReprintData(reprintTarget)} />
             </div>
 
-            <div className="flex gap-2">
-              <Button onClick={handleReprintPrint} variant="secondary">
+            <div className="flex flex-col gap-2 w-full max-w-xs">
+              <Button onClick={handleReprintPrint} variant="secondary" className="w-full">
                 <Printer className="w-4 h-4 mr-2" />
                 Print
               </Button>
-              <Button onClick={() => setReprintTarget(null)} variant="secondary">
+              <Button onClick={() => sendReprintWhatsApp()} variant="secondary" className="w-full">
+                <MessageCircle className="w-4 h-4 mr-2" />
+                WhatsApp Receipt
+              </Button>
+
+              {showWhatsAppInput && (
+                <div className="flex gap-2">
+                  <input
+                    type="tel"
+                    inputMode="tel"
+                    value={whatsAppPhone}
+                    onChange={(e) => setWhatsAppPhone(e.target.value)}
+                    placeholder="Phone number"
+                    className="flex-1 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                    autoFocus
+                  />
+                  <Button
+                    onClick={() => whatsAppPhone.trim() && sendReprintWhatsApp(whatsAppPhone.trim())}
+                    disabled={!whatsAppPhone.trim()}
+                    size="sm"
+                  >
+                    Send
+                  </Button>
+                </div>
+              )}
+
+              <Button onClick={() => { setReprintTarget(null); setShowWhatsAppInput(false); setWhatsAppPhone(""); }} variant="secondary" className="w-full">
                 Close
               </Button>
             </div>
