@@ -42,6 +42,8 @@ export interface ReceiptData {
   receiptNumber?: string | null;
   /** ZRA Smart Invoice fiscal data (present only once submitted to VSDC). */
   zra?: ZraFiscalData | null;
+  /** True when this is a reprint of a historical sale, not the original. */
+  isReprint?: boolean;
 }
 
 /** Generate a short receipt number from a timestamp: YYMMDD-HHMM-XXXX */
@@ -160,6 +162,7 @@ export function buildReceiptLines(data: ReceiptData): string[] {
     lines.push(centerText("*** TAX INVOICE ***"));
   }
   if (zra) lines.push(centerText("ORIGINAL"));
+  if (data.isReprint) lines.push(centerText("*** COPY ***"));
 
   lines.push(dashes());
 

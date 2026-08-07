@@ -548,6 +548,7 @@ export default function SalesPage() {
       tpin: tpin ?? null,
       vatPercent: vatPercent ?? null,
       receiptNumber: group.code,
+      isReprint: true,
     };
   }
 
