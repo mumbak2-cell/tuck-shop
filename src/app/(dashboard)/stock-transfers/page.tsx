@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { formatZAR } from "@/lib/format";
 import { localToday, localYesterday, toLocalDateStr } from "@/lib/date-utils";
+import { SearchableSelect } from "@/components/ui/searchable-select";
 
 interface Product {
   id: string;
@@ -561,20 +562,22 @@ export default function StockTransfersPage() {
                 <label className="block text-xs font-medium text-gray-500 mb-1 inline-flex items-center gap-1">
                   <Package className="w-3 h-3" /> Product
                 </label>
-                <select value={productId} onChange={(e) => setProductId(e.target.value)}
+                <SearchableSelect
+                  value={productId}
+                  onChange={setProductId}
                   disabled={!fromLocId || availableProducts.length === 0}
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500 disabled:bg-gray-50 disabled:text-gray-400">
-                  <option value="">
-                    {!fromLocId ? "Pick a source first"
+                  placeholder={
+                    !fromLocId ? "Pick a source first"
                       : availableProducts.length === 0 ? (draft.length > 0 ? "All in-stock items already in the list" : "No products in stock at source")
-                      : "— pick product —"}
-                  </option>
-                  {availableProducts.map((p) => (
-                    <option key={p.id} value={p.id}>
-                      {p.name} ({p.inventory_id}) · {p.available} on hand · {formatZAR(p.selling_price)}
-                    </option>
-                  ))}
-                </select>
+                      : "Search products..."
+                  }
+                  emptyMessage="No matching products"
+                  options={availableProducts.map((p) => ({
+                    value: p.id,
+                    label: p.name,
+                    detail: `${p.inventory_id} · ${p.available} on hand · ${formatZAR(p.selling_price)}`,
+                  }))}
+                />
               </div>
               <div>
                 <label className="block text-xs font-medium text-gray-500 mb-1">Quantity</label>
