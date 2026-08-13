@@ -7,7 +7,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
-import { localToday } from "@/lib/date-utils";
+import { localToday, toLocalDateStr } from "@/lib/date-utils";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -34,6 +34,7 @@ interface ExistingSession {
   productCount: number;
   confirmedBy: string | null;
   confirmedAt: string | null;
+  countDate: string;
 }
 
 export default function StockCountPage() {
@@ -89,11 +90,17 @@ export default function StockCountPage() {
       expectedMap.set(r.product_id, Number(r.quantity) || 0);
     });
 
-    // Find today's existing count sessions FOR THIS LOCATION
+    // Load today's sessions plus any unconfirmed sessions from the last 30 days,
+    // so an owner can still confirm a cashier's count taken on an earlier day.
+    const cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 30);
+    const cutoff = toLocalDateStr(cutoffDate);
     const { data: todayCounts } = await db
       .from("stock_counts")
-      .select("session_id, session_label, counted_by, counted_at, confirmed_by, confirmed_at")
-      .eq("count_date", today)
+      .select("session_id, session_label, counted_by, counted_at, confirmed_by, confirmed_at, count_date")
+      .gte("count_date", cutoff)
+      .lte("count_date", today)
+      .or(`count_date.eq.${today},confirmed_at.is.null`)
       .eq("location_id", currentLocationId)
       .order("counted_at", { ascending: false });
 
@@ -109,6 +116,7 @@ export default function StockCountPage() {
           productCount: 0,
           confirmedBy: c.confirmed_by || null,
           confirmedAt: c.confirmed_at || null,
+          countDate: c.count_date || today,
         });
       }
       const s = sessionMap.get(c.session_id)!;
@@ -476,7 +484,7 @@ export default function StockCountPage() {
               onClick={() => setShowSessionPicker(!showSessionPicker)}
               className="text-xs text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2 hover:bg-green-100 transition-colors whitespace-nowrap"
             >
-              {todaySessions.length} session{todaySessions.length !== 1 ? "s" : ""} today
+              {todaySessions.length} session{todaySessions.length !== 1 ? "s" : ""}
             </button>
             <button
               onClick={startNewSession}
@@ -506,7 +514,7 @@ export default function StockCountPage() {
               >
                 <span className="font-medium text-gray-900">{s.label}</span>
                 <span className="text-gray-400 ml-2">
-                  {timeStr} · {s.countedBy} · {s.productCount} products
+                  {s.countDate !== today ? `${s.countDate} · ` : ""}{timeStr} · {s.countedBy} · {s.productCount} products
                 </span>
                 {!s.confirmedAt && <span className="ml-2"><Badge color="amber">Pending</Badge></span>}
                 {isActive && <span className="ml-2"><Badge color="green">Current</Badge></span>}

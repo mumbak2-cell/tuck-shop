@@ -36,6 +36,7 @@ import {
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { usePendingStockCounts } from "@/hooks/use-pending-stock-counts";
 import { LocationSwitcher } from "@/components/layout/location-switcher";
 import { OfflineIndicator } from "@/components/layout/offline-indicator";
 import type { UserRole } from "@/types/database";
@@ -91,10 +92,12 @@ function NavLink({
   item,
   active,
   onNavigate,
+  badge,
 }: {
   item: NavItem;
   active: boolean;
   onNavigate: () => void;
+  badge?: number;
 }) {
   const Icon = item.icon;
   return (
@@ -106,7 +109,12 @@ function NavLink({
       }`}
     >
       <Icon className="w-5 h-5 flex-shrink-0" />
-      {item.label}
+      <span className="flex-1">{item.label}</span>
+      {badge != null && badge > 0 && (
+        <span className="ml-auto bg-amber-100 text-amber-800 text-xs font-semibold px-2 py-0.5 rounded-full">
+          {badge}
+        </span>
+      )}
     </Link>
   );
 }
@@ -123,6 +131,7 @@ function NavSections({
   pinnedBottom,
   shopItems,
   warehouseItems,
+  badges,
 }: {
   activeGroup: NavGroup;
   pathname: string;
@@ -131,6 +140,7 @@ function NavSections({
   pinnedBottom: NavItem[];
   shopItems: NavItem[];
   warehouseItems: NavItem[];
+  badges: Record<string, number>;
 }) {
   const [expanded, setExpanded] = useState<Record<NavGroup, boolean>>(() => ({
     shop: activeGroup === "shop",
@@ -139,7 +149,13 @@ function NavSections({
   const toggle = (g: NavGroup) => setExpanded((prev) => ({ ...prev, [g]: !prev[g] }));
 
   const link = (item: NavItem) => (
-    <NavLink key={item.href} item={item} active={pathname === item.href} onNavigate={onNavigate} />
+    <NavLink
+      key={item.href}
+      item={item}
+      active={pathname === item.href}
+      onNavigate={onNavigate}
+      badge={badges[item.href]}
+    />
   );
 
   const header = (label: string, group: NavGroup) => (
@@ -179,6 +195,8 @@ export function Sidebar() {
   const [open, setOpen] = useState(false);
   const { role, name, logout } = useAuth();
   const { preparesFood, wmsEnabled, wmsOnly, orgId } = useOrg();
+  const { count: pendingStockCounts } = usePendingStockCounts();
+  const badges: Record<string, number> = { "/stock": pendingStockCounts };
 
   const visibleItems = navItems.filter((item) => {
     if (!role || !item.roles.includes(role)) return false;
@@ -237,6 +255,7 @@ export function Sidebar() {
                 item={item}
                 active={pathname === item.href}
                 onNavigate={() => setOpen(false)}
+                badge={badges[item.href]}
               />
             ))
           ) : (
@@ -249,6 +268,7 @@ export function Sidebar() {
               pinnedBottom={pinnedBottom}
               shopItems={shopItems}
               warehouseItems={warehouseItems}
+              badges={badges}
             />
           )}
         </nav>
