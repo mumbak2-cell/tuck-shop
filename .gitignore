@@ -45,3 +45,7 @@ next-env.d.ts
 
 # generated outputs
 /outputs
+
+# local scratch — briefs, review notes, unrelated prompts
+/Review/
+/# Agent Implementation Brief*.txt
