@@ -542,10 +542,19 @@ so every existing manager kept full access the moment this shipped; only an expl
 
 ## Stock Count requires owner approval
 
-`stock/page.tsx`'s `canApplyToStock` is `role === "owner"` only — nobody else's
-stock count, cashier or manager, ever writes to `product_stock` on save. Everyone
-else's save is left with `confirmed_by: null` and shows up as a pending session for
-the owner to review and apply via "Confirm and apply to stock". Before this, a
+`stock/page.tsx`'s `canApplyToStock` is `useOrg().role === "owner"` AND
+`useAuth().role === "admin"` — the org role gates on the Supabase account, the
+till-PIN role gates on who is actually at the till. Both must line up before a
+save writes `product_stock`. Nobody else's stock count, cashier or manager,
+ever writes to `product_stock` on save. Everyone else's save is left with
+`confirmed_by: null` and shows up as a pending session for the owner to review
+and apply via "Confirm and apply to stock". The till-PIN half is why: if the
+owner is signed into Supabase on a shared tablet and someone punches the
+CASHIER pin to count, the save must still be pending — otherwise the owner's
+own session silently auto-confirms every cashier count and the approval loop
+is dead. Enforced in code only; the DB-level check (migration 053) has no
+concept of the till PIN, so bypassing the frontend from PostgREST as owner
+still succeeds. Before this, a
 manager's own save applied instantly (gated on the now-removed
 `manage_stock_adjustments` permission) — a manager could self-approve their own
 count with no second set of eyes on it.

@@ -38,13 +38,18 @@ interface ExistingSession {
 }
 
 export default function StockCountPage() {
-  const { name: userName } = useAuth();
+  const { name: userName, role: tillRole } = useAuth();
   const { markStockCountDone } = useShift();
   const { currentLocationId, currentLocationName, locations, role } = useOrg();
   // Cashiers and managers record a count but never apply it to stock levels —
   // only the owner can approve and apply a count, so a mis-count (or a
   // deliberate one) can't quietly erase the variance it exists to expose.
-  const canApplyToStock = role === "owner";
+  //
+  // The till-PIN role matters too: if the owner is the signed-in Supabase
+  // account but someone punches the CASHIER pin at the till, the save must
+  // still be pending. Otherwise a shared tablet with the owner signed in
+  // silently auto-confirms every cashier count and the approval loop is dead.
+  const canApplyToStock = role === "owner" && tillRole === "admin";
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
