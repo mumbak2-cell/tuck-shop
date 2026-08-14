@@ -540,24 +540,36 @@ so every existing manager kept full access the moment this shipped; only an expl
   until the owner picks one from the existing per-cashier location dropdown. The
   owner's own role can never be changed via this endpoint.
 
-## Stock Count requires owner approval
+## Stock Count requires owner approval — always, no auto-apply
 
-`stock/page.tsx`'s `canApplyToStock` is `useOrg().role === "owner"` AND
-`useAuth().role === "admin"` — the org role gates on the Supabase account, the
-till-PIN role gates on who is actually at the till. Both must line up before a
-save writes `product_stock`. Nobody else's stock count, cashier or manager,
-ever writes to `product_stock` on save. Everyone else's save is left with
-`confirmed_by: null` and shows up as a pending session for the owner to review
-and apply via "Confirm and apply to stock". The till-PIN half is why: if the
-owner is signed into Supabase on a shared tablet and someone punches the
-CASHIER pin to count, the save must still be pending — otherwise the owner's
-own session silently auto-confirms every cashier count and the approval loop
-is dead. Enforced in code only; the DB-level check (migration 053) has no
-concept of the till PIN, so bypassing the frontend from PostgREST as owner
-still succeeds. Before this, a
-manager's own save applied instantly (gated on the now-removed
-`manage_stock_adjustments` permission) — a manager could self-approve their own
-count with no second set of eyes on it.
+`stock/page.tsx`'s Save button under NO CIRCUMSTANCES writes `product_stock`.
+Every save records to `stock_counts` with `confirmed_at: null` and shows up
+as a pending session. The only path from a count to a stock-level change is
+the explicit "Confirm and apply to stock" button on a pending session. This
+applies even to the owner's own count, even from an admin till PIN. The
+`canConfirm` flag (`useOrg().role === "owner"` AND `useAuth().role === "admin"`)
+gates who can press Confirm, not what the Save button does.
+
+Two prior versions of this had subtle holes and both leaked in production:
+
+1. **Original:** `canApplyToStock = role === "owner"` — owner's Save wrote
+   product_stock straight through. If the owner was the Supabase account on a
+   shared tablet and someone punched the CASHIER pin to count, the save still
+   ran under the owner and stamped itself confirmed. Every "cashier" count
+   auto-applied and the approval loop was dead. Observed at Destiny on
+   2026-08-13: a 30-item cashier count auto-applied, deflating stock across
+   most SKUs (some by 40+ units) with no manager review.
+
+2. **First fix:** required both org role owner AND till PIN admin. That closed
+   the shared-tablet case for the owner's own PIN but still left one
+   circumstance where a save auto-applied. The owner asked for zero
+   circumstances, so the auto-apply path is now removed entirely.
+
+Enforced in the frontend only. Migration 053's DB-level check on
+`product_stock` still allows owner and admin to UPDATE, so a direct PostgREST
+call as owner (or as any admin) still succeeds — the guard is in the app, not
+the database. Any new caller that writes `product_stock` directly needs its
+own justification for bypassing the confirm step.
 
 ## Branch pricing (per-location price overrides)
 

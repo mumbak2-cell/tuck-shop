@@ -41,15 +41,20 @@ export default function StockCountPage() {
   const { name: userName, role: tillRole } = useAuth();
   const { markStockCountDone } = useShift();
   const { currentLocationId, currentLocationName, locations, role } = useOrg();
-  // Cashiers and managers record a count but never apply it to stock levels —
-  // only the owner can approve and apply a count, so a mis-count (or a
-  // deliberate one) can't quietly erase the variance it exists to expose.
+  // NOTHING auto-applies on save. Under no circumstances does the Save button
+  // write product_stock. Every save records to stock_counts with confirmed_at
+  // NULL and shows up as a pending session. The owner must explicitly click
+  // "Confirm and apply to stock" to write it through. That is the only path
+  // from a count to a stock-level change — even for the owner's own count,
+  // even from an admin till PIN. This is deliberate: previously a save under
+  // the owner's Supabase session stamped itself confirmed, and a shared tablet
+  // with the owner signed in silently auto-approved every cashier count.
   //
-  // The till-PIN role matters too: if the owner is the signed-in Supabase
-  // account but someone punches the CASHIER pin at the till, the save must
-  // still be pending. Otherwise a shared tablet with the owner signed in
-  // silently auto-confirms every cashier count and the approval loop is dead.
-  const canApplyToStock = role === "owner" && tillRole === "admin";
+  // canConfirm gates who can press the Confirm button on a pending session:
+  // the Supabase account must be the owner AND the till must be on the admin
+  // PIN, so a cashier PIN at the till can never trigger the write even if the
+  // owner is the underlying account.
+  const canConfirm = role === "owner" && tillRole === "admin";
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -237,11 +242,10 @@ export default function StockCountPage() {
         counted_at: now, // always update timestamp so RA shows accurate time
         updated_at: now,
         update_count: existing ? (existing.update_count || 1) + 1 : 1,
-        // Only the owner's save writes product_stock below, applied the
-        // moment it is saved. Everyone else's is left unconfirmed for the
-        // owner to review.
-        confirmed_by: canApplyToStock ? userName : null,
-        confirmed_at: canApplyToStock ? now : null,
+        // Every save is unconfirmed. Applying to product_stock happens only
+        // via the explicit Confirm button on a pending session — never here.
+        confirmed_by: null,
+        confirmed_at: null,
       };
     });
 
@@ -273,25 +277,8 @@ export default function StockCountPage() {
         await db.from("stock_count_audit").insert(auditEntries);
       }
 
-      // Set product_stock at this location to the counted quantity.
-      // The trigger on product_stock auto-syncs products.opening_stock to
-      // the org-wide sum, so legacy callers still see a sane total.
-      if (canApplyToStock) {
-        for (const r of toSave) {
-          const counted = parseInt(r.closingCount) || 0;
-          await db
-            .from("product_stock")
-            .upsert(
-              {
-                product_id: r.product.id,
-                location_id: currentLocationId,
-                quantity: counted,
-                last_updated: now,
-              },
-              { onConflict: "product_id,location_id" }
-            );
-        }
-      }
+      // No product_stock write here — see the canConfirm comment above.
+      // The Confirm button on a pending session is the only path to stock.
 
       setRows((prev) =>
         prev.map((r) =>
@@ -381,11 +368,10 @@ export default function StockCountPage() {
   ).length;
 
   const activeSession = todaySessions.find((s) => s.sessionId === sessionId) ?? null;
-  // Only a saved-but-unapplied session can be confirmed. Only the owner's own
-  // save stamps itself, so anything pending here was recorded by a cashier
-  // or a manager.
+  // Every session is pending until explicitly confirmed. Only the owner on an
+  // admin till PIN can trigger the write.
   const canConfirmSession =
-    canApplyToStock && activeSession !== null && activeSession.confirmedAt === null;
+    canConfirm && activeSession !== null && activeSession.confirmedAt === null;
 
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
@@ -460,7 +446,7 @@ export default function StockCountPage() {
         </div>
       )}
 
-      {!canApplyToStock && (
+      {!canConfirm && (
         <div className="flex items-start gap-3 bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-6">
           <AlertTriangle className="w-5 h-5 text-blue-600 mt-0.5 flex-shrink-0" />
           <p className="text-sm text-blue-800">
