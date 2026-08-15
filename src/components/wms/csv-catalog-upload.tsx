@@ -5,6 +5,7 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { useToast } from "@/components/ui/toast";
 import { Upload, Download, Check } from "lucide-react";
 
 interface CsvRow {
@@ -78,10 +79,12 @@ function parseCsvLine(line: string): string[] {
 }
 
 export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
+  const toast = useToast();
   const fileRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<"upload" | "preview" | "done">("upload");
   const [items, setItems] = useState<ParsedItem[]>([]);
   const [saving, setSaving] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [progress, setProgress] = useState({ done: 0, total: 0 });
   const [results, setResults] = useState<{
     added: number; updated: number; skipped: number; failures: string[];
@@ -100,14 +103,16 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     onClose();
   }
 
-  async function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0];
-    if (!file) return;
+    if (file) handleFile(file);
+  }
 
+  async function handleFile(file: File) {
     const text = await file.text();
     const lines = text.split(/\r?\n/).filter((l: string) => l.trim());
     if (lines.length < 2) {
-      alert("CSV must have a header row and at least one data row.");
+      toast.error("CSV must have a header row and at least one data row.");
       return;
     }
 
@@ -117,7 +122,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     const nameIdx = header.findIndex((h: string) => h === "item_name" || h === "name" || h === "product_name");
 
     if (skuIdx === -1 || nameIdx === -1) {
-      alert("CSV must have 'sku' and 'item_name' (or 'name') columns.");
+      toast.error("CSV must have 'sku' and 'item_name' (or 'name') columns.");
       return;
     }
 
@@ -145,7 +150,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     }
 
     if (rows.length === 0) {
-      alert("No valid data rows found.");
+      toast.error("No valid data rows found.");
       return;
     }
 
@@ -319,7 +324,7 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
     } catch (err) {
       console.error("Import error:", err);
       const message = err instanceof Error ? err.message : "Unknown error";
-      alert("Import failed: " + message);
+      toast.error("Import failed", { hint: message });
     } finally {
       setSaving(false);
     }
@@ -357,14 +362,25 @@ export function WmsCsvUploadModal({ open, onClose, onComplete }: Props) {
               Download Template
             </Button>
           </div>
-          <div className="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center">
+          <div
+            onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragEnter={(e) => { e.preventDefault(); setIsDragging(true); }}
+            onDragLeave={(e) => { e.preventDefault(); setIsDragging(false); }}
+            onDrop={(e) => {
+              e.preventDefault();
+              setIsDragging(false);
+              const f = e.dataTransfer.files[0];
+              if (f && f.name.toLowerCase().endsWith(".csv")) handleFile(f);
+            }}
+            className={`border-2 border-dashed border-gray-300 rounded-xl p-8 text-center ${isDragging ? "ring-2 ring-green-500 bg-green-50" : ""}`}
+          >
             <Upload className="w-8 h-8 mx-auto text-gray-400 mb-2" />
             <p className="text-sm text-gray-500 mb-3">Select a CSV file</p>
             <input
               ref={fileRef}
               type="file"
               accept=".csv"
-              onChange={handleFile}
+              onChange={handleFileInputChange}
               className="text-sm"
             />
           </div>

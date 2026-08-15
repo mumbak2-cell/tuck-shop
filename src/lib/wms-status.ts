@@ -40,3 +40,20 @@ export const ABC_LABELS: Record<string, string> = {
   B: "Class B — mid-value stock",
   C: "Class C — low-value stock, count least often",
 };
+
+/**
+ * Purchase-order status → colour. PO statuses are a different vocabulary
+ * from dispatch statuses (Draft/Sent/Partially Received/Received/Cancelled
+ * vs Pending/Dispatched/Received), so they get their own mapping — using
+ * dispatchStatusColor here collapsed four PO states to grey.
+ */
+export type PoStatusColor = "gray" | "blue" | "amber" | "green" | "red";
+
+export function poStatusColor(status: string): PoStatusColor {
+  if (status === "Draft") return "gray";
+  if (status === "Sent") return "blue";
+  if (status === "Partially Received") return "amber";
+  if (status === "Received") return "green";
+  if (status === "Cancelled") return "red";
+  return "gray";
+}

@@ -9,11 +9,13 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncate";
 import { Avatar } from "@/components/ui/timeline";
 import { Input } from "@/components/ui/input";
+import { ItemPickerModal, type WmsCatalogPickerItem } from "@/components/wms/item-picker-modal";
+import { useToast } from "@/components/ui/toast";
+import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
 import {
   PackagePlus,
   Plus,
   Trash2,
-  Search,
   Save,
   History,
   Package,
@@ -25,6 +27,7 @@ interface WmsCatalogItem {
   item_name: string;
   category: string | null;
   pack_size: number;
+  barcode: string | null;
 }
 
 interface ReceiptLine {
@@ -35,6 +38,9 @@ interface ReceiptLine {
   packSize: number;
   packs: number;
   unitCost: number;
+  damage_qty: number;
+  tax_rate: number | null;
+  tax_amount: number | null;
 }
 
 interface PastReceipt {
@@ -55,10 +61,11 @@ export default function WmsReceiveStockPage() {
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
-  const [search, setSearch] = useState("");
   const [showPicker, setShowPicker] = useState(false);
   const [tab, setTab] = useState<"new" | "history">("new");
   const [history, setHistory] = useState<PastReceipt[]>([]);
+  const [scanValue, setScanValue] = useState("");
+  const toast = useToast();
 
   const loadData = useCallback(async () => {
     const [catalog, { data: receipts }] = await Promise.all([
@@ -92,6 +99,9 @@ export default function WmsReceiveStockPage() {
       packSize: item.pack_size,
       packs: 1,
       unitCost: 0,
+      damage_qty: 0,
+      tax_rate: null,
+      tax_amount: null,
     };
 
     setLines((prev: ReceiptLine[]) => [...prev, newLine]);
@@ -122,6 +132,11 @@ export default function WmsReceiveStockPage() {
       // Header insert, line items, and inventory updates all happen in one
       // database transaction — partial failure can no longer leave mismatched
       // header vs actual stock.
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : null;
+
       const { error: rpcErr } = await db.rpc("receive_wms_stock", {
         p_supplier: supplier.trim(),
         p_notes: notes.trim(),
@@ -130,11 +145,25 @@ export default function WmsReceiveStockPage() {
         p_packs: lines.map((l: ReceiptLine) => l.packs),
         p_pack_sizes: lines.map((l: ReceiptLine) => l.packSize),
         p_unit_costs: lines.map((l: ReceiptLine) => l.unitCost),
+        p_damage_qtys: lines.map((l: ReceiptLine) => l.damage_qty),
+        p_tax_rates: lines.map((l: ReceiptLine) => l.tax_rate),
+        p_tax_amounts: lines.map((l: ReceiptLine) => l.tax_amount),
+        p_idempotency_key: idempotencyKey,
       });
 
-      if (rpcErr) throw rpcErr;
+      if (rpcErr) {
+        const isFreeze = /frozen by count session/i.test(rpcErr.message || "");
+        toast.error(
+          isFreeze
+            ? "Cannot receive: a stock count is frozen for one of these items"
+            : "Failed to receive stock",
+          { hint: rpcErr.message }
+        );
+        return;
+      }
 
       setSuccess(true);
+      toast.success("Receipt saved");
       setLines([]);
       setSupplier("");
       setNotes("");
@@ -142,7 +171,7 @@ export default function WmsReceiveStockPage() {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
       console.error("Error receiving stock:", err);
-      alert("Failed to receive stock: " + (err.message || "Unknown error"));
+      toast.error("Failed to receive stock", { hint: err.message });
     } finally {
       setSaving(false);
     }
@@ -156,13 +185,6 @@ export default function WmsReceiveStockPage() {
   const totalCost = lines.reduce(
     (sum: number, l: ReceiptLine) => sum + l.packs * l.packSize * l.unitCost,
     0
-  );
-
-  const pickerItems = catalogItems.filter(
-    (item: WmsCatalogItem) =>
-      !search ||
-      item.item_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.sku.toLowerCase().includes(search.toLowerCase())
   );
 
   return (
@@ -239,15 +261,29 @@ export default function WmsReceiveStockPage() {
 
           {/* Line Items */}
           <div>
+            <div className="mb-3">
+              <BarcodeScanInput
+                value={scanValue}
+                onChange={setScanValue}
+                onScan={(code) => {
+                  const found = catalogItems.find((c) => c.barcode === code);
+                  if (!found) {
+                    toast.error(`No item with barcode ${code}`);
+                    setScanValue("");
+                    return;
+                  }
+                  addLine(found);
+                  setScanValue("");
+                }}
+                placeholder="Scan or type barcode to add item"
+              />
+            </div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700">Line Items</h3>
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  setSearch("");
-                  setShowPicker(true);
-                }}
+                onClick={() => setShowPicker(true)}
               >
                 <Plus className="w-4 h-4 mr-1" />
                 Add Item
@@ -270,6 +306,8 @@ export default function WmsReceiveStockPage() {
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Packs</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Total Units</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Unit Cost</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Dmg Qty</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">Tax %</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Line Total</th>
                       <th className="px-3 py-2"></th>
                     </tr>
@@ -312,6 +350,44 @@ export default function WmsReceiveStockPage() {
                             className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
                           />
                         </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            value={line.damage_qty}
+                            onChange={(e: any) =>
+                              updateLine(line.id, "damage_qty", parseInt(e.target.value) || 0)
+                            }
+                            placeholder="Dmg"
+                            className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={line.tax_rate ?? ""}
+                            onChange={(e: any) => {
+                              const raw = e.target.value;
+                              const rate = raw === "" ? null : parseFloat(raw);
+                              const lineTotal = line.packs * line.packSize * line.unitCost;
+                              const amount =
+                                rate !== null && !isNaN(rate)
+                                  ? Math.round(lineTotal * rate / 100 * 100) / 100
+                                  : null;
+                              setLines((prev: ReceiptLine[]) =>
+                                prev.map((l: ReceiptLine) =>
+                                  l.id === line.id
+                                    ? { ...l, tax_rate: rate !== null && isNaN(rate) ? null : rate, tax_amount: amount }
+                                    : l
+                                )
+                              );
+                            }}
+                            placeholder="VAT %"
+                            className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </td>
                         <td className="px-3 py-2 text-right font-medium">
                           {formatZAR(line.packs * line.packSize * line.unitCost)}
                         </td>
@@ -335,6 +411,8 @@ export default function WmsReceiveStockPage() {
                         Totals
                       </td>
                       <td className="px-3 py-2 text-right font-bold">{totalUnits}</td>
+                      <td className="px-3 py-2"></td>
+                      <td className="px-3 py-2"></td>
                       <td className="px-3 py-2"></td>
                       <td className="px-3 py-2 text-right font-bold">{formatZAR(totalCost)}</td>
                       <td></td>
@@ -406,53 +484,23 @@ export default function WmsReceiveStockPage() {
       )}
 
       {/* Item Picker Modal */}
-      {showPicker && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[70vh] flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                Select Warehouse Item
-              </h3>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input
-                  placeholder="Search items..."
-                  value={search}
-                  onChange={(e: any) => setSearch(e.target.value)}
-                  className="pl-10"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="overflow-y-auto flex-1 p-2">
-              {pickerItems.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">No items found</p>
-              ) : (
-                pickerItems.map((item: WmsCatalogItem) => (
-                  <button
-                    key={item.id}
-                    onClick={() => addLine(item)}
-                    className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-green-50 transition-colors flex items-center justify-between"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900 text-sm">{item.item_name}</p>
-                      <p className="text-xs text-gray-500">
-                        SKU: {item.sku} · Pack: {item.pack_size}
-                      </p>
-                    </div>
-                    <Plus className="w-4 h-4 text-green-600" />
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="p-3 border-t border-gray-200">
-              <Button variant="secondary" className="w-full" onClick={() => setShowPicker(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemPickerModal
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+        onPick={(item: WmsCatalogPickerItem) => {
+          const full = catalogItems.find((c) => c.id === item.id);
+          if (full) addLine(full);
+        }}
+        items={catalogItems.map((c) => ({
+          id: c.id,
+          sku: c.sku,
+          item_name: c.item_name,
+          category: c.category,
+          barcode: c.barcode ?? null,
+        }))}
+        excludeIds={lines.map((l) => l.wmsItemId)}
+        title="Add item"
+      />
     </div>
   );
 }

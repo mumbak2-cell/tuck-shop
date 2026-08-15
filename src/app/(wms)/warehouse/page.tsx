@@ -3,6 +3,7 @@ import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useOrg } from "@/lib/org-context";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncate";
@@ -57,6 +58,7 @@ interface StockRow {
 
 export default function WarehousePage() {
   const { can } = useOrg();
+  const toast = useToast();
   const [rows, setRows] = useState<StockRow[]>([]);
   const [products, setProducts] = useState<RetailProduct[]>([]);
   const [loading, setLoading] = useState(true);
@@ -206,7 +208,7 @@ export default function WarehousePage() {
       await fetchData();
     } catch (err: any) {
       console.error("Error saving WMS item:", err);
-      alert(err.message || "Failed to save item");
+      toast.error("Failed to save item", { hint: err.message });
     } finally {
       setSaving(false);
     }
@@ -365,12 +367,12 @@ export default function WarehousePage() {
                       </td>
                       {can("manage_warehouse") && (
                         <td className="px-4 py-3 text-center">
-                          <div className="inline-flex opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          <div className="inline-flex">
                             <Tooltip label="Edit item">
                               <button
                                 onClick={() => openEditForm(r.catalog, r.inventory)}
                                 aria-label={`Edit ${r.catalog.item_name}`}
-                                className="rounded p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-colors"
+                                className="rounded min-h-[44px] px-3 py-2 text-gray-400 hover:bg-gray-100 hover:text-gray-900 transition-colors"
                               >
                                 <Edit2 className="w-4 h-4" />
                               </button>

@@ -11,11 +11,14 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Modal } from "@/components/ui/modal";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
+import { poStatusColor } from "@/lib/wms-status";
+import { ItemPickerModal } from "@/components/wms/item-picker-modal";
+import { useToast } from "@/components/ui/toast";
+import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
 import {
   FileText,
   Plus,
   Trash2,
-  Search,
   Send,
   AlertTriangle,
   Package,
@@ -43,6 +46,8 @@ interface WmsCatalogItem {
   sku: string;
   item_name: string;
   pack_size: number;
+  category: string | null;
+  barcode: string | null;
 }
 
 interface ReorderAlert {
@@ -83,6 +88,8 @@ interface NewPOLine {
   sku: string;
   qtyOrdered: number;
   unitCost: number;
+  tax_rate: number | null;
+  tax_amount: number | null;
 }
 
 /* ------------------------------------------------------------------ */
@@ -91,6 +98,7 @@ interface NewPOLine {
 
 export default function WmsPurchaseOrdersPage() {
   const { name: userName } = useAuth();
+  const toast = useToast();
 
   // Data
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
@@ -108,7 +116,7 @@ export default function WmsPurchaseOrdersPage() {
 
   // Item picker
   const [showPicker, setShowPicker] = useState(false);
-  const [search, setSearch] = useState("");
+  const [scanValue, setScanValue] = useState("");
 
   // Inline expand
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -124,7 +132,7 @@ export default function WmsPurchaseOrdersPage() {
   const loadData = useCallback(async () => {
     const [catalog, inventory, { data: pos }] =
       await Promise.all([
-        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name")),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size, category, barcode").order("item_name")),
         fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty, reorder_level, reorder_qty")),
         db.from("wms_purchase_orders")
           .select("*")
@@ -183,6 +191,8 @@ export default function WmsPurchaseOrdersPage() {
       sku: a.sku,
       qtyOrdered: a.reorder_qty,
       unitCost: 0,
+      tax_rate: null,
+      tax_amount: null,
     }));
     setPoLines(newLines);
     setPoSupplier("");
@@ -215,6 +225,8 @@ export default function WmsPurchaseOrdersPage() {
         sku: item.sku,
         qtyOrdered: 1,
         unitCost: 0,
+        tax_rate: null,
+        tax_amount: null,
       },
     ]);
     setShowPicker(false);
@@ -225,6 +237,22 @@ export default function WmsPurchaseOrdersPage() {
       prev.map((l: NewPOLine) =>
         l.localId === localId ? { ...l, [field]: value } : l
       )
+    );
+  }
+
+  function updatePOLineTaxRate(localId: string, rawValue: string) {
+    const rate = rawValue === "" ? null : parseFloat(rawValue);
+    setPoLines((prev: NewPOLine[]) =>
+      prev.map((l: NewPOLine) => {
+        if (l.localId !== localId) return l;
+        const validRate = rate != null && !isNaN(rate);
+        const lineTotal = l.qtyOrdered * l.unitCost;
+        const tax_amount =
+          validRate && lineTotal > 0
+            ? Math.round(lineTotal * (rate as number) / 100 * 100) / 100
+            : null;
+        return { ...l, tax_rate: validRate ? (rate as number) : null, tax_amount };
+      })
     );
   }
 
@@ -242,34 +270,31 @@ export default function WmsPurchaseOrdersPage() {
     try {
       const poNum = generatePoNumber();
 
-      const { data: po, error: poErr } = await db
-        .from("wms_purchase_orders")
-        .insert({
-          po_number: poNum,
-          supplier: poSupplier.trim(),
-          status: "Draft",
-          notes: poNotes.trim() || null,
-          expected_date: poExpectedDate || null,
-          created_by: userName || null,
-        })
-        .select("id")
-        .single();
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : null;
 
-      if (poErr) throw poErr;
-      const poId = (po as any).id;
+      const { error } = await db.rpc("create_wms_purchase_order", {
+        p_supplier: poSupplier.trim(),
+        p_po_number: poNum,
+        p_expected_date: poExpectedDate || null,
+        p_notes: poNotes.trim() || null,
+        p_lines: poLines.map((l: NewPOLine) => ({
+          wms_item_id: l.wmsItemId,
+          qty_ordered: l.qtyOrdered,
+          unit_cost: l.unitCost,
+          ...(l.tax_rate != null ? { tax_rate: l.tax_rate } : {}),
+          ...(l.tax_amount != null ? { tax_amount: l.tax_amount } : {}),
+        })),
+        p_created_by: userName || null,
+        p_idempotency_key: idempotencyKey,
+      });
 
-      const lineInserts = poLines.map((l: NewPOLine) => ({
-        po_id: poId,
-        wms_item_id: l.wmsItemId,
-        qty_ordered: l.qtyOrdered,
-        unit_cost: l.unitCost,
-      }));
-
-      const { error: lineErr } = await db
-        .from("wms_po_items")
-        .insert(lineInserts);
-
-      if (lineErr) throw lineErr;
+      if (error) {
+        toast.error("Failed to create PO", { hint: error.message });
+        return;
+      }
 
       setSuccess("PO " + poNum + " created successfully");
       setShowCreate(false);
@@ -278,7 +303,7 @@ export default function WmsPurchaseOrdersPage() {
       setTimeout(() => setSuccess(""), 3000);
     } catch (err: any) {
       console.error("PO creation error:", err);
-      alert("Failed to create PO: " + (err.message || "Unknown error"));
+      toast.error("Failed to create PO", { hint: err.message || "Unknown error" });
     } finally {
       setSaving(false);
     }
@@ -286,9 +311,22 @@ export default function WmsPurchaseOrdersPage() {
 
   /* ---- Update PO status ---- */
   async function updatePOStatus(id: number, newStatus: string) {
-    await db.from("wms_purchase_orders")
-      .update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq("id", id);
+    const idempotencyKey =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : null;
+    const { error } = await db.rpc("set_wms_po_status", {
+      p_po_id: id,
+      p_next_status: newStatus,
+      p_actor: userName || null,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) {
+      const isIllegal = /Illegal PO transition|receive_wms_purchase_order only/i.test(error.message || "");
+      toast.error(isIllegal ? "That status change is not allowed" : "Failed to update PO",
+                  { hint: error.message });
+      return;
+    }
     await loadData();
     // Clear detail cache for this PO
     setDetailCache((prev: Map<number, POLineItem[]>) => {
@@ -372,7 +410,7 @@ export default function WmsPurchaseOrdersPage() {
         .filter((e: { id: number; qty: number }) => e.qty > 0);
 
       if (entries.length === 0) {
-        alert("No items to receive");
+        toast.error("No items to receive");
         setReceiving(false);
         return;
       }
@@ -397,28 +435,11 @@ export default function WmsPurchaseOrdersPage() {
       setTimeout(() => setSuccess(""), 3000);
     } catch (err: any) {
       console.error("Receive error:", err);
-      alert("Receive failed: " + (err.message || "Unknown error"));
+      toast.error("Receive failed", { hint: err.message || "Unknown error" });
     } finally {
       setReceiving(false);
     }
   }
-
-  /* ---- Picker filter ---- */
-  const pickerItems = catalogItems.filter(
-    (item: WmsCatalogItem) =>
-      !search ||
-      item.item_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.sku.toLowerCase().includes(search.toLowerCase())
-  );
-
-  const statusColor = (status: string): "gray" | "blue" | "yellow" | "green" | "red" => {
-    if (status === "Draft") return "gray";
-    if (status === "Sent") return "blue";
-    if (status === "Partially Received") return "yellow";
-    if (status === "Received") return "green";
-    if (status === "Cancelled") return "red";
-    return "gray";
-  };
 
   return (
     <div className="space-y-6">
@@ -520,12 +541,29 @@ export default function WmsPurchaseOrdersPage() {
 
           {/* PO Line items */}
           <div>
+            <div className="mb-3">
+              <BarcodeScanInput
+                value={scanValue}
+                onChange={setScanValue}
+                onScan={(code) => {
+                  const found = catalogItems.find((c) => c.barcode === code);
+                  if (!found) {
+                    toast.error(`No item with barcode ${code}`);
+                    setScanValue("");
+                    return;
+                  }
+                  addPOLine(found);
+                  setScanValue("");
+                }}
+                placeholder="Scan or type barcode to add item"
+              />
+            </div>
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-sm font-semibold text-gray-700">Order Items</h3>
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => { setSearch(""); setShowPicker(true); }}
+                onClick={() => setShowPicker(true)}
               >
                 <Plus className="w-4 h-4 mr-1" />
                 Add Item
@@ -545,6 +583,7 @@ export default function WmsPurchaseOrdersPage() {
                       <th className="text-left px-3 py-2 font-medium text-gray-600">SKU</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Qty</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Unit Cost</th>
+                      <th className="text-right px-3 py-2 font-medium text-gray-600">VAT %</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Line Total</th>
                       <th className="px-3 py-2"></th>
                     </tr>
@@ -573,6 +612,16 @@ export default function WmsPurchaseOrdersPage() {
                             className="w-24 text-right border border-gray-300 rounded px-2 py-1 text-sm"
                           />
                         </td>
+                        <td className="px-3 py-2 text-right">
+                          <input
+                            type="number"
+                            min={0}
+                            step={0.01}
+                            value={line.tax_rate ?? ""}
+                            onChange={(e: any) => updatePOLineTaxRate(line.localId, e.target.value)}
+                            className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
+                          />
+                        </td>
                         <td className="px-3 py-2 text-right text-gray-700">
                           {formatZAR(line.qtyOrdered * line.unitCost)}
                         </td>
@@ -592,7 +641,7 @@ export default function WmsPurchaseOrdersPage() {
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-gray-200 bg-gray-50">
-                      <td colSpan={4} className="px-3 py-2 text-right font-medium text-gray-700">Total:</td>
+                      <td colSpan={5} className="px-3 py-2 text-right font-medium text-gray-700">Total:</td>
                       <td className="px-3 py-2 text-right font-bold text-gray-900">
                         {formatZAR(poLines.reduce((sum: number, l: NewPOLine) => sum + l.qtyOrdered * l.unitCost, 0))}
                       </td>
@@ -665,7 +714,7 @@ export default function WmsPurchaseOrdersPage() {
                           <TruncatedText>{po.supplier}</TruncatedText>
                         </td>
                         <td className="px-4 py-3">
-                          <Badge color={statusColor(po.status)}>{po.status}</Badge>
+                          <Badge color={poStatusColor(po.status)}>{po.status}</Badge>
                         </td>
                         <td className={`px-4 py-3 text-gray-500 ${isCancelled ? "opacity-55" : ""}`}>
                           {po.expected_date ? formatDate(po.expected_date) : "—"}
@@ -776,49 +825,23 @@ export default function WmsPurchaseOrdersPage() {
       </div>
 
       {/* Item Picker Modal */}
-      {showPicker && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[70vh] flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">Add Item to PO</h3>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input
-                  placeholder="Search items..."
-                  value={search}
-                  onChange={(e: any) => setSearch(e.target.value)}
-                  className="pl-10"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="overflow-y-auto flex-1 p-2">
-              {pickerItems.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">No items found</p>
-              ) : (
-                pickerItems.map((item: WmsCatalogItem) => (
-                  <button
-                    key={item.id}
-                    onClick={() => addPOLine(item)}
-                    className="w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between hover:bg-green-50"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-900 text-sm">{item.item_name}</p>
-                      <p className="text-xs text-gray-500">SKU: {item.sku}</p>
-                    </div>
-                    <Plus className="w-4 h-4 text-green-600" />
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="p-3 border-t border-gray-200">
-              <Button variant="secondary" className="w-full" onClick={() => setShowPicker(false)}>
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemPickerModal
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+        onPick={(item) => {
+          const full = catalogItems.find((c) => c.id === item.id);
+          if (full) addPOLine(full);
+        }}
+        items={catalogItems.map((c) => ({
+          id: c.id,
+          sku: c.sku,
+          item_name: c.item_name,
+          category: c.category,
+          barcode: c.barcode ?? null,
+        }))}
+        excludeIds={poLines.map((l) => l.wmsItemId)}
+        title="Add PO line"
+      />
 
       {/* Receive Stock Modal */}
       {receivePoId !== null && (

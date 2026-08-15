@@ -12,11 +12,13 @@ import { Avatar } from "@/components/ui/timeline";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { dispatchStatusColor } from "@/lib/wms-status";
+import { ItemPickerModal, type WmsCatalogPickerItem } from "@/components/wms/item-picker-modal";
+import { useToast } from "@/components/ui/toast";
+import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
 import {
   Truck,
   Plus,
   Trash2,
-  Search,
   Send,
   History,
   Package,
@@ -32,6 +34,7 @@ interface WmsCatalogItem {
   sku: string;
   item_name: string;
   pack_size: number;
+  barcode: string | null;
 }
 
 interface WmsInventoryRow {
@@ -70,6 +73,7 @@ type DestinationType = "Internal Shop" | "External Client" | "Wholesale";
 export default function WmsDispatchPage() {
   const { name: userName } = useAuth();
   const { locations } = useOrg();
+  const toast = useToast();
 
   // Data
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
@@ -88,7 +92,7 @@ export default function WmsDispatchPage() {
   // UI
   const [tab, setTab] = useState<"new" | "history">("new");
   const [showPicker, setShowPicker] = useState(false);
-  const [search, setSearch] = useState("");
+  const [scanValue, setScanValue] = useState("");
 
   // Inline expand for history
   const [expandedId, setExpandedId] = useState<number | null>(null);
@@ -98,7 +102,7 @@ export default function WmsDispatchPage() {
   const loadData = useCallback(async () => {
     const [catalog, inventory, { data: dispatches }] =
       await Promise.all([
-        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size").order("item_name")),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size, barcode").order("item_name")),
         fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
         db
           .from("wms_dispatches")
@@ -155,7 +159,7 @@ export default function WmsDispatchPage() {
     setDetailLoading(false);
   }
 
-  function addLine(item: WmsCatalogItem) {
+  function addLine(item: Pick<WmsCatalogItem, "id" | "item_name" | "sku">) {
     if (lines.some((l: DispatchLine) => l.wmsItemId === item.id)) {
       setShowPicker(false);
       return;
@@ -214,6 +218,10 @@ export default function WmsDispatchPage() {
       // add_product_stock_at_location; external/wholesale only deducts
       // warehouse stock. Header, line items and stock movements commit
       // together, and the subscription gate is enforced server-side.
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : null;
       const { error } = await db.rpc("create_wms_dispatch", {
         p_destination_type: destinationType,
         p_destination_location_id:
@@ -223,11 +231,13 @@ export default function WmsDispatchPage() {
         p_items: items,
         p_notes: notes.trim() || null,
         p_created_by: userName || null,
+        p_idempotency_key: idempotencyKey,
       });
 
       if (error) throw error;
 
       setSuccess(true);
+      toast.success("Dispatch created");
       setLines([]);
       setDestinationId("");
       setDestinationLocationId("");
@@ -237,23 +247,46 @@ export default function WmsDispatchPage() {
       setTimeout(() => setSuccess(false), 3000);
     } catch (err: any) {
       console.error("Dispatch error:", err);
-      alert("Dispatch failed: " + (err.message || "Unknown error"));
+      const isFreeze = /frozen by count session/i.test(err.message || "");
+      toast.error(
+        isFreeze ? "Cannot dispatch: a stock count is frozen for one of these items" : "Dispatch failed",
+        { hint: err.message }
+      );
     } finally {
       setSaving(false);
     }
   }
 
   async function updateDispatchStatus(id: number, newStatus: string) {
-    await db.from("wms_dispatches").update({ status: newStatus }).eq("id", id);
+    const idempotencyKey =
+      typeof crypto !== "undefined" && "randomUUID" in crypto
+        ? crypto.randomUUID()
+        : null;
+    const { error } = await db.rpc("set_wms_dispatch_status", {
+      p_dispatch_id: id,
+      p_next_status: newStatus,
+      p_actor: userName || null,
+      p_idempotency_key: idempotencyKey,
+    });
+    if (error) {
+      const illegal = /Illegal dispatch transition/i.test(error.message || "");
+      toast.error(
+        illegal ? "That status change is not allowed" : "Failed to update dispatch",
+        { hint: error.message }
+      );
+      return;
+    }
     await loadData();
   }
 
-  const pickerItems = catalogItems.filter(
-    (item: WmsCatalogItem) =>
-      !search ||
-      item.item_name.toLowerCase().includes(search.toLowerCase()) ||
-      item.sku.toLowerCase().includes(search.toLowerCase())
-  );
+  const pickerItems: WmsCatalogPickerItem[] = catalogItems.map((item: WmsCatalogItem) => ({
+    id: item.id,
+    sku: item.sku,
+    item_name: item.item_name,
+    category: null,
+    barcode: item.barcode,
+    physical_qty: inventoryMap.get(item.id) ?? 0,
+  }));
 
   const statusColor = dispatchStatusColor;
 
@@ -390,15 +423,28 @@ export default function WmsDispatchPage() {
               <Button
                 variant="secondary"
                 size="sm"
-                onClick={() => {
-                  setSearch("");
-                  setShowPicker(true);
-                }}
+                onClick={() => setShowPicker(true)}
               >
                 <Plus className="w-4 h-4 mr-1" />
                 Add Item
               </Button>
             </div>
+
+            <BarcodeScanInput
+              value={scanValue}
+              onChange={setScanValue}
+              onScan={(code) => {
+                const found = catalogItems.find((c: WmsCatalogItem) => c.barcode === code);
+                if (!found) {
+                  toast.error(`No item with barcode ${code}`);
+                  setScanValue("");
+                  return;
+                }
+                addLine(found);
+                setScanValue("");
+              }}
+              placeholder="Scan or type barcode to add item"
+            />
 
             {lines.length === 0 ? (
               <p className="text-sm text-gray-400 text-center py-6">
@@ -585,7 +631,7 @@ export default function WmsDispatchPage() {
                                 onClick={() =>
                                   updateDispatchStatus(d.id, "Dispatched")
                                 }
-                                className="text-xs text-blue-600 hover:underline mr-2"
+                                className="text-sm px-3 py-2 min-h-[44px] text-blue-600 hover:underline mr-2"
                               >
                                 Mark Dispatched
                               </button>
@@ -595,7 +641,7 @@ export default function WmsDispatchPage() {
                                 onClick={() =>
                                   updateDispatchStatus(d.id, "Received")
                                 }
-                                className="text-xs text-green-600 hover:underline"
+                                className="text-sm px-3 py-2 min-h-[44px] text-green-600 hover:underline"
                               >
                                 Mark Received
                               </button>
@@ -662,70 +708,13 @@ export default function WmsDispatchPage() {
         </div>
       )}
 
-      {/* Item Picker Modal */}
-      {showPicker && (
-        <div className="fixed inset-0 bg-black/30 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[70vh] flex flex-col">
-            <div className="p-4 border-b border-gray-200">
-              <h3 className="text-lg font-semibold text-gray-900 mb-3">
-                Select Item to Dispatch
-              </h3>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                <Input
-                  placeholder="Search items..."
-                  value={search}
-                  onChange={(e: any) => setSearch(e.target.value)}
-                  className="pl-10"
-                  autoFocus
-                />
-              </div>
-            </div>
-            <div className="overflow-y-auto flex-1 p-2">
-              {pickerItems.length === 0 ? (
-                <p className="text-sm text-gray-400 text-center py-6">
-                  No items found
-                </p>
-              ) : (
-                pickerItems.map((item: WmsCatalogItem) => {
-                  const avail = inventoryMap.get(item.id) ?? 0;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => addLine(item)}
-                      disabled={avail === 0}
-                      className={"w-full text-left px-3 py-2.5 rounded-lg transition-colors flex items-center justify-between " + (
-                        avail === 0
-                          ? "opacity-40 cursor-not-allowed"
-                          : "hover:bg-green-50"
-                      )}
-                    >
-                      <div>
-                        <p className="font-medium text-gray-900 text-sm">
-                          {item.item_name}
-                        </p>
-                        <p className="text-xs text-gray-500">
-                          SKU: {item.sku} &middot; Available: {avail}
-                        </p>
-                      </div>
-                      {avail > 0 && <Plus className="w-4 h-4 text-green-600" />}
-                    </button>
-                  );
-                })
-              )}
-            </div>
-            <div className="p-3 border-t border-gray-200">
-              <Button
-                variant="secondary"
-                className="w-full"
-                onClick={() => setShowPicker(false)}
-              >
-                Close
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ItemPickerModal
+        open={showPicker}
+        onClose={() => setShowPicker(false)}
+        onPick={addLine}
+        items={pickerItems}
+        title="Select Item to Dispatch"
+      />
     </div>
   );
 }

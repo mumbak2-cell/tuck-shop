@@ -11,6 +11,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tooltip } from "@/components/ui/tooltip";
 import { TruncatedText } from "@/components/ui/truncate";
 import { Timeline, TimelineGroup, TimelineItem, Avatar } from "@/components/ui/timeline";
+import { ItemPickerModal, type WmsCatalogPickerItem } from "@/components/wms/item-picker-modal";
+import { useToast } from "@/components/ui/toast";
 import {
   Wrench,
   Plus,
@@ -27,6 +29,8 @@ interface WmsCatalogItem {
   id: number;
   sku: string;
   item_name: string;
+  category: string | null;
+  barcode: string | null;
 }
 
 interface WmsInventoryRow {
@@ -52,6 +56,7 @@ interface AdjustmentDisplay extends WmsAdjustment {
 
 export default function WmsAdjustmentsPage() {
   const { name: userName } = useAuth();
+  const toast = useToast();
   const [adjustments, setAdjustments] = useState<AdjustmentDisplay[]>([]);
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<number, number>>(new Map());
@@ -61,9 +66,12 @@ export default function WmsAdjustmentsPage() {
 
   // Form state
   const [selectedItem, setSelectedItem] = useState("");
+  const [selectedItemDetail, setSelectedItemDetail] = useState<WmsCatalogPickerItem | null>(null);
+  const [itemPickerOpen, setItemPickerOpen] = useState(false);
   const [reason, setReason] = useState<Reason>("Breakage");
   const [direction, setDirection] = useState<"decrease" | "increase">("decrease");
   const [quantity, setQuantity] = useState("");
+  const [costPrice, setCostPrice] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -72,7 +80,7 @@ export default function WmsAdjustmentsPage() {
 
     const [catalog, inventory, { data: adjustmentRows }] =
       await Promise.all([
-        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name").order("item_name")),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, category, barcode").order("item_name")),
         fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
         db
           .from("wms_adjustments")
@@ -115,9 +123,11 @@ export default function WmsAdjustmentsPage() {
 
   function openForm() {
     setSelectedItem("");
+    setSelectedItemDetail(null);
     setReason("Breakage");
     setDirection("decrease");
     setQuantity("");
+    setCostPrice(null);
     setNotes("");
     setShowForm(true);
   }
@@ -130,6 +140,10 @@ export default function WmsAdjustmentsPage() {
     setSaving(true);
     try {
       const adjustmentQty = direction === "decrease" ? -qty : qty;
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto
+          ? crypto.randomUUID()
+          : null;
 
       // Single atomic RPC: logs the adjustment AND moves inventory in one
       // transaction, derives the org server-side, enforces the subscription
@@ -140,15 +154,25 @@ export default function WmsAdjustmentsPage() {
         p_reason: reason,
         p_notes: notes.trim() || null,
         p_recorded_by: userName || null,
+        p_cost_price: costPrice,
+        p_idempotency_key: idempotencyKey,
       });
 
-      if (error) throw error;
+      if (error) {
+        const isFreeze = /frozen by count session/i.test(error.message || "");
+        toast.error(
+          isFreeze ? "Cannot adjust: a stock count is frozen for this item" : "Failed to save adjustment",
+          { hint: error.message }
+        );
+        return;
+      }
 
       setShowForm(false);
       await loadData();
+      toast.success("Adjustment recorded");
     } catch (err: any) {
       console.error("Adjustment error:", err);
-      alert("Failed to save adjustment: " + (err.message || "Unknown error"));
+      toast.error("Failed to save adjustment", { hint: err.message });
     } finally {
       setSaving(false);
     }
@@ -295,18 +319,33 @@ export default function WmsAdjustmentsPage() {
             <label className="block text-sm font-medium text-gray-700 mb-1">
               Item
             </label>
-            <select
-              value={selectedItem}
-              onChange={(e: any) => setSelectedItem(e.target.value)}
-              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            <button
+              type="button"
+              onClick={() => setItemPickerOpen(true)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm text-left bg-white hover:bg-gray-50"
             >
-              <option value="">Select an item...</option>
-              {catalogItems.map((item: WmsCatalogItem) => (
-                <option key={item.id} value={String(item.id)}>
-                  {item.item_name} ({item.sku})
-                </option>
-              ))}
-            </select>
+              {selectedItemDetail
+                ? `${selectedItemDetail.item_name} — ${selectedItemDetail.sku}`
+                : "Select an item..."}
+            </button>
+
+            <ItemPickerModal
+              open={itemPickerOpen}
+              onClose={() => setItemPickerOpen(false)}
+              onPick={(item) => {
+                setSelectedItem(String(item.id));
+                setSelectedItemDetail(item);
+                setItemPickerOpen(false);
+              }}
+              items={catalogItems.map((c: WmsCatalogItem) => ({
+                id: c.id,
+                sku: c.sku,
+                item_name: c.item_name,
+                category: c.category,
+                barcode: c.barcode ?? null,
+              }))}
+              title="Select item to adjust"
+            />
             {selectedItem && (
               <p className="text-xs text-gray-500 mt-1">
                 Current stock: <strong>{selectedCurrentStock}</strong> units
@@ -359,6 +398,26 @@ export default function WmsAdjustmentsPage() {
                 placeholder="0"
               />
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Cost per unit (optional)
+            </label>
+            <Input
+              type="number"
+              step={0.01}
+              min={0}
+              className="w-32"
+              value={costPrice ?? ""}
+              onChange={(e: any) =>
+                setCostPrice(e.target.value === "" ? null : parseFloat(e.target.value))
+              }
+              placeholder="0.00"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              Leave blank if unknown; used for shrinkage reporting on P&L.
+            </p>
           </div>
 
           <div>

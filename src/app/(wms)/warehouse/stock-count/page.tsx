@@ -1,11 +1,14 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
+import { useToast } from "@/components/ui/toast";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Modal } from "@/components/ui/modal";
+import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
 import { abcClassColor } from "@/lib/wms-status";
 import {
   ClipboardCheck,
@@ -18,6 +21,7 @@ import {
   RefreshCw,
   Filter,
   Clock,
+  Snowflake,
 } from "lucide-react";
 import { localToday, toLocalDateStr } from "@/lib/date-utils";
 
@@ -34,6 +38,7 @@ interface WmsCatalogItem {
   abc_class: string;
   count_frequency_days: number;
   last_counted_at: string | null;
+  barcode: string | null;
 }
 
 interface CountRow {
@@ -83,6 +88,7 @@ function nextDueDate(item: WmsCatalogItem): string | null {
 export default function WmsStockCountPage() {
   const { name: userName } = useAuth();
   const { can } = useOrg();
+  const toast = useToast();
 
   const [rows, setRows] = useState<CountRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -98,6 +104,15 @@ export default function WmsStockCountPage() {
   const [sessionLabel, setSessionLabel] = useState("Stock Count");
   const [todaySessions, setTodaySessions] = useState<ExistingSession[]>([]);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
+  const [currentSessionIsFrozen, setCurrentSessionIsFrozen] = useState(false);
+  const [currentSessionClosedAt, setCurrentSessionClosedAt] = useState<string | null>(null);
+  const [freezing, setFreezing] = useState(false);
+  const [unfreezing, setUnfreezing] = useState(false);
+
+  const [scanValue, setScanValue] = useState("");
+  const countInputRefs = useRef<Record<number, HTMLInputElement | null>>({});
+
+  const [applyPreviewOpen, setApplyPreviewOpen] = useState(false);
 
   const today = localToday();
 
@@ -110,7 +125,7 @@ export default function WmsStockCountPage() {
           fetchAllPaged<WmsCatalogItem>(() =>
             db
               .from("wms_catalog")
-              .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at")
+              .select("id, sku, item_name, category, abc_class, count_frequency_days, last_counted_at, barcode")
               .order("item_name")
           ),
           fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
@@ -160,6 +175,14 @@ export default function WmsStockCountPage() {
         activeSessionId = crypto.randomUUID();
       }
       setSessionId(activeSessionId);
+
+      const { data: sessionRow } = await db
+        .from("wms_stock_count_sessions")
+        .select("is_frozen, closed_at")
+        .eq("id", activeSessionId)
+        .maybeSingle();
+      setCurrentSessionIsFrozen(!!(sessionRow as any)?.is_frozen);
+      setCurrentSessionClosedAt((sessionRow as any)?.closed_at ?? null);
 
       const { data: existingCounts } = await db
         .from("wms_stock_counts")
@@ -213,6 +236,34 @@ export default function WmsStockCountPage() {
     setSessionLabel(s.label);
     setShowSessionPicker(false);
     fetchData(s.sessionId);
+  }
+
+  async function handleFreeze() {
+    setFreezing(true);
+    try {
+      const { error } = await db.rpc("freeze_wms_count_session", { p_session_id: sessionId });
+      if (error) throw error;
+      setCurrentSessionIsFrozen(true);
+      toast.success("Count session frozen — stock movement blocked");
+    } catch (err: any) {
+      toast.error("Failed to freeze", { hint: err.message });
+    } finally {
+      setFreezing(false);
+    }
+  }
+
+  async function handleUnfreeze() {
+    setUnfreezing(true);
+    try {
+      const { error } = await db.rpc("unfreeze_wms_count_session", { p_session_id: sessionId, p_close: false });
+      if (error) throw error;
+      setCurrentSessionIsFrozen(false);
+      toast.success("Count session unfrozen");
+    } catch (err: any) {
+      toast.error("Failed to unfreeze", { hint: err.message });
+    } finally {
+      setUnfreezing(false);
+    }
   }
 
   function startCycleCount(mode: CountMode) {
@@ -293,7 +344,7 @@ export default function WmsStockCountPage() {
       .upsert(payload, { onConflict: "session_id,wms_item_id" });
 
     if (error) {
-      alert("Error saving: " + error.message);
+      toast.error("Error saving", { hint: error.message });
     } else {
       const auditEntries: any[] = [];
       for (const r of toSave) {
@@ -325,17 +376,20 @@ export default function WmsStockCountPage() {
   }
 
   async function applyCountToInventory() {
-    if (!confirm("This will overwrite warehouse inventory quantities with the counted values and mark items as counted. Continue?")) return;
-
+    setApplyPreviewOpen(false);
     setApplying(true);
     try {
       const { data, error } = await db.rpc("apply_wms_stock_count", { p_session_id: sessionId });
       if (error) throw error;
-      alert("Inventory updated for " + data + " items. Cycle count dates refreshed.");
+      toast.success("Inventory updated for " + data + " items. Cycle count dates refreshed.");
       await fetchData(sessionId);
     } catch (err: any) {
       console.error("Apply count error:", err);
-      alert("Failed to apply: " + (err.message || "Unknown error"));
+      const isFreeze = /frozen by count session/i.test(err.message || "");
+      toast.error(
+        isFreeze ? "Cannot apply: another count session is frozen" : "Apply failed",
+        { hint: err.message }
+      );
     } finally {
       setApplying(false);
     }
@@ -349,6 +403,14 @@ export default function WmsStockCountPage() {
     if (r.countedQty === "") return false;
     return parseInt(r.countedQty) !== r.systemQty;
   });
+
+  const varianceOf = (r: CountRow) => parseInt(r.countedQty) - r.systemQty;
+  const varianceUp = varianceItems.filter((r: CountRow) => varianceOf(r) > 0);
+  const varianceDown = varianceItems.filter((r: CountRow) => varianceOf(r) < 0);
+  const totalVarianceUp = varianceUp.reduce((sum: number, r: CountRow) => sum + varianceOf(r), 0);
+  const totalVarianceDown = varianceDown.reduce((sum: number, r: CountRow) => sum + varianceOf(r), 0);
+  const topPositive = [...varianceUp].sort((a: CountRow, b: CountRow) => varianceOf(b) - varianceOf(a)).slice(0, 5);
+  const topNegative = [...varianceDown].sort((a: CountRow, b: CountRow) => varianceOf(a) - varianceOf(b)).slice(0, 5);
 
   const abcCounts = {
     A: rows.filter((r: CountRow) => r.catalog.abc_class === "A").length,
@@ -373,6 +435,30 @@ export default function WmsStockCountPage() {
           <h1 className="text-2xl font-bold text-gray-900 flex items-center gap-2">
             <ClipboardCheck className="w-7 h-7 text-green-600" />
             Warehouse Stock Count
+            {currentSessionIsFrozen && (
+              <span className="ml-3 inline-flex items-center gap-1 px-2 py-1 text-xs font-semibold rounded bg-blue-100 text-blue-800">
+                <Snowflake className="w-3 h-3" /> Frozen
+              </span>
+            )}
+            {currentSessionClosedAt === null && !currentSessionIsFrozen && (
+              <button
+                onClick={handleFreeze}
+                disabled={freezing}
+                className="ml-2 min-h-[44px] inline-flex items-center gap-1 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 hover:bg-blue-100 transition-colors disabled:opacity-50"
+              >
+                <Snowflake className="w-3.5 h-3.5" />
+                {freezing ? "Freezing..." : "Freeze"}
+              </button>
+            )}
+            {currentSessionClosedAt === null && currentSessionIsFrozen && (
+              <button
+                onClick={handleUnfreeze}
+                disabled={unfreezing}
+                className="ml-2 min-h-[44px] inline-flex items-center gap-1 text-xs font-semibold text-gray-700 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 hover:bg-gray-100 transition-colors disabled:opacity-50"
+              >
+                {unfreezing ? "Unfreezing..." : "Unfreeze"}
+              </button>
+            )}
           </h1>
           <p className="text-sm text-gray-500 mt-1">
             {today} &middot; {savedCount}/{filtered.length} items counted
@@ -383,7 +469,7 @@ export default function WmsStockCountPage() {
         </div>
         <div className="flex gap-2">
           {savedCount > 0 && can("manage_warehouse") && (
-            <Button variant="secondary" onClick={applyCountToInventory} disabled={applying}>
+            <Button variant="secondary" onClick={() => setApplyPreviewOpen(true)} disabled={applying}>
               <RefreshCw className={"w-4 h-4 mr-1" + (applying ? " animate-spin" : "")} />
               {applying ? "Applying..." : "Apply to Inventory"}
             </Button>
@@ -561,6 +647,27 @@ export default function WmsStockCountPage() {
         />
       </div>
 
+      {/* Barcode scan */}
+      <BarcodeScanInput
+        value={scanValue}
+        onChange={setScanValue}
+        onScan={(code) => {
+          const found = filtered.find((r: CountRow) => r.catalog.barcode === code);
+          if (!found) {
+            toast.error(`No item with barcode ${code}`);
+            setScanValue("");
+            return;
+          }
+          const el = countInputRefs.current[found.catalog.id];
+          if (el) {
+            el.scrollIntoView({ block: "center", behavior: "smooth" });
+            el.focus();
+          }
+          setScanValue("");
+        }}
+        placeholder="Scan barcode to jump to item"
+      />
+
       {/* Count list */}
       {filtered.length === 0 ? (
         <div className="bg-white rounded-xl border border-gray-200 p-12 text-center">
@@ -615,6 +722,7 @@ export default function WmsStockCountPage() {
 
                 <div className="flex items-center gap-3">
                   <input
+                    ref={(el) => { countInputRefs.current[row.catalog.id] = el; }}
                     type="number"
                     inputMode="numeric"
                     placeholder="—"
@@ -634,6 +742,66 @@ export default function WmsStockCountPage() {
           })}
         </div>
       )}
+
+      <Modal
+        open={applyPreviewOpen}
+        onClose={() => setApplyPreviewOpen(false)}
+        title="Apply Count to Inventory"
+      >
+        <div className="space-y-4">
+          <p className="text-sm text-gray-600">
+            This will overwrite warehouse inventory quantities with the counted values and mark items as counted.
+          </p>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Items to change</p>
+              <p className="text-lg font-bold text-gray-900">{varianceItems.length}</p>
+            </div>
+            <div className="bg-gray-50 rounded-lg p-3">
+              <p className="text-xs text-gray-500">Net variance</p>
+              <p className="text-lg font-bold text-gray-900">
+                <span className="text-blue-600">+{totalVarianceUp}</span>
+                {" / "}
+                <span className="text-red-600">{totalVarianceDown}</span>
+              </p>
+            </div>
+          </div>
+          {topPositive.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-1">Largest increases</p>
+              <ul className="text-sm divide-y divide-gray-100 border border-gray-100 rounded-lg">
+                {topPositive.map((r: CountRow) => (
+                  <li key={r.catalog.id} className="flex justify-between px-3 py-1.5">
+                    <span className="text-gray-700 truncate">{r.catalog.item_name}</span>
+                    <span className="text-blue-600 font-medium">+{varianceOf(r)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          {topNegative.length > 0 && (
+            <div>
+              <p className="text-xs font-medium text-gray-500 mb-1">Largest decreases</p>
+              <ul className="text-sm divide-y divide-gray-100 border border-gray-100 rounded-lg">
+                {topNegative.map((r: CountRow) => (
+                  <li key={r.catalog.id} className="flex justify-between px-3 py-1.5">
+                    <span className="text-gray-700 truncate">{r.catalog.item_name}</span>
+                    <span className="text-red-600 font-medium">{varianceOf(r)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setApplyPreviewOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={applyCountToInventory} disabled={applying}>
+              {applying ? "Applying..." : "Apply"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }

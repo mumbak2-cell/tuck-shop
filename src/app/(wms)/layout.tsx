@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/layout/sidebar";
 import { PinPad } from "@/components/auth/pin-pad";
 import { ForcePasswordChange } from "@/components/auth/force-password-change";
 import { TrialBanner } from "@/components/layout/trial-banner";
+import { ToastProvider } from "@/components/ui/toast";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { signOutSafely } from "@/lib/sign-out";
@@ -121,14 +122,16 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
   }
 
   return (
-    <div className="flex h-screen">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto flex flex-col">
-        <TrialBanner />
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
-          {children}
-        </div>
-      </main>
-    </div>
+    <ToastProvider>
+      <div className="flex h-screen">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          <TrialBanner />
+          <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
+            {children}
+          </div>
+        </main>
+      </div>
+    </ToastProvider>
   );
 }

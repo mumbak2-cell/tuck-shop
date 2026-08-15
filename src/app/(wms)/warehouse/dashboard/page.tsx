@@ -356,14 +356,6 @@ export default function WmsDashboardPage() {
     },
   ];
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center h-64">
-        <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
-      </div>
-    );
-  }
-
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
@@ -381,6 +373,12 @@ export default function WmsDashboardPage() {
         </button>
       </div>
 
+      {loading ? (
+        <div className="flex items-center justify-center h-64">
+          <RefreshCw className="w-6 h-6 animate-spin text-gray-400" />
+        </div>
+      ) : (
+      <>
       {/* Summary cards */}
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
         {cards.map((card: SummaryCard, i: number) => {
@@ -472,7 +470,7 @@ export default function WmsDashboardPage() {
             ].map((row: { cls: string; total: number; overdue: number }) => (
               <div key={row.cls} className="flex items-center justify-between py-1">
                 <div className="flex items-center gap-2">
-                  <Badge color={abcClassColor(row.cls)}>Class {row.cls}</Badge>
+                  <Badge variant={abcClassColor(row.cls)}>Class {row.cls}</Badge>
                   <span className="text-sm text-gray-700 tabular-nums">{row.total} items</span>
                 </div>
                 <div className="text-right">
@@ -515,7 +513,7 @@ export default function WmsDashboardPage() {
                       screens were mapping the same status to different colours
                       (Dispatched was green here, blue there). */}
                   <div className="text-right">
-                    <Badge color={dispatchStatusColor(d.status)}>
+                    <Badge variant={dispatchStatusColor(d.status)}>
                       {d.status}
                     </Badge>
                     <p className="text-xs text-gray-500 mt-1 tabular-nums">{d.itemCount} items, {d.totalUnits} units</p>
@@ -580,6 +578,8 @@ export default function WmsDashboardPage() {
             ))}
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );
