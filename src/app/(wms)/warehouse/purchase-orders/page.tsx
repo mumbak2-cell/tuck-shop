@@ -28,6 +28,8 @@ import {
   ShoppingCart,
   PackagePlus,
   X,
+  Truck,
+  Pencil,
 } from "lucide-react";
 
 /* ------------------------------------------------------------------ */
@@ -68,7 +70,16 @@ interface POHeader {
   expected_date: string | null;
   created_by: string | null;
   created_at: string;
+  landed_cost_total: number | null;
+  landed_cost_method: string | null;
 }
+
+type LandedCostMethod = "by_value" | "by_weight" | "by_qty";
+const LANDED_METHODS: { value: LandedCostMethod; label: string }[] = [
+  { value: "by_value", label: "By value (proportional to line total)" },
+  { value: "by_weight", label: "By weight (proportional to line weight)" },
+  { value: "by_qty", label: "By quantity (equal per unit)" },
+];
 
 interface POLineItem {
   id: number;
@@ -113,6 +124,16 @@ export default function WmsPurchaseOrdersPage() {
   const [poLines, setPoLines] = useState<NewPOLine[]>([]);
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState("");
+
+  // Landed cost (create form)
+  const [poLandedTotal, setPoLandedTotal] = useState("");
+  const [poLandedMethod, setPoLandedMethod] = useState<LandedCostMethod | "">("");
+
+  // Landed cost edit (existing PO)
+  const [editLandedPoId, setEditLandedPoId] = useState<number | null>(null);
+  const [editLandedTotal, setEditLandedTotal] = useState("");
+  const [editLandedMethod, setEditLandedMethod] = useState<LandedCostMethod | "">("");
+  const [savingLanded, setSavingLanded] = useState(false);
 
   // Item picker
   const [showPicker, setShowPicker] = useState(false);
@@ -198,6 +219,8 @@ export default function WmsPurchaseOrdersPage() {
     setPoSupplier("");
     setPoNotes("Auto-generated from reorder alerts");
     setPoExpectedDate("");
+    setPoLandedTotal("");
+    setPoLandedMethod("");
     setShowCreate(true);
   }
 
@@ -207,6 +230,8 @@ export default function WmsPurchaseOrdersPage() {
     setPoSupplier("");
     setPoNotes("");
     setPoExpectedDate("");
+    setPoLandedTotal("");
+    setPoLandedMethod("");
     setShowCreate(true);
   }
 
@@ -294,6 +319,15 @@ export default function WmsPurchaseOrdersPage() {
       if (error) {
         toast.error("Failed to create PO", { hint: error.message });
         return;
+      }
+
+      const landedTotal = poLandedTotal ? parseFloat(poLandedTotal) : null;
+      const landedMethod = poLandedMethod || null;
+      if (landedTotal && landedTotal > 0 && landedMethod) {
+        await db
+          .from("wms_purchase_orders")
+          .update({ landed_cost_total: landedTotal, landed_cost_method: landedMethod })
+          .eq("po_number", poNum);
       }
 
       setSuccess("PO " + poNum + " created successfully");
@@ -441,6 +475,33 @@ export default function WmsPurchaseOrdersPage() {
     }
   }
 
+  function openEditLanded(po: POHeader) {
+    setEditLandedPoId(po.id);
+    setEditLandedTotal(po.landed_cost_total != null ? String(po.landed_cost_total) : "");
+    setEditLandedMethod((po.landed_cost_method as LandedCostMethod) || "");
+  }
+
+  async function saveEditLanded() {
+    if (editLandedPoId === null) return;
+    setSavingLanded(true);
+    try {
+      const total = editLandedTotal ? parseFloat(editLandedTotal) : null;
+      const method = editLandedMethod || null;
+      const { error } = await db
+        .from("wms_purchase_orders")
+        .update({ landed_cost_total: total, landed_cost_method: method })
+        .eq("id", editLandedPoId);
+      if (error) throw error;
+      toast.success("Landed cost updated");
+      setEditLandedPoId(null);
+      await loadData();
+    } catch (err: any) {
+      toast.error("Failed to update landed cost", { hint: err.message });
+    } finally {
+      setSavingLanded(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -537,6 +598,42 @@ export default function WmsPurchaseOrdersPage() {
                 placeholder="Optional"
               />
             </div>
+          </div>
+
+          <div className="bg-gray-50 rounded-lg p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <Truck className="w-4 h-4" />
+              Landed Cost (optional)
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Total freight / duty / fees</label>
+                <Input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={poLandedTotal}
+                  onChange={(e: any) => setPoLandedTotal(e.target.value)}
+                  placeholder="0.00"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-600 mb-1">Allocation method</label>
+                <select
+                  value={poLandedMethod}
+                  onChange={(e: any) => setPoLandedMethod(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+                >
+                  <option value="">None</option>
+                  {LANDED_METHODS.map((m) => (
+                    <option key={m.value} value={m.value}>{m.label}</option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <p className="text-xs text-gray-500">
+              Landed cost is allocated to each line at receive time. You can edit it until the last receipt.
+            </p>
           </div>
 
           {/* PO Line items */}
@@ -774,6 +871,27 @@ export default function WmsPurchaseOrdersPage() {
                                     <span className="font-medium">Notes:</span> {po.notes}
                                   </p>
                                 )}
+                                {(po.landed_cost_total != null || !["Received", "Cancelled"].includes(po.status)) && (
+                                  <div className="flex items-center gap-3 mb-2 text-xs">
+                                    {po.landed_cost_total != null && po.landed_cost_total > 0 ? (
+                                      <span className="text-gray-600">
+                                        <Truck className="w-3 h-3 inline mr-1" />
+                                        Landed: {formatZAR(po.landed_cost_total)} ({po.landed_cost_method?.replace("by_", "by ")})
+                                      </span>
+                                    ) : !["Received", "Cancelled"].includes(po.status) ? (
+                                      <span className="text-gray-400">No landed cost set</span>
+                                    ) : null}
+                                    {!["Received", "Cancelled"].includes(po.status) && (
+                                      <button
+                                        onClick={(e: any) => { e.stopPropagation(); openEditLanded(po); }}
+                                        className="text-blue-600 hover:underline flex items-center gap-0.5"
+                                      >
+                                        <Pencil className="w-3 h-3" />
+                                        Edit
+                                      </button>
+                                    )}
+                                  </div>
+                                )}
                                 <table className="w-full text-xs">
                                   <thead>
                                     <tr className="border-b border-gray-200">
@@ -842,6 +960,49 @@ export default function WmsPurchaseOrdersPage() {
         excludeIds={poLines.map((l) => l.wmsItemId)}
         title="Add PO line"
       />
+
+      {/* Edit Landed Cost Modal */}
+      <Modal
+        open={editLandedPoId !== null}
+        onClose={() => setEditLandedPoId(null)}
+        title="Edit Landed Cost"
+      >
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Total freight / duty / fees</label>
+            <Input
+              type="number"
+              min="0"
+              step="0.01"
+              value={editLandedTotal}
+              onChange={(e: any) => setEditLandedTotal(e.target.value)}
+              placeholder="0.00"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Allocation method</label>
+            <select
+              value={editLandedMethod}
+              onChange={(e: any) => setEditLandedMethod(e.target.value)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="">None</option>
+              {LANDED_METHODS.map((m) => (
+                <option key={m.value} value={m.value}>{m.label}</option>
+              ))}
+            </select>
+          </div>
+          <p className="text-xs text-gray-500">
+            Landed cost is allocated proportionally at receive time. Change it before the final receipt.
+          </p>
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="secondary" onClick={() => setEditLandedPoId(null)}>Cancel</Button>
+            <Button onClick={saveEditLanded} disabled={savingLanded}>
+              {savingLanded ? "Saving..." : "Save"}
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Receive Stock Modal */}
       {receivePoId !== null && (
