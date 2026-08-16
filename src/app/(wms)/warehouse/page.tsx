@@ -34,6 +34,7 @@ interface WmsCatalogItem {
   count_frequency_days: number;
   last_counted_at: string | null;
   product_id: string | null;
+  tracks_expiry: boolean;
 }
 
 interface RetailProduct {
@@ -78,6 +79,7 @@ export default function WarehousePage() {
   const [formAbcClass, setFormAbcClass] = useState("C");
   const [formFrequency, setFormFrequency] = useState("30");
   const [formProductId, setFormProductId] = useState("");
+  const [formTracksExpiry, setFormTracksExpiry] = useState(false);
   const [showCsv, setShowCsv] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -132,6 +134,7 @@ export default function WarehousePage() {
     setFormAbcClass("C");
     setFormFrequency("30");
     setFormProductId("");
+    setFormTracksExpiry(false);
     setShowForm(true);
   }
 
@@ -146,6 +149,7 @@ export default function WarehousePage() {
     setFormAbcClass(item.abc_class || "C");
     setFormFrequency(String(item.count_frequency_days ?? 30));
     setFormProductId(item.product_id ?? "");
+    setFormTracksExpiry(item.tracks_expiry ?? false);
     setShowForm(true);
   }
 
@@ -165,6 +169,7 @@ export default function WarehousePage() {
             abc_class: formAbcClass,
             count_frequency_days: parseInt(formFrequency) || 30,
             product_id: formProductId || null,
+            tracks_expiry: formTracksExpiry,
           })
           .eq("id", editing.id);
 
@@ -186,6 +191,7 @@ export default function WarehousePage() {
             abc_class: formAbcClass,
             count_frequency_days: parseInt(formFrequency) || 30,
             product_id: formProductId || null,
+            tracks_expiry: formTracksExpiry,
           })
           .select("id")
           .single();
@@ -496,6 +502,23 @@ export default function WarehousePage() {
                 Suggested: A=7, B=14, C=30
               </p>
             </div>
+          </div>
+          <div>
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={formTracksExpiry}
+                onChange={(e: any) => setFormTracksExpiry(e.target.checked)}
+                className="mt-1 w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+              />
+              <div>
+                <p className="text-sm font-medium text-gray-900">Tracks expiry</p>
+                <p className="text-xs text-gray-500 mt-1">
+                  Turn on for perishable items. Receive Stock will ask for expiry date
+                  per delivery.
+                </p>
+              </div>
+            </label>
           </div>
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setShowForm(false)}>

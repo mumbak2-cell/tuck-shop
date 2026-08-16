@@ -28,6 +28,7 @@ interface WmsCatalogItem {
   category: string | null;
   pack_size: number;
   barcode: string | null;
+  tracks_expiry: boolean;
 }
 
 interface ReceiptLine {
@@ -41,6 +42,8 @@ interface ReceiptLine {
   damage_qty: number;
   tax_rate: number | null;
   tax_amount: number | null;
+  tracks_expiry: boolean;
+  expiry_date: string | null;
 }
 
 interface PastReceipt {
@@ -102,6 +105,8 @@ export default function WmsReceiveStockPage() {
       damage_qty: 0,
       tax_rate: null,
       tax_amount: null,
+      tracks_expiry: item.tracks_expiry,
+      expiry_date: null,
     };
 
     setLines((prev: ReceiptLine[]) => [...prev, newLine]);
@@ -149,6 +154,7 @@ export default function WmsReceiveStockPage() {
         p_tax_rates: lines.map((l: ReceiptLine) => l.tax_rate),
         p_tax_amounts: lines.map((l: ReceiptLine) => l.tax_amount),
         p_idempotency_key: idempotencyKey,
+        p_expiry_dates: lines.map((l: ReceiptLine) => l.expiry_date || null),
       });
 
       if (rpcErr) {
@@ -308,6 +314,7 @@ export default function WmsReceiveStockPage() {
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Unit Cost</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Dmg Qty</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Tax %</th>
+                      <th className="text-left px-3 py-2 font-medium text-gray-600">Expiry</th>
                       <th className="text-right px-3 py-2 font-medium text-gray-600">Line Total</th>
                       <th className="px-3 py-2"></th>
                     </tr>
@@ -388,6 +395,20 @@ export default function WmsReceiveStockPage() {
                             className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-sm"
                           />
                         </td>
+                        <td className="px-3 py-2">
+                          {line.tracks_expiry ? (
+                            <input
+                              type="date"
+                              value={line.expiry_date ?? ""}
+                              onChange={(e: any) =>
+                                updateLine(line.id, "expiry_date", e.target.value || null)
+                              }
+                              className="w-36 border border-gray-300 rounded px-2 py-1 text-sm"
+                            />
+                          ) : (
+                            <span className="text-gray-400">—</span>
+                          )}
+                        </td>
                         <td className="px-3 py-2 text-right font-medium">
                           {formatZAR(line.packs * line.packSize * line.unitCost)}
                         </td>
@@ -411,6 +432,7 @@ export default function WmsReceiveStockPage() {
                         Totals
                       </td>
                       <td className="px-3 py-2 text-right font-bold">{totalUnits}</td>
+                      <td className="px-3 py-2"></td>
                       <td className="px-3 py-2"></td>
                       <td className="px-3 py-2"></td>
                       <td className="px-3 py-2"></td>
