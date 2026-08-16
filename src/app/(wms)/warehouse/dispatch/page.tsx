@@ -13,6 +13,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { dispatchStatusColor } from "@/lib/wms-status";
 import { ItemPickerModal, type WmsCatalogPickerItem } from "@/components/wms/item-picker-modal";
+import { LocationPicker, type WmsLocationOption } from "@/components/wms/location-picker";
 import { useToast } from "@/components/ui/toast";
 import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
 import {
@@ -62,10 +63,13 @@ interface PastDispatch {
 }
 
 interface DispatchDetailItem {
+  id: number;
   wms_item_id: number;
   item_name: string;
   sku: string;
   qty_sent: number;
+  picked_qty: number | null;
+  packed_qty: number | null;
 }
 
 type DestinationType = "Internal Shop" | "External Client" | "Wholesale";
@@ -79,8 +83,12 @@ export default function WmsDispatchPage() {
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<number, number>>(new Map());
   const [history, setHistory] = useState<PastDispatch[]>([]);
+  // WMS bins for the pick/pack/ship source-bin picker. Named distinctly from
+  // useOrg()'s `locations` (shop branches) below — same word, different table.
+  const [wmsLocations, setWmsLocations] = useState<WmsLocationOption[]>([]);
 
   // Form
+  const [flowMode, setFlowMode] = useState<"instant" | "ppship">("instant");
   const [destinationType, setDestinationType] = useState<DestinationType>("Internal Shop");
   const [destinationId, setDestinationId] = useState("");
   const [destinationLocationId, setDestinationLocationId] = useState("");
@@ -99,8 +107,16 @@ export default function WmsDispatchPage() {
   const [detailCache, setDetailCache] = useState<Map<number, DispatchDetailItem[]>>(new Map());
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // Pick/pack/ship action panel drafts. Only one history row is ever expanded
+  // at a time, so these are scoped to the currently-expanded dispatch and
+  // reset on every toggleExpand.
+  const [pickDraft, setPickDraft] = useState<Map<number, { picked_qty: number; source_location_id: string | null }>>(new Map());
+  const [packDraft, setPackDraft] = useState<Map<number, number>>(new Map());
+  const [carrierRef, setCarrierRef] = useState("");
+  const [panelSaving, setPanelSaving] = useState(false);
+
   const loadData = useCallback(async () => {
-    const [catalog, inventory, { data: dispatches }] =
+    const [catalog, inventory, { data: dispatches }, { data: wmsLocs, error: locErr }] =
       await Promise.all([
         fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size, barcode").order("item_name")),
         fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
@@ -109,6 +125,7 @@ export default function WmsDispatchPage() {
           .select("*")
           .order("created_at", { ascending: false })
           .limit(50),
+        db.from("wms_locations").select("id, code, label, kind, active").order("code"),
       ]);
 
     setCatalogItems(catalog as any[]);
@@ -120,6 +137,13 @@ export default function WmsDispatchPage() {
     setInventoryMap(invMap);
 
     setHistory((dispatches || []) as any[]);
+
+    if (locErr) {
+      toast.error("Failed to load locations", { hint: locErr.message });
+      setWmsLocations([]);
+    } else {
+      setWmsLocations((wmsLocs || []) as WmsLocationOption[]);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -127,26 +151,21 @@ export default function WmsDispatchPage() {
     loadData();
   }, [loadData]);
 
-  async function toggleExpand(dispatchId: number) {
-    if (expandedId === dispatchId) {
-      setExpandedId(null);
-      return;
-    }
-
-    setExpandedId(dispatchId);
-
-    // Check cache
-    if (detailCache.has(dispatchId)) return;
-
-    setDetailLoading(true);
+  // Shared item-loading logic for both the initial expand and post-action
+  // panel refreshes (picking/packing/shipping change picked_qty/packed_qty,
+  // so the cached row needs re-fetching, not just a status flip).
+  async function fetchDispatchItems(dispatchId: number): Promise<DispatchDetailItem[]> {
     const { data: items } = await db
       .from("wms_dispatch_items")
-      .select("wms_item_id, qty_sent, wms_catalog(item_name, sku)")
+      .select("id, wms_item_id, qty_sent, picked_qty, packed_qty, wms_catalog(item_name, sku)")
       .eq("dispatch_id", dispatchId);
 
     const parsed: DispatchDetailItem[] = ((items || []) as any[]).map((row: any) => ({
+      id: row.id,
       wms_item_id: row.wms_item_id,
       qty_sent: row.qty_sent,
+      picked_qty: row.picked_qty,
+      packed_qty: row.packed_qty,
       item_name: row.wms_catalog?.item_name || "Unknown",
       sku: row.wms_catalog?.sku || "",
     }));
@@ -156,7 +175,206 @@ export default function WmsDispatchPage() {
       next.set(dispatchId, parsed);
       return next;
     });
+    return parsed;
+  }
+
+  // Seeds the pick/pack draft maps from freshly-loaded items. Takes status
+  // explicitly (rather than reading it off `history`) because callers use
+  // this right after an RPC transitions the dispatch, before `history` has
+  // been reloaded — reading `history` here would use the pre-transition status.
+  function initPanelDrafts(items: DispatchDetailItem[], status: string) {
+    if (status === "Draft") {
+      const next = new Map<number, { picked_qty: number; source_location_id: string | null }>();
+      items.forEach((it: DispatchDetailItem) => {
+        next.set(it.id, { picked_qty: it.qty_sent, source_location_id: mainBinId });
+      });
+      setPickDraft(next);
+      setPackDraft(new Map());
+    } else if (status === "Picked") {
+      const next = new Map<number, number>();
+      items.forEach((it: DispatchDetailItem) => {
+        next.set(it.id, it.picked_qty ?? it.qty_sent);
+      });
+      setPackDraft(next);
+      setPickDraft(new Map());
+    } else {
+      setPickDraft(new Map());
+      setPackDraft(new Map());
+    }
+  }
+
+  async function toggleExpand(dispatchId: number, status: string) {
+    if (expandedId === dispatchId) {
+      setExpandedId(null);
+      return;
+    }
+
+    setExpandedId(dispatchId);
+    setCarrierRef("");
+
+    // Check cache
+    if (detailCache.has(dispatchId)) {
+      initPanelDrafts(detailCache.get(dispatchId)!, status);
+      return;
+    }
+
+    setDetailLoading(true);
+    const parsed = await fetchDispatchItems(dispatchId);
     setDetailLoading(false);
+    initPanelDrafts(parsed, status);
+  }
+
+  function updatePickDraftQty(itemId: number, qty: number) {
+    setPickDraft((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(itemId);
+      next.set(itemId, { picked_qty: qty, source_location_id: cur?.source_location_id ?? mainBinId });
+      return next;
+    });
+  }
+
+  function updatePickDraftLocation(itemId: number, locId: string) {
+    setPickDraft((prev) => {
+      const next = new Map(prev);
+      const cur = next.get(itemId);
+      next.set(itemId, { picked_qty: cur?.picked_qty ?? 0, source_location_id: locId });
+      return next;
+    });
+  }
+
+  function updatePackDraftQty(itemId: number, qty: number) {
+    setPackDraft((prev) => {
+      const next = new Map(prev);
+      next.set(itemId, qty);
+      return next;
+    });
+  }
+
+  function freshIdempotencyKey(): string | null {
+    return typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : null;
+  }
+
+  function escapeHtml(s: string): string {
+    return s.replace(/[&<>"']/g, (c) =>
+      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
+    );
+  }
+
+  async function handleSendToPicking(dispatch: PastDispatch, items: DispatchDetailItem[]) {
+    setPanelSaving(true);
+    try {
+      const picks = items.map((it: DispatchDetailItem) => {
+        const draft = pickDraft.get(it.id);
+        return {
+          dispatch_item_id: it.id,
+          picked_qty: draft?.picked_qty ?? it.qty_sent,
+          from_location_id: draft?.source_location_id ?? mainBinId,
+        };
+      });
+      const { error } = await db.rpc("pick_wms_dispatch", {
+        p_dispatch_id: dispatch.id,
+        p_picks: picks,
+        p_actor: userName || null,
+        p_idempotency_key: freshIdempotencyKey(),
+      });
+      if (error) throw error;
+      toast.success("Picked — ready to pack");
+      const refreshed = await fetchDispatchItems(dispatch.id);
+      initPanelDrafts(refreshed, "Picked");
+      await loadData();
+    } catch (err: any) {
+      console.error("Pick error:", err);
+      const isFreeze = /frozen by count session/i.test(err.message || "");
+      toast.error(
+        isFreeze ? "Cannot dispatch: a stock count is frozen for one of these items" : "Failed to send to picking",
+        { hint: err.message }
+      );
+    } finally {
+      setPanelSaving(false);
+    }
+  }
+
+  async function handleVerifyPack(dispatch: PastDispatch, items: DispatchDetailItem[]) {
+    setPanelSaving(true);
+    try {
+      const verifies = items.map((it: DispatchDetailItem) => ({
+        dispatch_item_id: it.id,
+        packed_qty: packDraft.get(it.id) ?? (it.picked_qty ?? it.qty_sent),
+      }));
+      const { error } = await db.rpc("pack_wms_dispatch", {
+        p_dispatch_id: dispatch.id,
+        p_verifies: verifies,
+        p_actor: userName || null,
+        p_idempotency_key: freshIdempotencyKey(),
+      });
+      if (error) throw error;
+      toast.success("Packed — ready to ship");
+      const refreshed = await fetchDispatchItems(dispatch.id);
+      initPanelDrafts(refreshed, "Packed");
+      await loadData();
+    } catch (err: any) {
+      console.error("Pack error:", err);
+      const isMismatch = err.code === "22023";
+      toast.error(
+        isMismatch ? "Pack count must match picked count" : "Failed to verify pack",
+        { hint: err.message }
+      );
+    } finally {
+      setPanelSaving(false);
+    }
+  }
+
+  async function handleShip(dispatch: PastDispatch) {
+    setPanelSaving(true);
+    try {
+      const { error } = await db.rpc("ship_wms_dispatch", {
+        p_dispatch_id: dispatch.id,
+        p_carrier_ref: carrierRef.trim() || null,
+        p_actor: userName || null,
+        p_idempotency_key: freshIdempotencyKey(),
+      });
+      if (error) throw error;
+      toast.success("Shipped");
+      setCarrierRef("");
+      await loadData();
+    } catch (err: any) {
+      console.error("Ship error:", err);
+      toast.error("Failed to ship dispatch", { hint: err.message });
+    } finally {
+      setPanelSaving(false);
+    }
+  }
+
+  function printPackingSlip(dispatch: PastDispatch, items: DispatchDetailItem[]) {
+    const printWindow = window.open("", "_blank", "width=400,height=600");
+    if (!printWindow) return;
+    const rows = items
+      .map(
+        (it: DispatchDetailItem) =>
+          "<tr><td style=\"padding:4px 8px;border-bottom:1px solid #eee\">" + escapeHtml(it.item_name) + "</td>" +
+          "<td style=\"padding:4px 8px;border-bottom:1px solid #eee;font-family:monospace\">" + escapeHtml(it.sku) + "</td>" +
+          "<td style=\"padding:4px 8px;border-bottom:1px solid #eee;text-align:right\">" + it.qty_sent + "</td></tr>"
+      )
+      .join("");
+    printWindow.document.write(
+      "<!DOCTYPE html><html><head><title>Packing Slip</title>" +
+      "<style>body{font-family:Arial,sans-serif;padding:16px}table{width:100%;border-collapse:collapse}" +
+      "th{text-align:left;padding:4px 8px;border-bottom:2px solid #333}@page{margin:12mm}</style>" +
+      "</head><body>" +
+      "<h2>Packing Slip — Dispatch #" + dispatch.id + "</h2>" +
+      "<p>Destination: " + escapeHtml(dispatch.destination_type) + " — " + escapeHtml(dispatch.destination_id) + "</p>" +
+      (dispatch.notes ? "<p>Notes: " + escapeHtml(dispatch.notes) + "</p>" : "") +
+      "<table><thead><tr><th>Item</th><th>SKU</th><th style=\"text-align:right\">Qty</th></tr></thead>" +
+      "<tbody>" + rows + "</tbody></table>" +
+      "</body></html>"
+    );
+    printWindow.document.close();
+    setTimeout(() => {
+      printWindow.print();
+      printWindow.close();
+    }, 300);
   }
 
   function addLine(item: Pick<WmsCatalogItem, "id" | "item_name" | "sku">) {
@@ -197,6 +415,10 @@ export default function WmsDispatchPage() {
     (l: DispatchLine) => l.qty > l.available
   );
 
+  // Default source bin for picking. Null when the org has no bin coded MAIN —
+  // the Draft panel warns and disables Send to picking in that case.
+  const mainBinId = wmsLocations.find((l: WmsLocationOption) => l.code === "MAIN")?.id ?? null;
+
   const destinationReady =
     destinationType === "Internal Shop"
       ? !!destinationLocationId
@@ -213,31 +435,51 @@ export default function WmsDispatchPage() {
         qty: l.qty,
       }));
 
-      // One atomic RPC for every destination type. For Internal Shop it also
-      // credits the destination location's retail stock (product_stock) via
-      // add_product_stock_at_location; external/wholesale only deducts
-      // warehouse stock. Header, line items and stock movements commit
-      // together, and the subscription gate is enforced server-side.
       const idempotencyKey =
         typeof crypto !== "undefined" && "randomUUID" in crypto
           ? crypto.randomUUID()
           : null;
-      const { error } = await db.rpc("create_wms_dispatch", {
-        p_destination_type: destinationType,
-        p_destination_location_id:
-          destinationType === "Internal Shop" ? destinationLocationId : null,
-        p_destination_name:
-          destinationType === "Internal Shop" ? null : destinationId.trim(),
-        p_items: items,
-        p_notes: notes.trim() || null,
-        p_created_by: userName || null,
-        p_idempotency_key: idempotencyKey,
-      });
 
-      if (error) throw error;
+      if (flowMode === "instant") {
+        // One atomic RPC for every destination type. For Internal Shop it also
+        // credits the destination location's retail stock (product_stock) via
+        // add_product_stock_at_location; external/wholesale only deducts
+        // warehouse stock. Header, line items and stock movements commit
+        // together, and the subscription gate is enforced server-side.
+        const { error } = await db.rpc("create_wms_dispatch", {
+          p_destination_type: destinationType,
+          p_destination_location_id:
+            destinationType === "Internal Shop" ? destinationLocationId : null,
+          p_destination_name:
+            destinationType === "Internal Shop" ? null : destinationId.trim(),
+          p_items: items,
+          p_notes: notes.trim() || null,
+          p_created_by: userName || null,
+          p_idempotency_key: idempotencyKey,
+        });
+
+        if (error) throw error;
+        toast.success("Dispatch created");
+      } else {
+        // Draft flow: inserts at status Draft with no stock deduction. Picking,
+        // packing and shipping happen as separate steps from the History tab.
+        const { error } = await db.rpc("create_wms_dispatch_draft", {
+          p_destination_type: destinationType,
+          p_destination_location_id:
+            destinationType === "Internal Shop" ? destinationLocationId : null,
+          p_destination_name:
+            destinationType === "Internal Shop" ? null : destinationId.trim(),
+          p_items: items,
+          p_notes: notes.trim() || null,
+          p_created_by: userName || null,
+          p_idempotency_key: idempotencyKey,
+        });
+
+        if (error) throw error;
+        toast.success("Dispatch drafted — go to picking");
+      }
 
       setSuccess(true);
-      toast.success("Dispatch created");
       setLines([]);
       setDestinationId("");
       setDestinationLocationId("");
@@ -289,6 +531,135 @@ export default function WmsDispatchPage() {
   }));
 
   const statusColor = dispatchStatusColor;
+
+  // Stage-specific action panel appended below the existing read-only detail
+  // table for Draft/Picked/Packed/Shipped dispatches. Older statuses
+  // (Pending/Dispatched/Received/Cancelled) render nothing extra here.
+  function renderActionPanel(d: PastDispatch, items: DispatchDetailItem[]) {
+    if (d.status === "Draft") {
+      return (
+        <div className="ml-6 mt-4 border-t border-gray-200 pt-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Ready to pick</h4>
+          {!mainBinId && (
+            <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-700 mb-3">
+              No MAIN bin found for this org. Add a location with code &quot;MAIN&quot; before picking.
+            </div>
+          )}
+          <table className="w-full text-xs mb-3">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-1.5 pr-4 font-medium text-gray-500">Item</th>
+                <th className="text-left py-1.5 pr-4 font-medium text-gray-500">Source bin</th>
+                <th className="text-right py-1.5 font-medium text-gray-500">Picked qty</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {items.map((it: DispatchDetailItem) => {
+                const draft = pickDraft.get(it.id);
+                return (
+                  <tr key={it.id}>
+                    <td className="py-1.5 pr-4 text-gray-900">
+                      {it.item_name} <span className="text-gray-400">(sent {it.qty_sent})</span>
+                    </td>
+                    <td className="py-1.5 pr-4" style={{ maxWidth: 220 }}>
+                      <LocationPicker
+                        value={draft?.source_location_id ?? mainBinId}
+                        onChange={(id: string) => updatePickDraftLocation(it.id, id)}
+                        locations={wmsLocations}
+                        size="sm"
+                      />
+                    </td>
+                    <td className="py-1.5 text-right">
+                      <input
+                        type="number"
+                        min="0"
+                        value={draft?.picked_qty ?? it.qty_sent}
+                        onChange={(e: any) => updatePickDraftQty(it.id, parseInt(e.target.value) || 0)}
+                        className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-xs"
+                      />
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+          <Button size="sm" onClick={() => handleSendToPicking(d, items)} disabled={panelSaving || !mainBinId}>
+            Send to picking
+          </Button>
+        </div>
+      );
+    }
+
+    if (d.status === "Picked") {
+      return (
+        <div className="ml-6 mt-4 border-t border-gray-200 pt-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Verify pack</h4>
+          <table className="w-full text-xs mb-3">
+            <thead>
+              <tr className="border-b border-gray-200">
+                <th className="text-left py-1.5 pr-4 font-medium text-gray-500">Item</th>
+                <th className="text-right py-1.5 pr-4 font-medium text-gray-500">Picked qty</th>
+                <th className="text-right py-1.5 font-medium text-gray-500">Packed qty</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {items.map((it: DispatchDetailItem) => (
+                <tr key={it.id}>
+                  <td className="py-1.5 pr-4 text-gray-900">{it.item_name}</td>
+                  <td className="py-1.5 pr-4 text-right text-gray-500">{it.picked_qty ?? it.qty_sent}</td>
+                  <td className="py-1.5 text-right">
+                    <input
+                      type="number"
+                      min="0"
+                      value={packDraft.get(it.id) ?? (it.picked_qty ?? it.qty_sent)}
+                      onChange={(e: any) => updatePackDraftQty(it.id, parseInt(e.target.value) || 0)}
+                      className="w-20 text-right border border-gray-300 rounded px-2 py-1 text-xs"
+                    />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <Button size="sm" onClick={() => handleVerifyPack(d, items)} disabled={panelSaving}>
+            Verify pack
+          </Button>
+        </div>
+      );
+    }
+
+    if (d.status === "Packed") {
+      return (
+        <div className="ml-6 mt-4 border-t border-gray-200 pt-4">
+          <h4 className="text-sm font-semibold text-gray-700 mb-2">Ship</h4>
+          <div className="mb-3 max-w-xs">
+            <Input
+              value={carrierRef}
+              onChange={(e: any) => setCarrierRef(e.target.value)}
+              placeholder="Waybill / tracking (optional)"
+            />
+          </div>
+          <Button size="sm" onClick={() => handleShip(d)} disabled={panelSaving}>
+            Ship
+          </Button>
+        </div>
+      );
+    }
+
+    if (d.status === "Shipped") {
+      return (
+        <div className="ml-6 mt-4 border-t border-gray-200 pt-4 flex items-center gap-2">
+          <Button size="sm" onClick={() => updateDispatchStatus(d.id, "Received")}>
+            Mark received
+          </Button>
+          <Button size="sm" variant="secondary" onClick={() => printPackingSlip(d, items)}>
+            Print packing slip
+          </Button>
+        </div>
+      );
+    }
+
+    return null;
+  }
 
   return (
     <div className="space-y-6">
@@ -343,6 +714,37 @@ export default function WmsDispatchPage() {
 
       {tab === "new" ? (
         <div className="bg-white rounded-xl border border-gray-200 p-6 space-y-5">
+          {/* Flow mode */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Dispatch Flow
+            </label>
+            <div className="flex gap-1 bg-gray-100 rounded-lg p-1 w-fit">
+              <button
+                type="button"
+                onClick={() => setFlowMode("instant")}
+                className={"px-4 py-2 rounded-md text-sm font-medium transition-colors " + (
+                  flowMode === "instant"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                Instant
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlowMode("ppship")}
+                className={"px-4 py-2 rounded-md text-sm font-medium transition-colors " + (
+                  flowMode === "ppship"
+                    ? "bg-white text-gray-900 shadow-sm"
+                    : "text-gray-500 hover:text-gray-700"
+                )}
+              >
+                Pick / Pack / Ship
+              </button>
+            </div>
+          </div>
+
           {/* Destination */}
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
@@ -590,7 +992,7 @@ export default function WmsDispatchPage() {
                         <tr
                           key={d.id}
                           className={"cursor-pointer transition-colors " + (isExpanded ? "bg-green-50/50" : "hover:bg-gray-50")}
-                          onClick={() => toggleExpand(d.id)}
+                          onClick={() => toggleExpand(d.id, d.status)}
                         >
                           <td className="px-2 py-3 text-gray-400">
                             {isExpanded ? (
@@ -695,6 +1097,8 @@ export default function WmsDispatchPage() {
                                   </table>
                                 </div>
                               )}
+                              {detailItems && detailItems.length > 0 &&
+                                renderActionPanel(d, detailItems)}
                             </td>
                           </tr>
                         )}
