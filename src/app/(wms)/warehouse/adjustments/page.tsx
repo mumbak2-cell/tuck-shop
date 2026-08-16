@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth } from "@/lib/auth-context";
+import { useOrg } from "@/lib/org-context";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,6 +21,8 @@ import {
   ArrowDown,
   ArrowUp,
   Package,
+  X,
+  AlertTriangle,
 } from "lucide-react";
 
 const REASONS = ["Breakage", "Expired", "Theft", "Correction", "Other"] as const;
@@ -47,6 +50,7 @@ interface WmsAdjustment {
   notes: string | null;
   recorded_by: string | null;
   created_at: string;
+  cost_price: number | null;
 }
 
 interface AdjustmentDisplay extends WmsAdjustment {
@@ -54,8 +58,18 @@ interface AdjustmentDisplay extends WmsAdjustment {
   sku: string;
 }
 
+interface BulkLine {
+  key: string; // client-side id for React
+  wms_item_id: number | null;
+  item_name: string;
+  sku: string;
+  qty: number;
+  cost_price: number | null;
+}
+
 export default function WmsAdjustmentsPage() {
   const { name: userName } = useAuth();
+  const { orgId, session, currentLocationId } = useOrg();
   const toast = useToast();
   const [adjustments, setAdjustments] = useState<AdjustmentDisplay[]>([]);
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
@@ -74,6 +88,29 @@ export default function WmsAdjustmentsPage() {
   const [costPrice, setCostPrice] = useState<number | null>(null);
   const [notes, setNotes] = useState("");
   const [saving, setSaving] = useState(false);
+
+  // Bulk mode
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkLines, setBulkLines] = useState<BulkLine[]>([]);
+  const [bulkReason, setBulkReason] = useState<Reason>("Correction");
+  const [bulkDirection, setBulkDirection] = useState<"add" | "remove">("remove");
+  const [bulkNotes, setBulkNotes] = useState("");
+  const [bulkLineErrors, setBulkLineErrors] = useState<Record<string, boolean>>({});
+  const [bulkSaving, setBulkSaving] = useState(false);
+  // Shared by the per-row "Item" button and the "Add line" button: "new" means
+  // the pick appends a line, a line's own `key` means the pick replaces its item.
+  const [linePickerFor, setLinePickerFor] = useState<string | "new" | null>(null);
+
+  // Approval threshold (migration 094) — org-configured ZAR value above which
+  // an adjustment's line value requires an approver PIN. Shared by single and
+  // bulk mode.
+  const [threshold, setThreshold] = useState<number | null>(null);
+  const [approvalPin, setApprovalPin] = useState("");
+  const [approvalPinError, setApprovalPinError] = useState(false);
+
+  // Reversal modal
+  const [reverseTarget, setReverseTarget] = useState<AdjustmentDisplay | null>(null);
+  const [reversing, setReversing] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -121,6 +158,37 @@ export default function WmsAdjustmentsPage() {
     loadData();
   }, [loadData]);
 
+  useEffect(() => {
+    if (!orgId) return;
+    (async () => {
+      const { data } = await db
+        .from("wms_org_settings")
+        .select("adjustment_approval_threshold")
+        .eq("org_id", orgId)
+        .maybeSingle();
+      setThreshold((data as any)?.adjustment_approval_threshold ?? null);
+    })();
+  }, [orgId]);
+
+  // No admin-PIN checker is exposed by useAuth() — its context value is only
+  // { role, name, authenticated, login, logout }, and `pins` is internal state
+  // to AuthProvider, not part of the public API. login(pin) exists but would
+  // re-authenticate the whole session as Admin (writes sessionStorage), which
+  // is the wrong side effect for a one-off approval gate. So this mirrors
+  // auth-context.tsx's own (unexported) fetchPinsForLocation query instead —
+  // same table, same key, same "1234" fallback — without changing that file.
+  async function verifyAdminPin(pin: string): Promise<boolean> {
+    if (!pin) return false;
+    const { data } = await db
+      .from("location_settings")
+      .select("value")
+      .eq("location_id", currentLocationId)
+      .eq("key", "admin_pin")
+      .maybeSingle();
+    const adminPin = (data as any)?.value || "1234";
+    return pin === adminPin;
+  }
+
   function openForm() {
     setSelectedItem("");
     setSelectedItemDetail(null);
@@ -129,13 +197,105 @@ export default function WmsAdjustmentsPage() {
     setQuantity("");
     setCostPrice(null);
     setNotes("");
+    setApprovalPin("");
+    setApprovalPinError(false);
+    setBulkMode(false);
     setShowForm(true);
+  }
+
+  function resetBulkForm() {
+    setBulkLines([]);
+    setBulkReason("Correction");
+    setBulkDirection("remove");
+    setBulkNotes("");
+    setBulkLineErrors({});
+    setApprovalPin("");
+    setApprovalPinError(false);
+  }
+
+  function openBulkForm() {
+    resetBulkForm();
+    setBulkMode(true);
+    setShowForm(true);
+  }
+
+  function handleLinePick(item: WmsCatalogPickerItem) {
+    if (linePickerFor === "new") {
+      setBulkLines((lines) => [
+        ...lines,
+        { key: crypto.randomUUID(), wms_item_id: item.id, item_name: item.item_name, sku: item.sku, qty: 1, cost_price: null },
+      ]);
+    } else if (linePickerFor) {
+      const key = linePickerFor;
+      setBulkLines((lines) =>
+        lines.map((l) => (l.key === key ? { ...l, wms_item_id: item.id, item_name: item.item_name, sku: item.sku } : l))
+      );
+      setBulkLineErrors((errs) => {
+        if (!errs[key]) return errs;
+        const next = { ...errs };
+        delete next[key];
+        return next;
+      });
+    }
+    setLinePickerFor(null);
+  }
+
+  function removeBulkLine(key: string) {
+    setBulkLines((lines) => lines.filter((l) => l.key !== key));
+    setBulkLineErrors((errs) => {
+      if (!errs[key]) return errs;
+      const next = { ...errs };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function updateBulkLine(key: string, patch: Partial<BulkLine>) {
+    setBulkLines((lines) => lines.map((l) => (l.key === key ? { ...l, ...patch } : l)));
+    setBulkLineErrors((errs) => {
+      if (!errs[key]) return errs;
+      const next = { ...errs };
+      delete next[key];
+      return next;
+    });
+  }
+
+  function validateBulk(): boolean {
+    if (bulkLines.length === 0) {
+      toast.error("Add at least one line");
+      return false;
+    }
+    const errors: Record<string, boolean> = {};
+    bulkLines.forEach((l) => {
+      if (!l.wms_item_id || !l.qty || l.qty <= 0) {
+        errors[l.key] = true;
+      }
+    });
+    setBulkLineErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      toast.error("Fix highlighted lines before submitting");
+      return false;
+    }
+    return true;
   }
 
   async function handleSubmit() {
     const itemId = parseInt(selectedItem);
     const qty = parseInt(quantity);
     if (!itemId || !qty || qty <= 0) return;
+
+    const lineValue = Math.abs(qty) * (costPrice ?? 0);
+    const exceedsThreshold = threshold !== null && lineValue > threshold;
+    let approverId: string | null = null;
+    if (exceedsThreshold) {
+      const pinOk = await verifyAdminPin(approvalPin);
+      if (!pinOk) {
+        setApprovalPinError(true);
+        toast.error("Admin PIN incorrect");
+        return;
+      }
+      approverId = session?.user.id ?? null;
+    }
 
     setSaving(true);
     try {
@@ -156,6 +316,8 @@ export default function WmsAdjustmentsPage() {
         p_recorded_by: userName || null,
         p_cost_price: costPrice,
         p_idempotency_key: idempotencyKey,
+        p_location_id: null,
+        p_approver_user_id: exceedsThreshold ? approverId : null,
       });
 
       if (error) {
@@ -168,6 +330,8 @@ export default function WmsAdjustmentsPage() {
       }
 
       setShowForm(false);
+      setApprovalPin("");
+      setApprovalPinError(false);
       await loadData();
       toast.success("Adjustment recorded");
     } catch (err: any) {
@@ -178,9 +342,122 @@ export default function WmsAdjustmentsPage() {
     }
   }
 
+  async function handleBulkSubmit() {
+    if (!validateBulk()) return;
+
+    const anyOverThreshold =
+      threshold !== null &&
+      bulkLines.some((l) => Math.abs(l.qty) * (l.cost_price ?? 0) > threshold);
+
+    let approverId: string | null = null;
+    if (anyOverThreshold) {
+      const pinOk = await verifyAdminPin(approvalPin);
+      if (!pinOk) {
+        setApprovalPinError(true);
+        toast.error("Admin PIN incorrect");
+        return;
+      }
+      approverId = session?.user.id ?? null;
+    }
+
+    setBulkSaving(true);
+    try {
+      let successes = 0;
+      const failures: { line: number; message: string }[] = [];
+
+      for (let i = 0; i < bulkLines.length; i++) {
+        const line = bulkLines[i];
+        const signedQty = bulkDirection === "add" ? line.qty : -line.qty;
+        const lineExceedsThreshold =
+          threshold !== null && Math.abs(line.qty) * (line.cost_price ?? 0) > threshold;
+
+        const { error } = await db.rpc("record_wms_adjustment", {
+          p_wms_item_id: line.wms_item_id,
+          p_adjustment_qty: signedQty,
+          p_reason: bulkReason,
+          p_notes: bulkNotes.trim() || null,
+          p_recorded_by: userName || null,
+          p_cost_price: line.cost_price,
+          p_idempotency_key: crypto.randomUUID(),
+          p_location_id: null, // MAIN default
+          p_approver_user_id: lineExceedsThreshold ? approverId : null,
+        });
+
+        if (error) {
+          failures.push({ line: i + 1, message: error.message });
+        } else {
+          successes++;
+        }
+      }
+
+      if (failures.length === 0) {
+        toast.success(`Recorded ${successes} adjustments`);
+        resetBulkForm();
+        setBulkMode(false);
+        setShowForm(false);
+        await loadData();
+      } else {
+        toast.error(`Recorded ${successes} of ${bulkLines.length} — ${failures.length} failed`, {
+          hint: failures.map((f) => `Line ${f.line}: ${f.message}`).join(" · "),
+        });
+        await loadData();
+      }
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
+  async function handleConfirmReverse() {
+    if (!reverseTarget) return;
+    setReversing(true);
+    try {
+      const { error } = await db.rpc("record_wms_adjustment", {
+        p_wms_item_id: reverseTarget.wms_item_id,
+        p_adjustment_qty: -reverseTarget.adjustment_qty,
+        p_reason: "Correction",
+        p_notes: `Reversal of #${reverseTarget.id} — original: ${reverseTarget.reason}`,
+        p_recorded_by: userName || null,
+        p_cost_price: reverseTarget.cost_price ?? null,
+        p_idempotency_key: crypto.randomUUID(),
+        p_location_id: null,
+        p_approver_user_id: null,
+      });
+
+      if (error) {
+        const isApproval = /Approval required/i.test(error.message || "");
+        toast.error(
+          isApproval
+            ? "This reversal exceeds the approval threshold — use New Adjustment or Bulk adjust to approve it"
+            : "Failed to reverse adjustment",
+          { hint: error.message }
+        );
+        return;
+      }
+
+      setReverseTarget(null);
+      toast.success("Adjustment reversed");
+      await loadData();
+    } catch (err: any) {
+      console.error("Reversal error:", err);
+      toast.error("Failed to reverse adjustment", { hint: err.message });
+    } finally {
+      setReversing(false);
+    }
+  }
+
   const selectedCurrentStock = selectedItem
     ? inventoryMap.get(parseInt(selectedItem)) ?? 0
     : 0;
+
+  const singleLineValue = quantity ? Math.abs(parseInt(quantity) || 0) * (costPrice ?? 0) : 0;
+  const singleOverThreshold = threshold !== null && singleLineValue > threshold;
+
+  const bulkTotalValue = bulkLines.reduce((sum, l) => sum + l.qty * (l.cost_price ?? 0), 0);
+  const bulkWorstLineValue = bulkLines.reduce(
+    (max, l) => Math.max(max, Math.abs(l.qty) * (l.cost_price ?? 0)),
+    0
+  );
+  const bulkAnyOverThreshold = threshold !== null && bulkWorstLineValue > threshold;
 
   // Theft is the one reason that's genuinely alarming; breakage/expiry are
   // losses worth flagging. A correction is routine bookkeeping and was blue for
@@ -225,10 +502,15 @@ export default function WmsAdjustmentsPage() {
             Log breakage, theft, expired stock, and corrections
           </p>
         </div>
-        <Button onClick={openForm}>
-          <Plus className="w-4 h-4 mr-1" />
-          New Adjustment
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={openBulkForm}>
+            Bulk adjust
+          </Button>
+          <Button onClick={openForm}>
+            <Plus className="w-4 h-4 mr-1" />
+            New Adjustment
+          </Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -284,6 +566,14 @@ export default function WmsAdjustmentsPage() {
                           </div>
                         )}
                         <p className="text-xs text-gray-400 mt-1">{adj.recorded_by || "Unknown"}</p>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="px-2 py-1 mt-1 text-xs text-gray-400 hover:text-red-600"
+                          onClick={() => setReverseTarget(adj)}
+                        >
+                          Reverse
+                        </Button>
                       </div>
                       {/* Only a removal is a loss worth colouring; an addition is
                           just a correction back up. */}
@@ -308,12 +598,14 @@ export default function WmsAdjustmentsPage() {
         </div>
       )}
 
-      {/* New Adjustment Modal */}
+      {/* New Adjustment / Bulk adjust Modal */}
       <Modal
         open={showForm}
         onClose={() => setShowForm(false)}
-        title="New Stock Adjustment"
+        title={bulkMode ? "Bulk Stock Adjustment" : "New Stock Adjustment"}
+        wide={bulkMode}
       >
+        {!bulkMode ? (
         <div className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
@@ -431,6 +723,29 @@ export default function WmsAdjustmentsPage() {
             />
           </div>
 
+          {singleOverThreshold && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+              <p className="text-sm text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                Approval required — R{singleLineValue.toFixed(2)} exceeds R{(threshold ?? 0).toFixed(2)}. Enter admin PIN to approve.
+              </p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={8}
+                value={approvalPin}
+                onChange={(e: any) => {
+                  setApprovalPin(e.target.value);
+                  setApprovalPinError(false);
+                }}
+                placeholder="Admin PIN"
+                className={`mt-2 w-40 rounded-lg border px-3 py-2 text-sm ${
+                  approvalPinError ? "border-red-500" : "border-gray-300"
+                }`}
+              />
+            </div>
+          )}
+
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="secondary" onClick={() => setShowForm(false)}>
               Cancel
@@ -443,6 +758,235 @@ export default function WmsAdjustmentsPage() {
             </Button>
           </div>
         </div>
+        ) : (
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Reason
+            </label>
+            <select
+              value={bulkReason}
+              onChange={(e: any) => setBulkReason(e.target.value as Reason)}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              {REASONS.map((r: string) => (
+                <option key={r} value={r}>
+                  {r}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Direction
+            </label>
+            <select
+              value={bulkDirection}
+              onChange={(e: any) => setBulkDirection(e.target.value as "add" | "remove")}
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              <option value="remove">Remove stock</option>
+              <option value="add">Add stock</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Notes (optional)
+            </label>
+            <textarea
+              rows={2}
+              value={bulkNotes}
+              onChange={(e: any) => setBulkNotes(e.target.value)}
+              placeholder="Applied to every line..."
+              className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              Lines
+            </label>
+            <div className="border border-gray-200 rounded-lg overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-gray-50 text-xs text-gray-500 uppercase">
+                  <tr>
+                    <th className="text-left px-3 py-2">Item</th>
+                    <th className="text-right px-3 py-2 w-20">Qty</th>
+                    <th className="text-right px-3 py-2 w-28">Cost/unit</th>
+                    <th className="text-right px-3 py-2 w-28">Value</th>
+                    <th className="w-10" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {bulkLines.map((line) => (
+                    <tr key={line.key} className="border-t border-gray-100">
+                      <td className="px-3 py-2">
+                        <button
+                          type="button"
+                          onClick={() => setLinePickerFor(line.key)}
+                          className={`w-full text-left rounded-lg border px-2 py-1.5 text-sm bg-white hover:bg-gray-50 ${
+                            bulkLineErrors[line.key] && !line.wms_item_id ? "border-red-500" : "border-gray-300"
+                          }`}
+                        >
+                          {line.wms_item_id ? `${line.sku} — ${line.item_name}` : "Select item..."}
+                        </button>
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={1}
+                          value={line.qty}
+                          onChange={(e: any) =>
+                            updateBulkLine(line.key, { qty: parseInt(e.target.value) || 0 })
+                          }
+                          className={`w-full rounded-lg border px-2 py-1.5 text-sm text-right ${
+                            bulkLineErrors[line.key] && line.qty <= 0 ? "border-red-500" : "border-gray-300"
+                          }`}
+                        />
+                      </td>
+                      <td className="px-3 py-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={0.01}
+                          value={line.cost_price ?? ""}
+                          onChange={(e: any) =>
+                            updateBulkLine(line.key, {
+                              cost_price: e.target.value === "" ? null : parseFloat(e.target.value),
+                            })
+                          }
+                          className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-sm text-right"
+                          placeholder="0.00"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-500 tabular-nums">
+                        R{(line.qty * (line.cost_price ?? 0)).toFixed(2)}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button
+                          type="button"
+                          onClick={() => removeBulkLine(line.key)}
+                          aria-label="Remove line"
+                          className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-red-600"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {bulkLines.length === 0 && (
+                <p className="text-center text-sm text-gray-400 py-6">No lines yet.</p>
+              )}
+            </div>
+            <button
+              type="button"
+              onClick={() => setLinePickerFor("new")}
+              className="mt-2 text-sm text-green-700 hover:text-green-800 font-medium"
+            >
+              + Add line
+            </button>
+
+            <ItemPickerModal
+              open={linePickerFor !== null}
+              onClose={() => setLinePickerFor(null)}
+              onPick={handleLinePick}
+              items={catalogItems.map((c: WmsCatalogItem) => ({
+                id: c.id,
+                sku: c.sku,
+                item_name: c.item_name,
+                category: c.category,
+                barcode: c.barcode ?? null,
+              }))}
+              title="Select item"
+            />
+          </div>
+
+          <p className="text-sm text-gray-600">
+            {bulkLines.length} line{bulkLines.length === 1 ? "" : "s"} · Total value R{bulkTotalValue.toFixed(2)}
+          </p>
+
+          {bulkAnyOverThreshold && (
+            <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2">
+              <p className="text-sm text-amber-800 flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+                Approval required — R{bulkWorstLineValue.toFixed(2)} exceeds R{(threshold ?? 0).toFixed(2)}. Enter admin PIN to approve.
+              </p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={8}
+                value={approvalPin}
+                onChange={(e: any) => {
+                  setApprovalPin(e.target.value);
+                  setApprovalPinError(false);
+                }}
+                placeholder="Admin PIN"
+                className={`mt-2 w-40 rounded-lg border px-3 py-2 text-sm ${
+                  approvalPinError ? "border-red-500" : "border-gray-300"
+                }`}
+              />
+            </div>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                resetBulkForm();
+                setBulkMode(false);
+                setShowForm(false);
+              }}
+            >
+              Cancel
+            </Button>
+            <Button onClick={handleBulkSubmit} disabled={bulkSaving}>
+              {bulkSaving ? "Saving..." : "Submit all"}
+            </Button>
+          </div>
+        </div>
+        )}
+      </Modal>
+
+      {/* Reverse Adjustment Modal */}
+      <Modal
+        open={reverseTarget !== null}
+        onClose={() => setReverseTarget(null)}
+        title={`Reverse adjustment #${reverseTarget?.id ?? ""}`}
+      >
+        {reverseTarget && (
+          <div className="space-y-4">
+            <div className="text-sm text-gray-700 space-y-2">
+              <p>
+                <span className="text-gray-500">Original:</span>{" "}
+                <Badge variant={reasonColor(reverseTarget.reason) as any}>{reverseTarget.reason}</Badge>{" "}
+                {reverseTarget.adjustment_qty > 0 ? "+" : ""}
+                {reverseTarget.adjustment_qty}
+                {reverseTarget.cost_price != null ? ` · R${reverseTarget.cost_price.toFixed(2)}/unit` : ""}
+              </p>
+              <p>
+                <span className="text-gray-500">Reversal that will be created:</span>{" "}
+                <Badge variant="gray">Correction</Badge>{" "}
+                {-reverseTarget.adjustment_qty > 0 ? "+" : ""}
+                {-reverseTarget.adjustment_qty}
+              </p>
+              <p className="text-xs text-gray-500">
+                notes: &quot;Reversal of #{reverseTarget.id} — {reverseTarget.reason}&quot;
+              </p>
+            </div>
+            <div className="flex justify-end gap-3 pt-2">
+              <Button variant="secondary" onClick={() => setReverseTarget(null)}>
+                Cancel
+              </Button>
+              <Button onClick={handleConfirmReverse} disabled={reversing}>
+                {reversing ? "Reversing..." : "Confirm"}
+              </Button>
+            </div>
+          </div>
+        )}
       </Modal>
     </div>
   );
