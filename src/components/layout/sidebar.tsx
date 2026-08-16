@@ -33,6 +33,7 @@ import {
   TrendingUp,
   ChevronDown,
   ChevronRight,
+  MapPin,
 } from "lucide-react";
 import { useState } from "react";
 import { useAuth } from "@/lib/auth-context";
@@ -85,6 +86,7 @@ const navItems: NavItem[] = [
   { href: "/warehouse/adjustments", label: "WMS Adjustments", icon: Wrench, roles: ["admin"], wmsOnly: true, group: "warehouse" },
   { href: "/warehouse/stock-count", label: "WMS Stock Count", icon: ClipboardCheck, roles: ["admin"], wmsOnly: true, group: "warehouse" },
   { href: "/warehouse/purchase-orders", label: "WMS Purchase Orders", icon: FileText, roles: ["admin"], wmsOnly: true, group: "warehouse" },
+  { href: "/warehouse/locations", label: "WMS Bins", icon: MapPin, roles: ["admin"], wmsOnly: true, group: "warehouse" },
   { href: "/settings", label: "Settings", icon: Settings, roles: ["admin"] },
 ];
 
