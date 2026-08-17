@@ -63,10 +63,19 @@ export default function ShiftPage() {
   // Whether today's stock count has actually been done at this branch. Null
   // while unknown so the close button isn't wrongly blocked before it loads.
   const [todayStockCounted, setTodayStockCounted] = useState<boolean | null>(null);
+  // Revenue implied by today's stock movement (opening + replenished − closing),
+  // same method as the Revenue Assurance page. "insufficient" means today's count
+  // exists but there is no prior count at this branch to measure movement from.
+  const [stockCashupSummary, setStockCashupSummary] = useState<
+    { unitsSold: number; expectedRevenue: number } | "insufficient" | null
+  >(null);
 
   const isAdmin = role === "admin";
   // Managers always see the full reconciliation — they are the ones checking it.
   const hideCashTotals = blindCashUpEnabled && !isAdmin;
+  // Total sales today across every payment method, for comparing against
+  // stockCashupSummary's stock-implied revenue below.
+  const totalSalesToday = methodTotals.reduce((s, m) => s + m.total, 0);
   // Reopen/Delete Shift is a named-account permission (Settings → Team), not
   // the shared till PIN — separate from hideCashTotals above.
   const canManageShift = can("manage_shift_admin");
@@ -179,19 +188,124 @@ export default function ShiftPage() {
   // the branch requires one to close. Not gated on online status the way the
   // toggle itself is — a stale "counted" cache could let a close through with
   // no count at all, defeating the control.
+  //
+  // When a count exists, also work out revenue implied by stock movement
+  // since the most recent PRIOR count at this branch — same method as the
+  // Revenue Assurance page (openingStock + replenished − closingStock), just
+  // scoped to "yesterday's count → today's count" instead of a picked range.
+  // This is purely informational: it does not change the cash formula below.
   useEffect(() => {
     if (!shift || shift.status !== "open" || !currentLocationId || !requireStockCountEnabled) {
       setTodayStockCounted(null);
+      setStockCashupSummary(null);
       return;
     }
-    db.from("stock_counts")
-      .select("session_id")
-      .eq("location_id", currentLocationId)
-      .eq("count_date", localToday())
-      .limit(1)
-      .then(({ data }: { data: { session_id: string }[] | null }) => {
-        setTodayStockCounted((data || []).length > 0);
+    let cancelled = false;
+
+    async function run() {
+      const today = localToday();
+      const { data: todayCounts } = await db
+        .from("stock_counts")
+        .select("product_id, closing_units")
+        .eq("location_id", currentLocationId)
+        .eq("count_date", today);
+      if (cancelled) return;
+
+      const closingRows = (todayCounts || []) as { product_id: string; closing_units: number }[];
+      const counted = closingRows.length > 0;
+      setTodayStockCounted(counted);
+      if (!counted) {
+        setStockCashupSummary(null);
+        return;
+      }
+
+      const { data: priorDates } = await db
+        .from("stock_counts")
+        .select("count_date")
+        .eq("location_id", currentLocationId)
+        .lt("count_date", today)
+        .order("count_date", { ascending: false })
+        .limit(1);
+      if (cancelled) return;
+      const priorDate = (priorDates as { count_date: string }[] | null)?.[0]?.count_date;
+      if (!priorDate) {
+        setStockCashupSummary("insufficient");
+        return;
+      }
+
+      const { data: priorCounts } = await db
+        .from("stock_counts")
+        .select("product_id, closing_units")
+        .eq("location_id", currentLocationId)
+        .eq("count_date", priorDate);
+      if (cancelled) return;
+
+      const closingMap = new Map<string, number>();
+      closingRows.forEach((c) => closingMap.set(c.product_id, c.closing_units));
+      const openingMap = new Map<string, number>();
+      ((priorCounts || []) as { product_id: string; closing_units: number }[]).forEach((c) => {
+        if (closingMap.has(c.product_id)) openingMap.set(c.product_id, c.closing_units);
       });
+
+      const productIds = [...closingMap.keys()];
+      const { data: products } = await db
+        .from("products")
+        .select("id, selling_price, qty_in_pack, is_sellable")
+        .in("id", productIds)
+        .neq("is_sellable", false);
+      if (cancelled) return;
+
+      const priceMap = new Map<string, number>();
+      const packMap = new Map<string, number>();
+      ((products || []) as { id: string; selling_price: number; qty_in_pack: number | null }[]).forEach((p) => {
+        priceMap.set(p.id, p.selling_price);
+        packMap.set(p.id, p.qty_in_pack || 1);
+      });
+
+      // Deliveries between the prior count and today, scoped to this branch.
+      // A NULL location_id predates per-branch receipt tracking and stays
+      // org-wide by design — see the same fallback in Revenue Assurance.
+      const { data: receipts } = await db
+        .from("stock_receipts")
+        .select("id")
+        .gte("receipt_date", priorDate)
+        .lte("receipt_date", today)
+        .or(`location_id.eq.${currentLocationId},location_id.is.null`);
+      if (cancelled) return;
+
+      const replenishMap = new Map<string, number>();
+      const receiptIds = ((receipts || []) as { id: string }[]).map((r) => r.id);
+      if (receiptIds.length > 0) {
+        const { data: items } = await db
+          .from("stock_receipt_items")
+          .select("product_id, quantity")
+          .in("receipt_id", receiptIds)
+          .not("product_id", "is", null);
+        if (cancelled) return;
+        ((items || []) as { product_id: string; quantity: number }[]).forEach((i) => {
+          const pack = packMap.get(i.product_id) || 1;
+          replenishMap.set(i.product_id, (replenishMap.get(i.product_id) || 0) + i.quantity * pack);
+        });
+      }
+
+      let unitsSold = 0;
+      let expectedRevenue = 0;
+      for (const [productId, closingStock] of closingMap) {
+        if (!priceMap.has(productId)) continue;
+        const openingStock = openingMap.get(productId) || 0;
+        const replenished = replenishMap.get(productId) || 0;
+        const movement = Math.max(openingStock + replenished - closingStock, 0);
+        unitsSold += movement;
+        expectedRevenue += movement * (priceMap.get(productId) || 0);
+      }
+
+      if (!cancelled) setStockCashupSummary({ unitsSold, expectedRevenue });
+    }
+
+    run();
+    return () => {
+      cancelled = true;
+    };
   }, [shift, currentLocationId, requireStockCountEnabled]);
 
 
@@ -405,6 +519,35 @@ export default function ShiftPage() {
               onTotal={(total) => setClosingCash(total > 0 ? total.toFixed(2) : "")}
             />
           )}
+
+          {requireStockCountEnabled && !hideCashTotals && stockCashupSummary === "insufficient" && (
+            <div className="bg-blue-50 border border-blue-200 rounded-xl px-4 py-3 mb-4 text-sm text-blue-800">
+              Today&apos;s stock count is in, but there&apos;s no earlier count at this branch to
+              measure movement from yet — do another count tomorrow and this comparison will
+              start working.
+            </div>
+          )}
+
+          {requireStockCountEnabled && !hideCashTotals && stockCashupSummary && stockCashupSummary !== "insufficient" && (() => {
+            const variance = stockCashupSummary.expectedRevenue - totalSalesToday;
+            const tone =
+              variance > 0.01 ? "bg-red-50 border-red-200 text-red-800"
+              : variance < -0.01 ? "bg-amber-50 border-amber-200 text-amber-800"
+              : "bg-green-50 border-green-200 text-green-800";
+            return (
+              <div className={`rounded-xl border px-4 py-3 mb-4 text-sm ${tone}`}>
+                <p className="font-semibold">
+                  Expected revenue by stock take: {formatZAR(stockCashupSummary.expectedRevenue)}
+                </p>
+                <p className="mt-1">
+                  {stockCashupSummary.unitsSold} units left the shelf by stock movement today, vs{" "}
+                  {formatZAR(totalSalesToday)} recorded in sales across all payment methods.
+                  {variance > 0.01 && " Stock moved without a matching sale — check for unrung items."}
+                  {variance < -0.01 && " Recorded sales exceed stock movement — check for a missed delivery or miscount."}
+                </p>
+              </div>
+            );
+          })()}
 
           {requireStockCountEnabled && todayStockCounted === false && (
             <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-sm text-amber-800">
