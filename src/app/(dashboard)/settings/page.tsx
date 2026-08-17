@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle, ClipboardCheck } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -41,6 +41,8 @@ export default function SettingsPage() {
   const [denomCountByLocation, setDenomCountByLocation] = useState<Record<string, boolean>>({});
   // Per-branch blind cash-up: hides expected cash from cashiers at shift close.
   const [blindCashUpByLocation, setBlindCashUpByLocation] = useState<Record<string, boolean>>({});
+  // Per-branch: block Close Shift until a stock count for today exists at that branch.
+  const [requireStockCountByLocation, setRequireStockCountByLocation] = useState<Record<string, boolean>>({});
   // Per-branch cash back: lets the till hand out cash against a card payment.
   const [cashBackByLocation, setCashBackByLocation] = useState<Record<string, boolean>>({});
   // Per-branch card incentive: free item on electronic sales over a spend.
@@ -141,6 +143,22 @@ export default function SettingsPage() {
           map[row.location_id] = row.value === "true";
         });
         setBlindCashUpByLocation(map);
+      });
+  }, [locations]);
+
+  // Load the per-branch stock-count-required-to-close toggle for every branch at once.
+  useEffect(() => {
+    if (locations.length === 0) return;
+    db.from("location_settings")
+      .select("location_id, value")
+      .eq("key", "require_stock_count_for_cashup")
+      .then(({ data }: { data: { location_id: string; value: string }[] | null }) => {
+        const map: Record<string, boolean> = {};
+        locations.forEach((l) => (map[l.id] = false));
+        (data || []).forEach((row) => {
+          map[row.location_id] = row.value === "true";
+        });
+        setRequireStockCountByLocation(map);
       });
   }, [locations]);
 
@@ -380,6 +398,25 @@ export default function SettingsPage() {
       if (blindErr) {
         setSaving(false);
         alert("Failed to save blind cash-up settings: " + (blindErr.message || "Unknown error"));
+        return;
+      }
+    }
+
+    // Stock-count-required-to-close toggle — one row per branch.
+    if (locations.length > 0) {
+      const stockCountRows = locations.map((l) => ({
+        org_id: orgId,
+        location_id: l.id,
+        key: "require_stock_count_for_cashup",
+        value: (requireStockCountByLocation[l.id] ?? false) ? "true" : "false",
+        updated_at: new Date().toISOString(),
+      }));
+      const { error: scErr } = await db
+        .from("location_settings")
+        .upsert(stockCountRows, { onConflict: "location_id,key" });
+      if (scErr) {
+        setSaving(false);
+        alert("Failed to save stock count settings: " + (scErr.message || "Unknown error"));
         return;
       }
     }
@@ -811,6 +848,30 @@ export default function SettingsPage() {
             </div>
           </CollapsibleSection>
         )}
+
+        {/* Stock count required to close — per branch */}
+        <CollapsibleSection title="Stock Count Required to Close" icon={ClipboardCheck} badge={perBranchBadge}>
+          <p className="text-sm text-gray-500 mb-4">
+            Tick a branch to block Close Shift until a stock count has been done there today.
+            The cash-up figure itself is unchanged — this only makes sure the closing stock
+            take actually happened before the till is reconciled.
+          </p>
+          <div className="space-y-3">
+            {locations.map((l) => (
+              <label key={l.id} className="flex items-center gap-3 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={requireStockCountByLocation[l.id] ?? false}
+                  onChange={(e) =>
+                    setRequireStockCountByLocation((m) => ({ ...m, [l.id]: e.target.checked }))
+                  }
+                  className="w-4 h-4 text-green-600 border-gray-300 rounded focus:ring-green-500"
+                />
+                <span className="text-sm font-medium text-gray-700">{l.name}</span>
+              </label>
+            ))}
+          </div>
+        </CollapsibleSection>
 
         {/* Wholesale Mode — per branch */}
         <CollapsibleSection title="Wholesale Mode" icon={ShoppingCart} badge={perBranchBadge}>

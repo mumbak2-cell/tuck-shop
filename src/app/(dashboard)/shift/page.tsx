@@ -58,6 +58,11 @@ export default function ShiftPage() {
   // Blind cash-up: the cashier counts the till without being shown what it
   // should hold, so the manager reconciles against an unprompted figure.
   const [blindCashUpEnabled, setBlindCashUpEnabled] = useState(false);
+  // Per-branch: block Close Shift until today's stock count exists at this branch.
+  const [requireStockCountEnabled, setRequireStockCountEnabled] = useState(false);
+  // Whether today's stock count has actually been done at this branch. Null
+  // while unknown so the close button isn't wrongly blocked before it loads.
+  const [todayStockCounted, setTodayStockCounted] = useState<boolean | null>(null);
 
   const isAdmin = role === "admin";
   // Managers always see the full reconciliation — they are the ones checking it.
@@ -95,26 +100,31 @@ export default function ShiftPage() {
 
     const cachedDenom = read("denom_count");
     const cachedBlind = read("blind_cash_up");
+    const cachedRequireCount = read("require_stock_count");
     setDenomCountEnabled(cachedDenom === "true");
     // The denomination counter is a convenience, so an unknown value is simply
     // off. Blind cash-up is a control, so an unknown value hides the totals
     // rather than revealing them — a never-synced device must not leak the
     // expected cash just because it cannot reach the server.
     setBlindCashUpEnabled(cachedBlind === null ? !navigator.onLine : cachedBlind === "true");
+    setRequireStockCountEnabled(cachedRequireCount === "true");
 
     if (!navigator.onLine) return;
     db.from("location_settings")
       .select("key, value")
       .eq("location_id", currentLocationId)
-      .in("key", ["denomination_count_enabled", "blind_cash_up_enabled"])
+      .in("key", ["denomination_count_enabled", "blind_cash_up_enabled", "require_stock_count_for_cashup"])
       .then(({ data }: { data: { key: string; value: string }[] | null }) => {
         const byKey = new Map((data || []).map((r) => [r.key, r.value]));
         const denom = byKey.get("denomination_count_enabled") === "true";
         const blind = byKey.get("blind_cash_up_enabled") === "true";
+        const requireCount = byKey.get("require_stock_count_for_cashup") === "true";
         setDenomCountEnabled(denom);
         setBlindCashUpEnabled(blind);
+        setRequireStockCountEnabled(requireCount);
         write("denom_count", denom);
         write("blind_cash_up", blind);
+        write("require_stock_count", requireCount);
       });
   }, [currentLocationId]);
 
@@ -165,6 +175,25 @@ export default function ShiftPage() {
     }
   }, [shift, currentLocationId]);
 
+  // Check whether today's stock count has been done at this branch, only when
+  // the branch requires one to close. Not gated on online status the way the
+  // toggle itself is — a stale "counted" cache could let a close through with
+  // no count at all, defeating the control.
+  useEffect(() => {
+    if (!shift || shift.status !== "open" || !currentLocationId || !requireStockCountEnabled) {
+      setTodayStockCounted(null);
+      return;
+    }
+    db.from("stock_counts")
+      .select("session_id")
+      .eq("location_id", currentLocationId)
+      .eq("count_date", localToday())
+      .limit(1)
+      .then(({ data }: { data: { session_id: string }[] | null }) => {
+        setTodayStockCounted((data || []).length > 0);
+      });
+  }, [shift, currentLocationId, requireStockCountEnabled]);
+
 
   async function handleOpenShift() {
     setOpening(true);
@@ -178,6 +207,10 @@ export default function ShiftPage() {
   async function handleCloseShift() {
     if (!closingCash && closingCash !== "0") {
       alert("Please enter the closing cash amount.");
+      return;
+    }
+    if (requireStockCountEnabled && !todayStockCounted) {
+      alert("A stock count for today is required before closing this shift. Go to Stock Count first.");
       return;
     }
     setClosing(true);
@@ -373,6 +406,16 @@ export default function ShiftPage() {
             />
           )}
 
+          {requireStockCountEnabled && todayStockCounted === false && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl px-4 py-3 mb-4 text-sm text-amber-800">
+              No stock count recorded today at this branch.{" "}
+              <Link href="/stock" className="font-medium underline">
+                Do a stock count
+              </Link>{" "}
+              before closing the shift.
+            </div>
+          )}
+
           <div className="space-y-4">
             <Input
               label="Closing Cash Counted in Till"
@@ -386,6 +429,7 @@ export default function ShiftPage() {
             <Button
               onClick={handleCloseShift}
               loading={closing}
+              disabled={requireStockCountEnabled && todayStockCounted === false}
               variant="danger"
               size="lg"
               className="w-full text-base py-4"
