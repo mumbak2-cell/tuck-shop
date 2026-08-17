@@ -3,7 +3,7 @@ import { useState, useEffect } from "react";
 import { db } from "@/lib/supabase";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle, ClipboardCheck } from "lucide-react";
+import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle, ClipboardCheck, Users } from "lucide-react";
 import { useOrg } from "@/lib/org-context";
 import { SADC_CURRENCIES, DEFAULT_CURRENCY, type CurrencyCode } from "@/lib/currency";
 import { setActiveCurrency } from "@/lib/format";
@@ -30,6 +30,10 @@ export default function SettingsPage() {
   const [wmsOnly, setWmsOnly] = useState(false);
   const [stockMode, setStockMode] = useState<"per_location" | "central">("per_location");
   const [requiresShift, setRequiresShift] = useState(false);
+  // Lets the cashier till PIN view/add credit sales and record payments
+  // (Customers + Credit Ledger). No edit/delete exists in either page for
+  // any role, so this can't grant that.
+  const [cashierCreditSales, setCashierCreditSales] = useState(false);
   // Low stock report threshold (units). "5" default, admin can set 0+.
   const [lowStockThreshold, setLowStockThreshold] = useState("5");
   // Per-branch receipts toggle (location_settings). Absence of a row = enabled.
@@ -222,6 +226,7 @@ export default function SettingsPage() {
     setPreparesFood(map.prepares_food === "true");
     setStockMode(map.stock_mode === "central" ? "central" : "per_location");
     setRequiresShift(map.requires_shift === "true");
+    setCashierCreditSales(map.cashier_credit_sales === "true");
     setLowStockThreshold(map.low_stock_threshold ?? "5");
     setLoading(false);
   }
@@ -277,6 +282,7 @@ export default function SettingsPage() {
       { key: "prepares_food", value: preparesFood ? "true" : "false" },
       { key: "stock_mode", value: stockMode },
       { key: "requires_shift", value: requiresShift ? "true" : "false" },
+      { key: "cashier_credit_sales", value: cashierCreditSales ? "true" : "false" },
       {
         key: "low_stock_threshold",
         value: String(Math.max(0, Number(lowStockThreshold) || 0)),
@@ -687,6 +693,29 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500 mt-1">
                 When enabled, cashiers must open a shift before they can make sales.
                 The shift tracks opening float, closing cash, and daily reconciliation.
+              </p>
+            </div>
+          </label>
+        </CollapsibleSection>
+
+        {/* Cashier credit sales access — org-wide */}
+        <CollapsibleSection title="Cashier Credit Sales Access" icon={Users}>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={cashierCreditSales}
+              onChange={(e) => setCashierCreditSales(e.target.checked)}
+              className="mt-1 w-4 h-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+            />
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                Let the cashier PIN view and add credit sales / payments
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Opens the Customers and Credit Ledger pages to the cashier till PIN —
+                view balances, record a new customer payment, and see credit sale
+                history. Neither page has any edit or delete action for a transaction,
+                for any role, so this cannot be used to alter or remove one.
               </p>
             </div>
           </label>

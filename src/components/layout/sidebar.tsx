@@ -54,6 +54,9 @@ interface NavItem {
   // Collapsible section this item belongs to. Ungrouped items (Dashboard,
   // Settings) stay pinned above/below the groups.
   group?: "shop" | "warehouse";
+  // Cashier till PIN only sees this item when the org's cashier-credit-sales
+  // setting is on, even though "cashier" is in `roles`.
+  cashierGated?: boolean;
 }
 
 const navItems: NavItem[] = [
@@ -68,9 +71,9 @@ const navItems: NavItem[] = [
   { href: "/stock-transfers", label: "Stock Transfers", icon: ArrowRightLeft, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/products", label: "Products", icon: Package, roles: ["admin"], retailOnly: true, group: "shop" },
   { href: "/ingredients", label: "Ingredients", icon: Egg, roles: ["admin"], foodOnly: true, group: "shop" },
-  { href: "/customers", label: "Customers", icon: Users, roles: ["admin"], group: "shop" },
+  { href: "/customers", label: "Customers", icon: Users, roles: ["admin", "cashier"], cashierGated: true, group: "shop" },
   { href: "/expenses", label: "Expenses", icon: Receipt, roles: ["admin", "cashier"], group: "shop" },
-  { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin"], group: "shop" },
+  { href: "/credit-ledger", label: "Credit Ledger", icon: BookOpen, roles: ["admin", "cashier"], cashierGated: true, group: "shop" },
   { href: "/reports", label: "Reports", icon: TrendingUp, roles: ["admin"], group: "shop" },
   { href: "/profit-loss", label: "Profit & Loss", icon: FileBarChart, roles: ["admin"], group: "shop" },
   { href: "/promotions", label: "Promotions", icon: Percent, roles: ["admin"], retailOnly: true, group: "shop" },
@@ -198,7 +201,7 @@ export function Sidebar() {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const { role, name, logout } = useAuth();
-  const { preparesFood, wmsEnabled, wmsOnly, orgId } = useOrg();
+  const { preparesFood, wmsEnabled, wmsOnly, orgId, cashierCreditSales } = useOrg();
   const { count: pendingStockCounts } = usePendingStockCounts();
   const badges: Record<string, number> = { "/stock": pendingStockCounts };
 
@@ -207,6 +210,7 @@ export function Sidebar() {
     if (item.foodOnly && !preparesFood) return false;
     if (item.wmsOnly && !wmsEnabled) return false;
     if (item.retailOnly && wmsOnly) return false;
+    if (item.cashierGated && role === "cashier" && !cashierCreditSales) return false;
     return true;
   });
 

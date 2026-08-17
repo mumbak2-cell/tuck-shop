@@ -79,6 +79,10 @@ export interface OrgState {
   // Sales workflow flexibility
   requiresShift: boolean;
   requiresStockCountToClose: boolean;
+  // Cashier till PIN can view/add credit sales and record customer payments
+  // (Customers + Credit Ledger pages). Never grants edit/delete — no such
+  // capability exists in those pages for any role.
+  cashierCreditSales: boolean;
   // Stock mode: "per_location" (each shop holds its own stock) or
   // "central" (McDonald's pattern — one shared pool across shops).
   // Default per_location. Behavior is identical under the hood; this
@@ -171,6 +175,7 @@ const DEFAULT_STATE: OrgState = {
   shopType: null,
   requiresShift: false,
   requiresStockCountToClose: false,
+  cashierCreditSales: false,
   stockMode: "per_location",
   tpin: null,
   vatPercent: null,
@@ -284,6 +289,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
         "shop_type",
         "requires_shift",
         "requires_stock_count_to_close",
+        "cashier_credit_sales",
         "stock_mode",
         "wms_enabled",
         "wms_only",
@@ -335,6 +341,7 @@ export function OrgProvider({ children }: { children: ReactNode }) {
       shopType: settingsMap.shop_type ?? null,
       requiresShift: settingsMap.requires_shift === "true",
       requiresStockCountToClose: settingsMap.requires_stock_count_to_close === "true",
+      cashierCreditSales: settingsMap.cashier_credit_sales === "true",
       stockMode: settingsMap.stock_mode === "central" ? "central" : "per_location",
       tpin: org?.tpin ?? null,
       vatPercent: org?.vat_percent != null ? Number(org.vat_percent) : null,
