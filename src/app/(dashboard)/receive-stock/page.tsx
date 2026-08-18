@@ -196,58 +196,34 @@ export default function ReceiveStockPage() {
       const { error: iErr } = await db.from("stock_receipt_items").insert(items);
       if (iErr) throw iErr;
 
-      // 3. Increment stock for each line (packs × qty_in_pack = total units)
-      // Per-location: stock goes into product_stock for the current location.
-      // Falls back to org-wide add_product_stock if the location-aware RPC
-      // is missing (migration 024 has not yet run).
+      // 3. Increment stock for each line — retry once on failure, collect
+      // any items that still fail so the user knows exactly what to fix.
+      const failedItems: string[] = [];
       for (const l of lines) {
         if (l.type === "product") {
           const totalUnits = Math.round((l.quantity as number) * l.qtyInPack);
-          let locOk = false;
-          if (currentLocationId) {
-            const { error: locErr } = await db.rpc("add_product_stock_at_location", {
-              p_product_id: l.itemId,
-              p_quantity: totalUnits,
-              p_location_id: currentLocationId,
-            });
-            if (!locErr) locOk = true;
+          if (!currentLocationId) {
+            failedItems.push(l.itemName + " (no branch selected)");
+            continue;
           }
-          if (locOk) continue;
-          // Legacy fallback: org-wide
-          const { error } = await db.rpc("add_product_stock", {
+          const rpcArgs = {
             p_product_id: l.itemId,
             p_quantity: totalUnits,
-          });
-          if (error) {
-            const { data: prod } = await db
-              .from("products")
-              .select("opening_stock")
-              .eq("id", l.itemId)
-              .single();
-            if (prod) {
-              await db
-                .from("products")
-                .update({ opening_stock: (prod.opening_stock || 0) + totalUnits })
-                .eq("id", l.itemId);
-            }
+            p_location_id: currentLocationId,
+          };
+          const { error: err1 } = await db.rpc("add_product_stock_at_location", rpcArgs);
+          if (err1) {
+            await new Promise((r) => setTimeout(r, 500));
+            const { error: err2 } = await db.rpc("add_product_stock_at_location", rpcArgs);
+            if (err2) failedItems.push(l.itemName);
           }
         } else {
-          const { error } = await db.rpc("add_ingredient_stock", {
-            p_ingredient_id: l.itemId,
-            p_quantity: l.quantity,
-          });
-          if (error) {
-            const { data: ing } = await db
-              .from("ingredients")
-              .select("current_stock")
-              .eq("id", l.itemId)
-              .single();
-            if (ing) {
-              await db
-                .from("ingredients")
-                .update({ current_stock: (ing.current_stock || 0) + l.quantity })
-                .eq("id", l.itemId);
-            }
+          const rpcArgs = { p_ingredient_id: l.itemId, p_quantity: l.quantity };
+          const { error: err1 } = await db.rpc("add_ingredient_stock", rpcArgs);
+          if (err1) {
+            await new Promise((r) => setTimeout(r, 500));
+            const { error: err2 } = await db.rpc("add_ingredient_stock", rpcArgs);
+            if (err2) failedItems.push(l.itemName);
           }
         }
       }
@@ -270,14 +246,22 @@ export default function ReceiveStockPage() {
         });
       }
 
-      setSuccess(true);
+      if (failedItems.length > 0) {
+        alert(
+          "Receipt saved but stock did NOT update for:\n\n" +
+          failedItems.join("\n") +
+          "\n\nPlease adjust stock manually for these items or re-enter them."
+        );
+      }
+
+      setSuccess(failedItems.length === 0);
       setLines([]);
       setSupplier("");
       setNotes("");
       setReceiptPath(null);
       setPreparedFood(false);
       loadData();
-      setTimeout(() => setSuccess(false), 3000);
+      if (failedItems.length === 0) setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
       const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || "Unknown error";
       alert("Error saving receipt: " + msg);
