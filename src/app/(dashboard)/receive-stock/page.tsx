@@ -7,7 +7,7 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
-import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat } from "lucide-react";
+import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat, ChevronDown, ChevronRight, Pencil, Check, X } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
@@ -20,7 +20,7 @@ interface ReceiptLine {
   itemId: string;
   itemName: string;
   inventoryId?: string;
-  quantity: number;
+  quantity: number | "";
   unitCost: number;
   qtyInPack: number; // units per pack (products only, 1 for ingredients)
 }
@@ -35,8 +35,19 @@ interface PastReceipt {
   created_at: string;
 }
 
+interface ReceiptItemRow {
+  id: string;
+  product_id: string | null;
+  ingredient_id: string | null;
+  quantity: number;
+  unit_cost: number;
+  line_total: number;
+  item_name: string;
+  item_type: "product" | "ingredient";
+}
+
 export default function ReceiveStockPage() {
-  const { name } = useAuth();
+  const { name, role } = useAuth();
   const { currentLocationId, currentLocationName, orgId } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
@@ -56,6 +67,12 @@ export default function ReceiveStockPage() {
   const [receiptPath, setReceiptPath] = useState<string | null>(null);
   const [preparedFood, setPreparedFood] = useState(false);
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+  const [expandedReceipt, setExpandedReceipt] = useState<string | null>(null);
+  const [receiptItems, setReceiptItems] = useState<Record<string, ReceiptItemRow[]>>({});
+  const [editingReceipt, setEditingReceipt] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState<Record<string, { quantity: number; unit_cost: number }>>({});
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [attachingReceipt, setAttachingReceipt] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -83,7 +100,7 @@ export default function ReceiveStockPage() {
     );
     if (existing) {
       setLines(lines.map((l) =>
-        l.id === existing.id ? { ...l, quantity: l.quantity + 1 } : l
+        l.id === existing.id ? { ...l, quantity: (typeof l.quantity === "number" ? l.quantity : 0) + 1 } : l
       ));
     } else {
       const unitCost = type === "product"
@@ -98,7 +115,7 @@ export default function ReceiveStockPage() {
           itemId: item.id,
           itemName: item.name,
           inventoryId: type === "product" ? (item as Product).inventory_id : undefined,
-          quantity: 1,
+          quantity: "",
           unitCost,
           qtyInPack,
         },
@@ -108,7 +125,7 @@ export default function ReceiveStockPage() {
     setSearch("");
   }
 
-  function updateLine(id: string, field: "quantity" | "unitCost", value: number) {
+  function updateLine(id: string, field: "quantity" | "unitCost", value: number | "") {
     setLines(lines.map((l) => (l.id === id ? { ...l, [field]: value } : l)));
   }
 
@@ -118,10 +135,15 @@ export default function ReceiveStockPage() {
 
   const totalCost = preparedFood
     ? 0
-    : lines.reduce((sum, l) => sum + l.quantity * l.unitCost, 0);
+    : lines.reduce((sum, l) => sum + (typeof l.quantity === "number" ? l.quantity : 0) * l.unitCost, 0);
 
   async function handleSave() {
     if (lines.length === 0) return;
+    const hasBlank = lines.some((l) => l.quantity === "" || l.quantity <= 0);
+    if (hasBlank) {
+      alert("Every item needs a quantity greater than zero.");
+      return;
+    }
     setSaving(true);
     setSuccess(false);
 
@@ -180,7 +202,7 @@ export default function ReceiveStockPage() {
       // is missing (migration 024 has not yet run).
       for (const l of lines) {
         if (l.type === "product") {
-          const totalUnits = Math.round(l.quantity * l.qtyInPack);
+          const totalUnits = Math.round((l.quantity as number) * l.qtyInPack);
           let locOk = false;
           if (currentLocationId) {
             const { error: locErr } = await db.rpc("add_product_stock_at_location", {
@@ -262,6 +284,79 @@ export default function ReceiveStockPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function toggleExpand(receiptId: string) {
+    if (expandedReceipt === receiptId) {
+      setExpandedReceipt(null);
+      setEditingReceipt(null);
+      return;
+    }
+    setExpandedReceipt(receiptId);
+    setEditingReceipt(null);
+    if (receiptItems[receiptId]) return;
+    const { data } = await db
+      .from("stock_receipt_items")
+      .select("id, product_id, ingredient_id, quantity, unit_cost, line_total, products(name), ingredients(name)")
+      .eq("receipt_id", receiptId);
+    if (data) {
+      const rows: ReceiptItemRow[] = data.map((d: Record<string, unknown>) => ({
+        id: d.id as string,
+        product_id: d.product_id as string | null,
+        ingredient_id: d.ingredient_id as string | null,
+        quantity: d.quantity as number,
+        unit_cost: d.unit_cost as number,
+        line_total: d.line_total as number,
+        item_name: (d.products as { name: string } | null)?.name || (d.ingredients as { name: string } | null)?.name || "Unknown",
+        item_type: d.product_id ? "product" as const : "ingredient" as const,
+      }));
+      setReceiptItems((prev) => ({ ...prev, [receiptId]: rows }));
+    }
+  }
+
+  function startEdit(receiptId: string, items: ReceiptItemRow[]) {
+    setEditingReceipt(receiptId);
+    const draft: Record<string, { quantity: number; unit_cost: number }> = {};
+    for (const it of items) {
+      draft[it.id] = { quantity: it.quantity, unit_cost: it.unit_cost };
+    }
+    setEditDraft(draft);
+  }
+
+  async function saveEdit(receiptId: string) {
+    setSavingEdit(true);
+    try {
+      for (const [itemId, vals] of Object.entries(editDraft)) {
+        await db
+          .from("stock_receipt_items")
+          .update({ quantity: vals.quantity, unit_cost: vals.unit_cost })
+          .eq("id", itemId);
+      }
+      const newTotal = Object.values(editDraft).reduce((s, v) => s + v.quantity * v.unit_cost, 0);
+      await db.from("stock_receipts").update({ total_cost: newTotal }).eq("id", receiptId);
+      setReceiptItems((prev) => {
+        const updated = prev[receiptId]?.map((it) => {
+          const d = editDraft[it.id];
+          if (!d) return it;
+          return { ...it, quantity: d.quantity, unit_cost: d.unit_cost, line_total: d.quantity * d.unit_cost };
+        });
+        return { ...prev, [receiptId]: updated || [] };
+      });
+      setHistory((prev) => prev.map((r) => r.id === receiptId ? { ...r, total_cost: newTotal } : r));
+      setEditingReceipt(null);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || "Unknown error";
+      alert("Error saving changes: " + msg);
+    } finally {
+      setSavingEdit(false);
+    }
+  }
+
+  async function handleAttachReceipt(receiptId: string, path: string | null) {
+    if (!path) return;
+    await db.from("stock_receipts").update({ receipt_path: path }).eq("id", receiptId);
+    setHistory((prev) => prev.map((r) => r.id === receiptId ? { ...r, receipt_path: path } : r));
+    setAttachingReceipt(null);
   }
 
   // Filter items for picker — split products into purchased vs prepared
@@ -456,7 +551,7 @@ export default function ReceiveStockPage() {
                         </span>
                         {l.type === "product" && l.qtyInPack > 1 && (
                           <span className="block text-xs text-gray-400 mt-0.5">
-                            {l.quantity} pack{l.quantity !== 1 ? "s" : ""} × {l.qtyInPack} = {Math.round(l.quantity * l.qtyInPack)} units
+                            {l.quantity || 0} pack{l.quantity !== 1 ? "s" : ""} × {l.qtyInPack} = {Math.round((typeof l.quantity === "number" ? l.quantity : 0) * l.qtyInPack)} units
                           </span>
                         )}
                       </td>
@@ -466,7 +561,12 @@ export default function ReceiveStockPage() {
                           min="0"
                           step={l.type === "ingredient" ? "0.01" : "1"}
                           value={l.quantity}
-                          onChange={(e) => updateLine(l.id, "quantity", parseFloat(e.target.value) || 0)}
+                          placeholder="0"
+                          onChange={(e) => {
+                            const raw = e.target.value;
+                            if (raw === "") { updateLine(l.id, "quantity", ""); return; }
+                            updateLine(l.id, "quantity", parseFloat(raw) || 0);
+                          }}
                           className="w-full text-center border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                         />
                       </td>
@@ -480,7 +580,7 @@ export default function ReceiveStockPage() {
                           className="w-full text-center border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
                         />
                       </td>
-                      <td className="px-4 py-3 text-right font-medium">{formatZAR(l.quantity * l.unitCost)}</td>
+                      <td className="px-4 py-3 text-right font-medium">{formatZAR((typeof l.quantity === "number" ? l.quantity : 0) * l.unitCost)}</td>
                       <td className="px-2 py-3">
                         <Tooltip label="Remove item">
                           <button
@@ -577,30 +677,160 @@ export default function ReceiveStockPage() {
               <p>No stock receipts recorded yet.</p>
             </div>
           ) : (
-            history.map((r) => (
-              <div key={r.id} className="bg-white border border-gray-200 rounded-xl px-5 py-4 flex items-center justify-between">
-                <div>
-                  <p className="font-medium text-gray-900">{r.supplier || "No supplier"}</p>
-                  <p className="text-sm text-gray-500">
-                    {formatDate(r.receipt_date)} · Recorded by {r.recorded_by || "Unknown"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-3">
-                  <p className="text-lg font-bold text-gray-900">{formatZAR(r.total_cost)}</p>
-                  {r.receipt_path && (
-                    <Tooltip label="View receipt">
-                      <button
-                        onClick={() => setViewingReceipt(r.receipt_path)}
-                        aria-label="View receipt"
-                        className="p-1.5 text-gray-400 hover:text-green-600 rounded"
-                      >
-                        <Paperclip className="w-4 h-4" />
-                      </button>
-                    </Tooltip>
+            history.map((r) => {
+              const isExpanded = expandedReceipt === r.id;
+              const items = receiptItems[r.id] || [];
+              const isEditing = editingReceipt === r.id;
+              const isAdmin = role === "admin";
+              return (
+                <div key={r.id} className="bg-white border border-gray-200 rounded-xl overflow-hidden">
+                  <button
+                    onClick={() => toggleExpand(r.id)}
+                    className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition-colors"
+                  >
+                    <div className="flex items-center gap-3">
+                      {isExpanded
+                        ? <ChevronDown className="w-4 h-4 text-gray-400 shrink-0" />
+                        : <ChevronRight className="w-4 h-4 text-gray-400 shrink-0" />}
+                      <div>
+                        <p className="font-medium text-gray-900">{r.supplier || "No supplier"}</p>
+                        <p className="text-sm text-gray-500">
+                          {formatDate(r.receipt_date)} · {r.recorded_by || "Unknown"}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <p className="text-lg font-bold text-gray-900">{formatZAR(r.total_cost)}</p>
+                      {r.receipt_path && (
+                        <Tooltip label="View receipt">
+                          <span
+                            onClick={(e) => { e.stopPropagation(); setViewingReceipt(r.receipt_path); }}
+                            className="p-1.5 text-gray-400 hover:text-green-600 rounded"
+                          >
+                            <Paperclip className="w-4 h-4" />
+                          </span>
+                        </Tooltip>
+                      )}
+                    </div>
+                  </button>
+
+                  {isExpanded && (
+                    <div className="border-t border-gray-100 px-5 py-3">
+                      {items.length === 0 ? (
+                        <p className="text-sm text-gray-400 py-2">Loading items...</p>
+                      ) : (
+                        <>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-left text-gray-500 text-xs uppercase tracking-wide">
+                                <th className="pb-2 font-medium">Item</th>
+                                <th className="pb-2 font-medium text-center">Qty</th>
+                                <th className="pb-2 font-medium text-right">Unit Cost</th>
+                                <th className="pb-2 font-medium text-right">Total</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {items.map((it) => (
+                                <tr key={it.id} className="border-t border-gray-50">
+                                  <td className="py-2 text-gray-900">
+                                    {it.item_name}
+                                    <span className="ml-1.5 text-xs text-gray-400">
+                                      ({it.item_type === "product" ? "Product" : "Ingredient"})
+                                    </span>
+                                  </td>
+                                  <td className="py-2 text-center">
+                                    {isEditing ? (
+                                      <input
+                                        type="number"
+                                        min="0.01"
+                                        step="0.01"
+                                        value={editDraft[it.id]?.quantity ?? it.quantity}
+                                        onChange={(e) => setEditDraft((prev) => ({
+                                          ...prev,
+                                          [it.id]: { ...prev[it.id], quantity: parseFloat(e.target.value) || 0 },
+                                        }))}
+                                        className="w-20 text-center border border-gray-300 rounded px-1 py-0.5 text-sm"
+                                      />
+                                    ) : it.quantity}
+                                  </td>
+                                  <td className="py-2 text-right">
+                                    {isEditing ? (
+                                      <input
+                                        type="number"
+                                        min="0"
+                                        step="0.01"
+                                        value={editDraft[it.id]?.unit_cost ?? it.unit_cost}
+                                        onChange={(e) => setEditDraft((prev) => ({
+                                          ...prev,
+                                          [it.id]: { ...prev[it.id], unit_cost: parseFloat(e.target.value) || 0 },
+                                        }))}
+                                        className="w-24 text-right border border-gray-300 rounded px-1 py-0.5 text-sm"
+                                      />
+                                    ) : formatZAR(it.unit_cost)}
+                                  </td>
+                                  <td className="py-2 text-right font-medium">
+                                    {isEditing
+                                      ? formatZAR((editDraft[it.id]?.quantity ?? it.quantity) * (editDraft[it.id]?.unit_cost ?? it.unit_cost))
+                                      : formatZAR(it.line_total)}
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+
+                          {isAdmin && (
+                            <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                              {isEditing ? (
+                                <>
+                                  <Button size="sm" onClick={() => saveEdit(r.id)} loading={savingEdit}>
+                                    <Check className="w-3.5 h-3.5 mr-1" /> Save
+                                  </Button>
+                                  <button
+                                    onClick={() => setEditingReceipt(null)}
+                                    className="text-sm text-gray-500 hover:text-gray-700 px-2 py-1"
+                                  >
+                                    Cancel
+                                  </button>
+                                </>
+                              ) : (
+                                <button
+                                  onClick={() => startEdit(r.id, items)}
+                                  className="text-sm text-gray-500 hover:text-green-600 flex items-center gap-1"
+                                >
+                                  <Pencil className="w-3.5 h-3.5" /> Edit
+                                </button>
+                              )}
+                              {!r.receipt_path && !isEditing && (
+                                <>
+                                  {attachingReceipt === r.id ? (
+                                    <div className="flex items-center gap-2 ml-auto">
+                                      <ReceiptUpload orgId={orgId!} onUploaded={(path) => handleAttachReceipt(r.id, path)} />
+                                      <button
+                                        onClick={() => setAttachingReceipt(null)}
+                                        className="text-sm text-gray-400 hover:text-gray-600"
+                                      >
+                                        <X className="w-4 h-4" />
+                                      </button>
+                                    </div>
+                                  ) : (
+                                    <button
+                                      onClick={() => setAttachingReceipt(r.id)}
+                                      className="text-sm text-gray-500 hover:text-green-600 flex items-center gap-1 ml-auto"
+                                    >
+                                      <Paperclip className="w-3.5 h-3.5" /> Attach receipt
+                                    </button>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      )}
+                    </div>
                   )}
                 </div>
-              </div>
-            ))
+              );
+            })
           )}
         </div>
       )}
