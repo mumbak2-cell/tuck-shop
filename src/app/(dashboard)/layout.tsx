@@ -9,6 +9,7 @@ import { useAuth } from "@/lib/auth-context";
 import { useOrg, hasEverHadOrg } from "@/lib/org-context";
 import { signOutSafely } from "@/lib/sign-out";
 import { useOnline } from "@/lib/use-online";
+import { WelcomeModal } from "@/components/layout/welcome-modal";
 import { WifiOff } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -134,6 +135,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           {children}
         </div>
       </main>
+      <WelcomeModal />
     </div>
   );
 }

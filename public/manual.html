@@ -1,0 +1,2113 @@
+﻿<title>Tilify User Manual</title>
+<style>
+  /* ── Fonts ── */
+  @font-face {
+    font-family: 'Manual Display';
+    src: local('Palatino Linotype'), local('Palatino'), local('Georgia');
+    font-weight: 400 700;
+  }
+
+  /* ── Tokens ── */
+  :root {
+    --c-primary: #1A6B5A;
+    --c-primary-soft: #E4F0EC;
+    --c-accent: #D4882E;
+    --c-accent-soft: #FDF3E6;
+    --c-surface: #FAF9F5;
+    --c-surface-raised: #FFFFFF;
+    --c-surface-inset: #F0EFE9;
+    --c-text: #2A2D35;
+    --c-text-secondary: #6B7264;
+    --c-text-tertiary: #9B9D94;
+    --c-border: #E2E0D8;
+    --c-border-strong: #C8C5BB;
+    --c-danger: #C0392B;
+    --c-danger-soft: #FDECEA;
+    --c-warning: #D4882E;
+    --c-warning-soft: #FDF3E6;
+    --c-success: #1A6B5A;
+    --c-success-soft: #E4F0EC;
+    --c-sidebar: #1E2A26;
+    --c-sidebar-text: #C8D5CF;
+    --c-sidebar-active: #2A4A3F;
+    --c-mockup-bg: #F5F4F0;
+    --c-mockup-header: #FFFFFF;
+    --c-mockup-sidebar: #1E2A26;
+    --c-shadow: rgba(42,45,53,0.08);
+    --c-shadow-lg: rgba(42,45,53,0.12);
+    --ff-display: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
+    --ff-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    --ff-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
+    --fs-xs: 0.75rem;
+    --fs-sm: 0.8125rem;
+    --fs-base: 0.9375rem;
+    --fs-md: 1.0625rem;
+    --fs-lg: 1.25rem;
+    --fs-xl: 1.5rem;
+    --fs-2xl: 1.875rem;
+    --fs-3xl: 2.25rem;
+    --lh-tight: 1.25;
+    --lh-normal: 1.6;
+    --space-xs: 0.375rem;
+    --space-sm: 0.625rem;
+    --space-md: 1rem;
+    --space-lg: 1.5rem;
+    --space-xl: 2.5rem;
+    --space-2xl: 4rem;
+    --radius: 6px;
+    --radius-lg: 10px;
+    --toc-width: 260px;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --c-primary: #3DAF8E;
+      --c-primary-soft: #1C3029;
+      --c-accent: #E8A84C;
+      --c-accent-soft: #332A1A;
+      --c-surface: #181B20;
+      --c-surface-raised: #22262D;
+      --c-surface-inset: #13161A;
+      --c-text: #E0DDD6;
+      --c-text-secondary: #9DA498;
+      --c-text-tertiary: #6B6E64;
+      --c-border: #2E3238;
+      --c-border-strong: #3E4248;
+      --c-danger: #E05A4E;
+      --c-danger-soft: #2D1A18;
+      --c-warning: #E8A84C;
+      --c-warning-soft: #332A1A;
+      --c-success: #3DAF8E;
+      --c-success-soft: #1C3029;
+      --c-sidebar: #12161A;
+      --c-sidebar-text: #9DA498;
+      --c-sidebar-active: #1C3029;
+      --c-mockup-bg: #1A1D22;
+      --c-mockup-header: #22262D;
+      --c-mockup-sidebar: #12161A;
+      --c-shadow: rgba(0,0,0,0.25);
+      --c-shadow-lg: rgba(0,0,0,0.35);
+    }
+  }
+  :root[data-theme="dark"] {
+    --c-primary: #3DAF8E;
+    --c-primary-soft: #1C3029;
+    --c-accent: #E8A84C;
+    --c-accent-soft: #332A1A;
+    --c-surface: #181B20;
+    --c-surface-raised: #22262D;
+    --c-surface-inset: #13161A;
+    --c-text: #E0DDD6;
+    --c-text-secondary: #9DA498;
+    --c-text-tertiary: #6B6E64;
+    --c-border: #2E3238;
+    --c-border-strong: #3E4248;
+    --c-danger: #E05A4E;
+    --c-danger-soft: #2D1A18;
+    --c-warning: #E8A84C;
+    --c-warning-soft: #332A1A;
+    --c-success: #3DAF8E;
+    --c-success-soft: #1C3029;
+    --c-sidebar: #12161A;
+    --c-sidebar-text: #9DA498;
+    --c-sidebar-active: #1C3029;
+    --c-mockup-bg: #1A1D22;
+    --c-mockup-header: #22262D;
+    --c-mockup-sidebar: #12161A;
+    --c-shadow: rgba(0,0,0,0.25);
+    --c-shadow-lg: rgba(0,0,0,0.35);
+  }
+
+  /* ── Reset & Base ── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--ff-body);
+    font-size: var(--fs-base);
+    line-height: var(--lh-normal);
+    color: var(--c-text);
+    background: var(--c-surface);
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Layout ── */
+  .manual-wrapper {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  /* ── Table of Contents Sidebar ── */
+  .toc {
+    position: fixed;
+    top: 0; left: 0;
+    width: var(--toc-width);
+    height: 100vh;
+    background: var(--c-sidebar);
+    overflow-y: auto;
+    z-index: 100;
+    display: flex;
+    flex-direction: column;
+    scrollbar-width: thin;
+    scrollbar-color: var(--c-sidebar-active) transparent;
+  }
+  .toc-header {
+    padding: var(--space-lg);
+    border-bottom: 1px solid rgba(255,255,255,0.08);
+    flex-shrink: 0;
+  }
+  .toc-logo {
+    font-family: var(--ff-display);
+    font-size: var(--fs-xl);
+    font-weight: 700;
+    color: #FFFFFF;
+    letter-spacing: -0.02em;
+  }
+  .toc-logo span { color: var(--c-accent); }
+  .toc-subtitle {
+    font-size: var(--fs-xs);
+    color: var(--c-sidebar-text);
+    margin-top: var(--space-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+  }
+  .toc-nav { padding: var(--space-md) 0; flex: 1; }
+  .toc-link {
+    display: block;
+    padding: var(--space-sm) var(--space-lg);
+    color: var(--c-sidebar-text);
+    text-decoration: none;
+    font-size: var(--fs-sm);
+    transition: all 0.15s;
+    border-left: 3px solid transparent;
+  }
+  .toc-link:hover, .toc-link:focus-visible {
+    background: var(--c-sidebar-active);
+    color: #FFFFFF;
+    border-left-color: var(--c-primary);
+  }
+  .toc-section-label {
+    padding: var(--space-md) var(--space-lg) var(--space-xs);
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    font-weight: 600;
+  }
+  .toc-footer {
+    padding: var(--space-md) var(--space-lg);
+    border-top: 1px solid rgba(255,255,255,0.08);
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    flex-shrink: 0;
+  }
+
+  /* ── Mobile TOC toggle ── */
+  .toc-toggle {
+    display: none;
+    position: fixed;
+    top: var(--space-md);
+    left: var(--space-md);
+    z-index: 200;
+    width: 40px; height: 40px;
+    border-radius: var(--radius);
+    border: 1px solid var(--c-border);
+    background: var(--c-surface-raised);
+    color: var(--c-text);
+    cursor: pointer;
+    font-size: 18px;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 8px var(--c-shadow);
+  }
+  .toc-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.4);
+    z-index: 90;
+  }
+
+  /* ── Main Content ── */
+  .main {
+    margin-left: var(--toc-width);
+    flex: 1;
+    min-width: 0;
+  }
+  .content {
+    max-width: 820px;
+    margin: 0 auto;
+    padding: var(--space-2xl) var(--space-xl);
+  }
+
+  /* ── Hero ── */
+  .hero {
+    text-align: center;
+    padding: var(--space-2xl) var(--space-lg);
+    margin-bottom: var(--space-2xl);
+    border-bottom: 1px solid var(--c-border);
+  }
+  .hero-logo {
+    max-width: 280px;
+    height: auto;
+    margin-bottom: var(--space-lg);
+    border-radius: 12px;
+  }
+  .hero h1 {
+    font-family: var(--ff-display);
+    font-size: var(--fs-3xl);
+    font-weight: 700;
+    color: var(--c-text);
+    letter-spacing: -0.02em;
+    text-wrap: balance;
+    margin-bottom: var(--space-sm);
+  }
+  .hero p {
+    font-size: var(--fs-md);
+    color: var(--c-text-secondary);
+    max-width: 540px;
+    margin: 0 auto;
+  }
+
+  /* ── Sections ── */
+  .section {
+    margin-bottom: var(--space-2xl);
+    scroll-margin-top: var(--space-xl);
+  }
+  .section-number {
+    font-family: var(--ff-display);
+    font-size: var(--fs-sm);
+    color: var(--c-primary);
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    margin-bottom: var(--space-xs);
+  }
+  .section h2 {
+    font-family: var(--ff-display);
+    font-size: var(--fs-2xl);
+    font-weight: 700;
+    color: var(--c-text);
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin-bottom: var(--space-md);
+    line-height: var(--lh-tight);
+  }
+  .section h3 {
+    font-family: var(--ff-display);
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--c-text);
+    margin-top: var(--space-xl);
+    margin-bottom: var(--space-md);
+  }
+  .section p {
+    margin-bottom: var(--space-md);
+    color: var(--c-text);
+  }
+
+  /* ── Steps ── */
+  .steps {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-md);
+    margin: var(--space-lg) 0;
+  }
+  .step {
+    display: flex;
+    gap: var(--space-md);
+    align-items: flex-start;
+  }
+  .step-num {
+    flex-shrink: 0;
+    width: 28px; height: 28px;
+    background: var(--c-primary);
+    color: #FFFFFF;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    margin-top: 1px;
+  }
+  .step-body { flex: 1; }
+  .step-body strong { color: var(--c-text); }
+
+  /* ── Callouts ── */
+  .callout {
+    display: flex;
+    gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    border-radius: var(--radius-lg);
+    margin: var(--space-lg) 0;
+    font-size: var(--fs-sm);
+    line-height: var(--lh-normal);
+  }
+  .callout-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
+  .callout-tip {
+    background: var(--c-success-soft);
+    border: 1px solid var(--c-primary);
+  }
+  .callout-warn {
+    background: var(--c-warning-soft);
+    border: 1px solid var(--c-accent);
+  }
+  .callout-danger {
+    background: var(--c-danger-soft);
+    border: 1px solid var(--c-danger);
+  }
+
+  /* ── Screen Mockups ── */
+  .mockup {
+    border: 1px solid var(--c-border-strong);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+    margin: var(--space-lg) 0;
+    box-shadow: 0 4px 20px var(--c-shadow-lg);
+    background: var(--c-mockup-bg);
+  }
+  .mockup-bar {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 12px;
+    background: var(--c-mockup-header);
+    border-bottom: 1px solid var(--c-border);
+  }
+  .mockup-dot {
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    background: var(--c-border-strong);
+  }
+  .mockup-bar-title {
+    margin-left: 8px;
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    font-weight: 500;
+  }
+  .mockup-body {
+    display: flex;
+    min-height: 320px;
+  }
+  .mockup-sidebar {
+    width: 180px;
+    background: var(--c-mockup-sidebar);
+    padding: var(--space-md) 0;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .mockup-nav-item {
+    padding: 6px 14px;
+    font-size: var(--fs-xs);
+    color: var(--c-sidebar-text);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .mockup-nav-item.active {
+    background: var(--c-sidebar-active);
+    color: #FFFFFF;
+    border-left: 3px solid var(--c-primary);
+    padding-left: 11px;
+  }
+  .mockup-nav-icon {
+    width: 14px; height: 14px;
+    border-radius: 3px;
+    background: currentColor;
+    opacity: 0.3;
+    flex-shrink: 0;
+  }
+  .mockup-content {
+    flex: 1;
+    padding: var(--space-lg);
+    overflow-x: auto;
+  }
+  .mockup-page-title {
+    font-family: var(--ff-body);
+    font-size: var(--fs-md);
+    font-weight: 700;
+    color: var(--c-text);
+    margin-bottom: var(--space-md);
+  }
+
+  /* ── Mockup inner elements ── */
+  .m-row { display: flex; gap: var(--space-md); margin-bottom: var(--space-md); flex-wrap: wrap; }
+  .m-card {
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    padding: var(--space-md);
+    flex: 1;
+    min-width: 120px;
+  }
+  .m-card-label {
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    margin-bottom: 4px;
+  }
+  .m-card-value {
+    font-size: var(--fs-lg);
+    font-weight: 700;
+    color: var(--c-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .m-card-value.green { color: var(--c-success); }
+  .m-card-value.amber { color: var(--c-accent); }
+  .m-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 5px 12px;
+    font-size: var(--fs-xs);
+    border-radius: var(--radius);
+    border: 1px solid var(--c-border);
+    background: var(--c-surface-raised);
+    color: var(--c-text);
+    font-weight: 500;
+  }
+  .m-btn.primary {
+    background: var(--c-primary);
+    color: #FFFFFF;
+    border-color: var(--c-primary);
+  }
+  .m-btn.danger {
+    background: var(--c-danger);
+    color: #FFFFFF;
+    border-color: var(--c-danger);
+  }
+  .m-search {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    font-size: var(--fs-xs);
+    color: var(--c-text-tertiary);
+    margin-bottom: var(--space-md);
+  }
+  .m-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--fs-xs);
+  }
+  .m-table th {
+    text-align: left;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--c-border-strong);
+    color: var(--c-text-tertiary);
+    font-weight: 600;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .m-table td {
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--c-border);
+    color: var(--c-text);
+    font-variant-numeric: tabular-nums;
+  }
+  .m-badge {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.4;
+  }
+  .m-badge.cash { background: var(--c-success-soft); color: var(--c-success); }
+  .m-badge.card { background: #E8EEFF; color: #3B5BDB; }
+  .m-badge.credit { background: var(--c-warning-soft); color: var(--c-accent); }
+  .m-badge.void { background: var(--c-danger-soft); color: var(--c-danger); }
+
+  /* POS grid mockup */
+  .m-pos-layout { display: flex; gap: var(--space-md); }
+  .m-pos-grid { flex: 1; }
+  .m-pos-cart { width: 220px; flex-shrink: 0; }
+  .m-cat-tabs {
+    display: flex; gap: 4px; margin-bottom: var(--space-md); flex-wrap: wrap;
+  }
+  .m-cat-tab {
+    padding: 4px 10px;
+    font-size: 10px;
+    border-radius: var(--radius);
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    color: var(--c-text-secondary);
+    font-weight: 500;
+  }
+  .m-cat-tab.active {
+    background: var(--c-primary);
+    color: #FFFFFF;
+    border-color: var(--c-primary);
+  }
+  .m-product-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+  .m-product-tile {
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    padding: 8px;
+    text-align: center;
+    font-size: 10px;
+  }
+  .m-product-name {
+    font-weight: 600;
+    color: var(--c-text);
+    margin-bottom: 2px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .m-product-price {
+    color: var(--c-primary);
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+  }
+  .m-product-stock {
+    font-size: 9px;
+    color: var(--c-text-tertiary);
+  }
+  .m-product-stock.low { color: var(--c-accent); font-weight: 600; }
+  .m-cart-card {
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    padding: var(--space-md);
+  }
+  .m-cart-title {
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--c-text);
+    margin-bottom: var(--space-sm);
+    padding-bottom: var(--space-sm);
+    border-bottom: 1px solid var(--c-border);
+  }
+  .m-cart-item {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    padding: 3px 0;
+    color: var(--c-text);
+  }
+  .m-cart-total {
+    display: flex;
+    justify-content: space-between;
+    font-size: var(--fs-sm);
+    font-weight: 700;
+    padding-top: var(--space-sm);
+    margin-top: var(--space-sm);
+    border-top: 1px solid var(--c-border-strong);
+    color: var(--c-text);
+  }
+
+  /* Shift mockup */
+  .m-denom-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+    margin: var(--space-md) 0;
+  }
+  .m-denom {
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius);
+    padding: 6px 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    font-size: 10px;
+  }
+  .m-denom-label { color: var(--c-text-secondary); }
+  .m-denom-input {
+    width: 36px;
+    text-align: center;
+    background: var(--c-surface-inset);
+    border: 1px solid var(--c-border);
+    border-radius: 3px;
+    padding: 2px;
+    font-size: 10px;
+    color: var(--c-text);
+  }
+
+  /* ── Keyboard shortcuts / references ── */
+  kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    font-size: var(--fs-xs);
+    font-family: var(--ff-mono);
+    background: var(--c-surface-inset);
+    border: 1px solid var(--c-border);
+    border-radius: 3px;
+    color: var(--c-text);
+  }
+
+  /* ── Feature list ── */
+  .feature-list {
+    list-style: none;
+    margin: var(--space-md) 0;
+  }
+  .feature-list li {
+    position: relative;
+    padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);
+    border-bottom: 1px solid var(--c-border);
+    font-size: var(--fs-sm);
+  }
+  .feature-list li:last-child { border-bottom: none; }
+  .feature-list li::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--c-primary);
+  }
+
+  /* ── Responsive ── */
+  @media (max-width: 900px) {
+    .toc { transform: translateX(-100%); transition: transform 0.25s; }
+    .toc.open { transform: translateX(0); }
+    .toc-toggle { display: flex; }
+    .toc-overlay.open { display: block; z-index: 90; }
+    .main { margin-left: 0; }
+    .content { padding: var(--space-xl) var(--space-md); }
+    .mockup-sidebar { width: 140px; }
+    .m-pos-layout { flex-direction: column; }
+    .m-pos-cart { width: 100%; }
+    .m-product-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+  @media (max-width: 600px) {
+    .mockup-sidebar { display: none; }
+    .content { padding: var(--space-lg) var(--space-md); padding-top: 60px; }
+    .hero { padding: var(--space-lg) var(--space-sm); }
+    .hero h1 { font-size: var(--fs-xl); }
+    .m-row { flex-direction: column; }
+    .m-denom-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) .m-badge.card {
+      background: #1E2440;
+      color: #7B9CF5;
+    }
+  }
+  :root[data-theme="dark"] .m-badge.card {
+    background: #1E2440;
+    color: #7B9CF5;
+  }
+
+  /* Print */
+  @media print {
+    .toc, .toc-toggle { display: none !important; }
+    .main { margin-left: 0; }
+    .mockup { break-inside: avoid; }
+  }
+</style>
+
+<!-- Mobile toggle -->
+<button class="toc-toggle" onclick="document.querySelector('.toc').classList.toggle('open');document.querySelector('.toc-overlay').classList.toggle('open');" aria-label="Toggle contents">&#9776;</button>
+<div class="toc-overlay" onclick="document.querySelector('.toc').classList.remove('open');this.classList.remove('open');"></div>
+
+<div class="manual-wrapper">
+  <!-- Table of Contents -->
+  <nav class="toc">
+    <div class="toc-header">
+      <div class="toc-logo">Tilify<span>.</span></div>
+      <div class="toc-subtitle">User Manual</div>
+    </div>
+    <div class="toc-nav">
+      <div class="toc-section-label">Getting Started</div>
+      <a class="toc-link" href="#signup">Creating Your Account</a>
+      <a class="toc-link" href="#setup">First-Time Setup</a>
+      <a class="toc-link" href="#pin">PIN Access &amp; Roles</a>
+
+      <div class="toc-section-label">Daily Operations</div>
+      <a class="toc-link" href="#dashboard">Dashboard</a>
+      <a class="toc-link" href="#pos">Point of Sale</a>
+      <a class="toc-link" href="#shift">Shift Management</a>
+      <a class="toc-link" href="#sales">Today's Sales</a>
+
+      <div class="toc-section-label">Inventory</div>
+      <a class="toc-link" href="#products">Products</a>
+      <a class="toc-link" href="#receive">Receive Stock</a>
+      <a class="toc-link" href="#stockcount">Stock Count</a>
+      <a class="toc-link" href="#adjustments">Stock Adjustments</a>
+      <a class="toc-link" href="#transfers">Stock Transfers</a>
+
+      <div class="toc-section-label">Money</div>
+      <a class="toc-link" href="#customers">Customers &amp; Credit</a>
+      <a class="toc-link" href="#expenses">Expenses</a>
+      <a class="toc-link" href="#promotions">Promotions</a>
+
+      <div class="toc-section-label">Reports</div>
+      <a class="toc-link" href="#reports">Sales Reports</a>
+      <a class="toc-link" href="#pnl">Profit &amp; Loss</a>
+      <a class="toc-link" href="#revenue-assurance">Revenue Assurance</a>
+
+      <div class="toc-section-label">Administration</div>
+      <a class="toc-link" href="#settings">Settings</a>
+      <a class="toc-link" href="#team">Team &amp; Permissions</a>
+      <a class="toc-link" href="#locations">Locations</a>
+      <a class="toc-link" href="#billing">Plan &amp; Billing</a>
+
+      <div class="toc-section-label">Advanced</div>
+      <a class="toc-link" href="#wms">Warehouse (WMS)</a>
+      <a class="toc-link" href="#offline">Offline Mode</a>
+    </div>
+    <div class="toc-footer">
+      Tilify &copy; MK Global SA (Pty) Ltd
+    </div>
+  </nav>
+
+  <!-- Main Content -->
+  <main class="main">
+    <div class="content">
+
+      <!-- Hero -->
+      <div class="hero">
+        <img src="data:image/png;base64,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" alt="Tilify Logo" class="hero-logo">
+        <h1>Tilify User Manual</h1>
+        <p>The complete guide to running your shop with Tilify &mdash; from first sale to monthly reports.</p>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: CREATING YOUR ACCOUNT              -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="signup">
+        <div class="section-number">01</div>
+        <h2>Creating Your Account</h2>
+        <p>Visit <strong>tilify.mkglobal.co.za</strong> and tap <strong>Sign Up</strong> on the login page.</p>
+
+        <!-- Mockup: Signup -->
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">tilify.mkglobal.co.za/signup</span>
+          </div>
+          <div class="mockup-body" style="justify-content:center;align-items:center;padding:var(--space-xl);min-height:380px;background:var(--c-surface);">
+            <div style="width:320px;">
+              <div style="text-align:center;margin-bottom:var(--space-lg);">
+                <div style="font-family:var(--ff-display);font-size:var(--fs-xl);font-weight:700;color:var(--c-text);">Create your shop</div>
+                <div style="font-size:var(--fs-sm);color:var(--c-text-secondary);margin-top:4px;">Start selling in minutes</div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:var(--space-sm);">
+                <div style="padding:8px 12px;border:1px solid var(--c-border);border-radius:var(--radius);font-size:var(--fs-sm);color:var(--c-text-tertiary);background:var(--c-surface-raised);">Shop Name</div>
+                <div style="padding:8px 12px;border:1px solid var(--c-border);border-radius:var(--radius);font-size:var(--fs-sm);color:var(--c-text-tertiary);background:var(--c-surface-raised);display:flex;justify-content:space-between;">
+                  <span>Currency</span><span style="color:var(--c-text);">ZAR &#9662;</span>
+                </div>
+                <div style="padding:8px 12px;border:1px solid var(--c-border);border-radius:var(--radius);font-size:var(--fs-sm);color:var(--c-text-tertiary);background:var(--c-surface-raised);">Email address</div>
+                <div style="padding:8px 12px;border:1px solid var(--c-border);border-radius:var(--radius);font-size:var(--fs-sm);color:var(--c-text-tertiary);background:var(--c-surface-raised);">Password</div>
+                <div style="padding:8px 12px;border:1px solid var(--c-border);border-radius:var(--radius);font-size:var(--fs-sm);color:var(--c-text-tertiary);background:var(--c-surface-raised);">Referral code (optional)</div>
+                <div class="m-btn primary" style="justify-content:center;padding:10px;margin-top:var(--space-sm);">Create Account</div>
+              </div>
+              <div style="text-align:center;margin-top:var(--space-md);font-size:var(--fs-sm);color:var(--c-text-secondary);">
+                Already have an account? <span style="color:var(--c-primary);font-weight:600;">Log in</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Shop Name</strong> &mdash; Enter your business name. This appears on receipts and reports.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Currency</strong> &mdash; Choose from 15 SADC currencies (ZAR, ZMW, MWK, BWP, etc.). This sets your default payment methods.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Email &amp; Password</strong> &mdash; Your login credentials. Use a strong password.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Referral Code</strong> &mdash; Optional. If someone referred you, enter their code here.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>If you received a signup link from a partner, the referral code will be filled in automatically.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: FIRST-TIME SETUP                   -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="setup">
+        <div class="section-number">02</div>
+        <h2>First-Time Setup</h2>
+        <p>After creating your account, a setup wizard walks you through configuring your shop. You can change all of these settings later.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Setup Wizard &mdash; Step 1 of 5</span>
+          </div>
+          <div class="mockup-body" style="justify-content:center;padding:var(--space-xl);background:var(--c-surface);">
+            <div style="width:400px;">
+              <div style="font-size:var(--fs-md);font-weight:700;color:var(--c-text);margin-bottom:var(--space-sm);">What type of shop do you run?</div>
+              <div style="font-size:var(--fs-sm);color:var(--c-text-secondary);margin-bottom:var(--space-lg);">We'll set up categories and defaults for you.</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:8px;">
+                <div style="padding:12px;border:2px solid var(--c-primary);border-radius:var(--radius);background:var(--c-primary-soft);font-size:var(--fs-sm);font-weight:600;color:var(--c-primary);text-align:center;">Tuck Shop</div>
+                <div style="padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-surface-raised);font-size:var(--fs-sm);color:var(--c-text);text-align:center;">Spaza Shop</div>
+                <div style="padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-surface-raised);font-size:var(--fs-sm);color:var(--c-text);text-align:center;">Hardware</div>
+                <div style="padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-surface-raised);font-size:var(--fs-sm);color:var(--c-text);text-align:center;">Restaurant</div>
+                <div style="padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-surface-raised);font-size:var(--fs-sm);color:var(--c-text);text-align:center;">Bakery</div>
+                <div style="padding:12px;border:1px solid var(--c-border);border-radius:var(--radius);background:var(--c-surface-raised);font-size:var(--fs-sm);color:var(--c-text);text-align:center;">General Retail</div>
+              </div>
+              <div style="display:flex;justify-content:flex-end;margin-top:var(--space-lg);">
+                <div class="m-btn primary" style="padding:8px 24px;">Next &rarr;</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Setup Steps</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Shop Type</strong> &mdash; Choose a preset (Tuck Shop, Spaza, Hardware, Restaurant, Bakery, General Retail). This pre-loads relevant product categories.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Categories</strong> &mdash; Review and edit pre-loaded categories. Add or remove any that don't apply.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Prepared Food</strong> &mdash; Enable this if you cook or prepare food for sale. This unlocks Ingredients and recipe costing.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Inventory Settings</strong> &mdash; Set your inventory prefix (e.g. "TSK") and choose stock mode: per-location or central.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-body"><strong>Payment Methods</strong> &mdash; Confirm which payment methods you accept: Cash, Card, Mobile Money, EFT, Credit Account.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: PIN ACCESS                         -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="pin">
+        <div class="section-number">03</div>
+        <h2>PIN Access &amp; Roles</h2>
+        <p>After logging in with your email and password, Tilify requires a <strong>PIN</strong> to access the till. Each location has separate Admin and Cashier PINs.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">PIN Entry</span>
+          </div>
+          <div class="mockup-body" style="justify-content:center;align-items:center;padding:var(--space-2xl);background:var(--c-surface);">
+            <div style="text-align:center;width:240px;">
+              <div style="font-size:var(--fs-lg);font-weight:700;color:var(--c-text);margin-bottom:var(--space-sm);">Enter PIN</div>
+              <div style="font-size:var(--fs-sm);color:var(--c-text-secondary);margin-bottom:var(--space-lg);">Main Branch</div>
+              <div style="display:flex;justify-content:center;gap:12px;margin-bottom:var(--space-lg);">
+                <div style="width:20px;height:20px;border-radius:50%;background:var(--c-primary);"></div>
+                <div style="width:20px;height:20px;border-radius:50%;background:var(--c-primary);"></div>
+                <div style="width:20px;height:20px;border-radius:50%;border:2px solid var(--c-border);"></div>
+                <div style="width:20px;height:20px;border-radius:50%;border:2px solid var(--c-border);"></div>
+              </div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-width:180px;margin:0 auto;">
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">1</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">2</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">3</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">4</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">5</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">6</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">7</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">8</div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">9</div>
+                <div style="padding:10px;background:transparent;border:none;"></div>
+                <div style="padding:10px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-size:var(--fs-md);font-weight:600;color:var(--c-text);">0</div>
+                <div style="padding:10px;background:transparent;border:none;font-size:var(--fs-sm);color:var(--c-text-tertiary);text-align:center;">&larr;</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Roles</h3>
+        <ul class="feature-list">
+          <li><strong>Admin PIN</strong> &mdash; Full access to all screens: Dashboard, Products, Reports, Settings, and more.</li>
+          <li><strong>Cashier PIN</strong> &mdash; Limited access: POS, Shift, Stock Count, and Expenses only.</li>
+        </ul>
+
+        <div class="callout callout-warn">
+          <span class="callout-icon">&#9888;</span>
+          <div>Set your PINs in <strong>Settings &rarr; PINs</strong>. Each location has its own Admin and Cashier PIN. Change default PINs before going live.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: DASHBOARD                          -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="dashboard">
+        <div class="section-number">04</div>
+        <h2>Dashboard</h2>
+        <p>Your business at a glance. The Dashboard shows today's sales, payment breakdown, stock alerts, top sellers, and expenses. Accessible to admins only.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Dashboard</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Shift</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Sales</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Products</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Receive Stock</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Stock Count</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Customers</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Expenses</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Reports</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Settings</div>
+            </div>
+            <div class="mockup-content">
+              <div class="mockup-page-title">Dashboard</div>
+              <div class="m-row">
+                <div class="m-card">
+                  <div class="m-card-label">Today's Sales</div>
+                  <div class="m-card-value green">R 4,250.00</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Transactions</div>
+                  <div class="m-card-value">37</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Low Stock Items</div>
+                  <div class="m-card-value amber">5</div>
+                </div>
+              </div>
+              <div class="m-row">
+                <div class="m-card">
+                  <div class="m-card-label">Payment Breakdown</div>
+                  <div style="margin-top:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Cash</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">R 2,800.00</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Card</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">R 950.00</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Credit</span><span style="font-weight:600;font-variant-numeric:tabular-nums;">R 500.00</span></div>
+                  </div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Top Sellers</div>
+                  <div style="margin-top:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Bread White</span><span style="font-weight:600;">24</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Milk 1L</span><span style="font-weight:600;">18</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:var(--fs-xs);padding:3px 0;"><span>Sugar 2.5kg</span><span style="font-weight:600;">12</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="feature-list">
+          <li><strong>Location filter</strong> &mdash; If you have multiple branches, use the dropdown at the top to filter by location.</li>
+          <li><strong>Period comparison</strong> &mdash; See how today compares to yesterday, last week, or last month.</li>
+          <li><strong>CSV export</strong> &mdash; Download your dashboard data.</li>
+          <li><strong>Onboarding checklist</strong> &mdash; New shops see a progress tracker guiding you through first steps.</li>
+        </ul>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: POINT OF SALE                      -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="pos">
+        <div class="section-number">05</div>
+        <h2>Point of Sale</h2>
+        <p>The POS is where sales happen. Browse products by category, add items to the cart, and check out with multiple payment methods. Works fully offline.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Point of Sale</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Shift</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Sales</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Products</div>
+            </div>
+            <div class="mockup-content">
+              <div class="m-pos-layout">
+                <div class="m-pos-grid">
+                  <div class="m-search">&#128269; Search products...</div>
+                  <div class="m-cat-tabs">
+                    <div class="m-cat-tab active">All</div>
+                    <div class="m-cat-tab">Drinks</div>
+                    <div class="m-cat-tab">Snacks</div>
+                    <div class="m-cat-tab">Bread</div>
+                    <div class="m-cat-tab">Groceries</div>
+                  </div>
+                  <div class="m-product-grid">
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Bread White</div>
+                      <div class="m-product-price">R 16.99</div>
+                      <div class="m-product-stock">42 in stock</div>
+                    </div>
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Milk 1L Full</div>
+                      <div class="m-product-price">R 19.99</div>
+                      <div class="m-product-stock">28 in stock</div>
+                    </div>
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Coca Cola 500ml</div>
+                      <div class="m-product-price">R 14.99</div>
+                      <div class="m-product-stock">56 in stock</div>
+                    </div>
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Eggs 6-pack</div>
+                      <div class="m-product-price">R 24.99</div>
+                      <div class="m-product-stock low">3 left</div>
+                    </div>
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Sugar 2.5kg</div>
+                      <div class="m-product-price">R 42.99</div>
+                      <div class="m-product-stock">15 in stock</div>
+                    </div>
+                    <div class="m-product-tile">
+                      <div class="m-product-name">Rice 2kg</div>
+                      <div class="m-product-price">R 38.99</div>
+                      <div class="m-product-stock">22 in stock</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="m-pos-cart">
+                  <div class="m-cart-card">
+                    <div class="m-cart-title">Cart (3 items)</div>
+                    <div class="m-cart-item"><span>Bread White &times; 2</span><span>R 33.98</span></div>
+                    <div class="m-cart-item"><span>Milk 1L &times; 1</span><span>R 19.99</span></div>
+                    <div class="m-cart-item"><span>Coca Cola &times; 1</span><span>R 14.99</span></div>
+                    <div class="m-cart-total"><span>Total</span><span>R 68.96</span></div>
+                    <div class="m-btn primary" style="width:100%;justify-content:center;margin-top:var(--space-md);padding:8px;">Pay</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Making a Sale</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Find the product</strong> &mdash; Browse category tabs, use search, or scroll. Toggle between grid and list view using the button next to search.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Add to cart</strong> &mdash; Tap a product to add it. Use the +/&minus; buttons to adjust quantity, or tap the number and type a quantity directly.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Tap Pay</strong> &mdash; Opens the payment screen.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Choose payment method</strong> &mdash; Cash (with change calculation), Card, Mobile Money, EFT, or Credit Account.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">5</div>
+            <div class="step-body"><strong>Receipt</strong> &mdash; Print, or share via WhatsApp. A 6-character receipt code is shown for lookup later.</div>
+          </div>
+        </div>
+
+        <h3>Credit Sales</h3>
+        <p>When a customer wants to buy on credit, select <strong>Credit Account</strong> as the payment method. Pick the customer from your list. Tilify checks their credit limit before allowing the sale.</p>
+
+        <h3>Low Stock Warnings</h3>
+        <p>Products with 5 or fewer units show an amber <strong>"N left"</strong> badge on their tile. At zero stock, the product disappears from the grid.</p>
+
+        <h3>Promotions</h3>
+        <p>Active promotions apply automatically. You'll see the discount amount and promotional price on affected items in the cart.</p>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>The POS works fully offline. Sales queue up and sync automatically when your connection returns.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: SHIFT MANAGEMENT                   -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="shift">
+        <div class="section-number">06</div>
+        <h2>Shift Management</h2>
+        <p>Shifts track who is on the till and how much cash is in the drawer. Open a shift to start selling, close it to reconcile cash at the end of the day.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Close Shift</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Shift</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Sales</div>
+            </div>
+            <div class="mockup-content">
+              <div class="mockup-page-title">Close Shift</div>
+              <div class="m-row">
+                <div class="m-card">
+                  <div class="m-card-label">Opening Float</div>
+                  <div class="m-card-value">R 500.00</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Cash Sales</div>
+                  <div class="m-card-value green">R 2,800.00</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Expected Cash</div>
+                  <div class="m-card-value">R 3,300.00</div>
+                </div>
+              </div>
+              <div style="font-size:var(--fs-sm);font-weight:600;color:var(--c-text);margin-bottom:var(--space-sm);">Count Your Cash</div>
+              <div class="m-denom-grid">
+                <div class="m-denom"><span class="m-denom-label">R 200</span><input class="m-denom-input" value="2" readonly></div>
+                <div class="m-denom"><span class="m-denom-label">R 100</span><input class="m-denom-input" value="5" readonly></div>
+                <div class="m-denom"><span class="m-denom-label">R 50</span><input class="m-denom-input" value="3" readonly></div>
+                <div class="m-denom"><span class="m-denom-label">R 20</span><input class="m-denom-input" value="8" readonly></div>
+                <div class="m-denom"><span class="m-denom-label">R 10</span><input class="m-denom-input" value="12" readonly></div>
+                <div class="m-denom"><span class="m-denom-label">R 5</span><input class="m-denom-input" value="6" readonly></div>
+              </div>
+              <div class="m-row" style="margin-top:var(--space-md);">
+                <div class="m-card">
+                  <div class="m-card-label">Counted Cash</div>
+                  <div class="m-card-value">R 3,260.00</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Difference</div>
+                  <div class="m-card-value" style="color:var(--c-danger);">-R 40.00</div>
+                </div>
+              </div>
+              <div style="margin-top:var(--space-md);display:flex;justify-content:flex-end;">
+                <div class="m-btn primary" style="padding:8px 20px;">Close Shift</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Opening a Shift</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Navigate to <strong>Shift</strong> in the sidebar.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Enter your <strong>opening float</strong> (the cash you start with in the drawer).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Tap <strong>Open Shift</strong>. You can now make sales on the POS.</div>
+          </div>
+        </div>
+
+        <h3>Closing a Shift</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Shift</strong> and tap <strong>Close Shift</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body"><strong>Count your cash</strong> using the denomination counter (notes and coins). The total is calculated automatically.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Review the difference between expected cash and counted cash.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Tap <strong>Close Shift</strong> to complete.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div><strong>Blind cash-up:</strong> Enable in Settings to hide the expected cash amount from cashiers. They count what's in the drawer without knowing what the system expects.</div>
+        </div>
+
+        <div class="callout callout-warn">
+          <span class="callout-icon">&#9888;</span>
+          <div><strong>Stock count required:</strong> If enabled in Settings, cashiers must complete a stock count before closing their shift.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: TODAY'S SALES                      -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="sales">
+        <div class="section-number">07</div>
+        <h2>Today's Sales</h2>
+        <p>View all transactions for the day, grouped by receipt. Void individual items or process returns with credit notes. Navigate to past days using the date picker.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Today's Sales</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Shift</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Sales</div>
+            </div>
+            <div class="mockup-content">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
+                <div class="mockup-page-title" style="margin:0;">Today's Sales</div>
+                <div style="display:flex;gap:6px;align-items:center;">
+                  <div class="m-btn">&larr;</div>
+                  <span style="font-size:var(--fs-sm);font-weight:600;color:var(--c-text);">18 Aug 2026</span>
+                  <div class="m-btn">&rarr;</div>
+                </div>
+              </div>
+              <div class="m-search">&#128269; Search by receipt code...</div>
+              <table class="m-table">
+                <thead>
+                  <tr><th>Time</th><th>Receipt</th><th>Items</th><th>Method</th><th>Total</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td>14:32</td>
+                    <td style="font-family:var(--ff-mono);font-size:10px;">3F9A2C</td>
+                    <td>4</td>
+                    <td><span class="m-badge cash">Cash</span></td>
+                    <td style="font-weight:600;">R 89.96</td>
+                    <td><span style="font-size:10px;color:var(--c-primary);cursor:pointer;">View</span></td>
+                  </tr>
+                  <tr>
+                    <td>13:15</td>
+                    <td style="font-family:var(--ff-mono);font-size:10px;">A7B3E1</td>
+                    <td>2</td>
+                    <td><span class="m-badge card">Card</span></td>
+                    <td style="font-weight:600;">R 45.98</td>
+                    <td><span style="font-size:10px;color:var(--c-primary);cursor:pointer;">View</span></td>
+                  </tr>
+                  <tr>
+                    <td>12:48</td>
+                    <td style="font-family:var(--ff-mono);font-size:10px;">D2F8C4</td>
+                    <td>6</td>
+                    <td><span class="m-badge credit">Credit</span></td>
+                    <td style="font-weight:600;">R 152.94</td>
+                    <td><span style="font-size:10px;color:var(--c-primary);cursor:pointer;">View</span></td>
+                  </tr>
+                  <tr style="opacity:0.6;">
+                    <td>11:05</td>
+                    <td style="font-family:var(--ff-mono);font-size:10px;">E5C1A9</td>
+                    <td>1</td>
+                    <td><span class="m-badge void">Voided</span></td>
+                    <td style="text-decoration:line-through;">R 16.99</td>
+                    <td><span style="font-size:10px;color:var(--c-text-tertiary);">View</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <h3>Voiding a Sale</h3>
+        <p>Expand a receipt, select the item(s) to void, and confirm. The stock is automatically returned. Voiding is blocked on period-locked dates.</p>
+
+        <h3>Processing a Return</h3>
+        <p>From a receipt, tap <strong>Return</strong> on individual items. A credit note is generated with a <kbd>CN-YYMMDD-HHMM-XXXX</kbd> reference. For credit sales, the customer's balance is reduced.</p>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: PRODUCTS                           -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="products">
+        <div class="section-number">08</div>
+        <h2>Products</h2>
+        <p>Manage your product catalog. Add products one by one or import in bulk from a CSV file.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Products</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Products</div>
+            </div>
+            <div class="mockup-content">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
+                <div class="mockup-page-title" style="margin:0;">Products</div>
+                <div style="display:flex;gap:6px;">
+                  <div class="m-btn">Import CSV</div>
+                  <div class="m-btn primary">+ Add Product</div>
+                </div>
+              </div>
+              <div class="m-search">&#128269; Search by name or ID...</div>
+              <table class="m-table">
+                <thead>
+                  <tr><th>ID</th><th>Name</th><th>Category</th><th>Price</th><th>Stock</th></tr>
+                </thead>
+                <tbody>
+                  <tr><td style="font-family:var(--ff-mono);font-size:10px;">TSK001</td><td>Bread White</td><td>Bread</td><td>R 16.99</td><td>42</td></tr>
+                  <tr><td style="font-family:var(--ff-mono);font-size:10px;">TSK002</td><td>Milk 1L Full Cream</td><td>Dairy</td><td>R 19.99</td><td>28</td></tr>
+                  <tr><td style="font-family:var(--ff-mono);font-size:10px;">TSK003</td><td>Coca Cola 500ml</td><td>Drinks</td><td>R 14.99</td><td>56</td></tr>
+                  <tr><td style="font-family:var(--ff-mono);font-size:10px;">TSK004</td><td>Eggs 6-pack</td><td>Fresh</td><td>R 24.99</td><td style="color:var(--c-accent);font-weight:600;">3</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <h3>Adding a Product</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Tap <strong>+ Add Product</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Enter: <strong>Name</strong>, <strong>Category</strong>, <strong>Selling Price</strong>, <strong>Cost Price</strong> (optional but recommended for profit tracking).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">An <strong>Inventory ID</strong> is auto-generated using your prefix (e.g. TSK001).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">For multi-branch shops: optionally set <strong>per-branch prices</strong> if some locations charge differently.</div>
+          </div>
+        </div>
+
+        <h3>Bulk Import</h3>
+        <p>Tap <strong>Import CSV</strong> to upload a spreadsheet of products. The CSV should include columns for name, category, selling price, and cost price.</p>
+
+        <h3>Bulk Actions</h3>
+        <ul class="feature-list">
+          <li><strong>Bulk price change</strong> &mdash; Increase or decrease prices by a percentage across selected products.</li>
+          <li><strong>Discontinue</strong> &mdash; Mark products as discontinued. They stop appearing in the POS.</li>
+        </ul>
+
+        <h3>Prepared Food Items</h3>
+        <p>If you have Prepared Food enabled, tick <strong>"This is a prepared food item"</strong> when adding a product. This unlocks the Recipe editor where you define ingredients and quantities. Cost is calculated automatically from ingredient prices.</p>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: RECEIVE STOCK                      -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="receive">
+        <div class="section-number">09</div>
+        <h2>Receive Stock</h2>
+        <p>Record deliveries from suppliers. Stock levels are updated immediately. Attach a photo of the supplier invoice for your records.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Receive Stock</strong> and select the <strong>Supplier</strong>. You can add new suppliers inline.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Add lines: choose the product, enter <strong>quantity</strong>, <strong>unit cost</strong>, and <strong>pack size</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Optionally attach a <strong>receipt photo</strong> (PDF, JPEG, PNG, or WebP, max 5 MB).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Tap <strong>Save</strong>. Stock is added to your current branch. An expense entry is optionally created.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div><strong>Prepared food toggle:</strong> When receiving ingredients for prepared items, switch on "Prepared food?" to skip creating an expense entry (ingredient costs flow through recipes instead).</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: STOCK COUNT                        -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="stockcount">
+        <div class="section-number">10</div>
+        <h2>Stock Count</h2>
+        <p>Count physical stock on your shelves. A cashier submits a count; the owner reviews and applies it to update stock levels.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Stock Count</strong>. All products appear with their expected quantities.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Enter the <strong>counted quantity</strong> for each product. Use search to find specific items.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Tap <strong>Save Count</strong>. This saves a count session without changing actual stock.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Owner review:</strong> The owner sees pending count sessions and taps <strong>"Confirm and apply to stock"</strong> to update stock levels.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-danger">
+          <span class="callout-icon">&#9888;</span>
+          <div>Only the shop owner (logged in with both the owner account and Admin PIN) can confirm and apply counts. Saving a count never changes stock levels directly &mdash; even when the owner does the counting.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: STOCK ADJUSTMENTS                  -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="adjustments">
+        <div class="section-number">11</div>
+        <h2>Stock Adjustments</h2>
+        <p>Record non-sale stock changes: breakage, expired items, theft, damage, samples, or corrections.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Stock Adjustments</strong> and tap <strong>New Adjustment</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Select the <strong>product</strong>, choose a <strong>reason</strong> (Breakage, Expired, Theft, Damaged, Samples, Correction, Other).</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Choose <strong>increase</strong> or <strong>decrease</strong> and enter the quantity. Add notes if needed.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Save. Stock is updated immediately. Loss-category adjustments appear on your Profit &amp; Loss report as shrinkage.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: STOCK TRANSFERS                    -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="transfers">
+        <div class="section-number">12</div>
+        <h2>Stock Transfers</h2>
+        <p>Move stock between branches. Requires two or more locations.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Stock Transfers</strong> and tap <strong>New Transfer</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Select the <strong>source</strong> and <strong>destination</strong> branches.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Add items and quantities. Tilify checks that sufficient stock exists at the source.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Review and confirm. A <strong>transfer receipt</strong> is generated that you can print, download as PDF, email, or share via WhatsApp.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: CUSTOMERS & CREDIT                 -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="customers">
+        <div class="section-number">13</div>
+        <h2>Customers &amp; Credit</h2>
+        <p>Track customer accounts and credit balances. Customers who buy on credit have their balance tracked automatically.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Customers</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Customers</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Credit Ledger</div>
+            </div>
+            <div class="mockup-content">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
+                <div class="mockup-page-title" style="margin:0;">Customers</div>
+                <div class="m-btn primary">+ Add Customer</div>
+              </div>
+              <div class="m-search">&#128269; Search customers...</div>
+              <table class="m-table">
+                <thead>
+                  <tr><th>Name</th><th>Phone</th><th>Balance</th><th></th></tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td style="font-weight:600;">Thabo M.</td>
+                    <td>071 234 5678</td>
+                    <td style="color:var(--c-danger);font-weight:600;">R 450.00</td>
+                    <td style="display:flex;gap:6px;">
+                      <span class="m-btn" style="font-size:9px;">Payment</span>
+                      <span class="m-btn" style="font-size:9px;">History</span>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td style="font-weight:600;">Grace N.</td>
+                    <td>082 987 6543</td>
+                    <td style="color:var(--c-success);font-weight:600;">R 0.00</td>
+                    <td style="display:flex;gap:6px;">
+                      <span class="m-btn" style="font-size:9px;">Payment</span>
+                      <span class="m-btn" style="font-size:9px;">History</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <ul class="feature-list">
+          <li><strong>Add Customer</strong> &mdash; Name and phone number. Credit balance starts at zero.</li>
+          <li><strong>Record Payment</strong> &mdash; When a customer pays off their balance, tap Payment and enter the amount.</li>
+          <li><strong>Purchase History</strong> &mdash; See everything a customer has bought.</li>
+          <li><strong>Customer Statement</strong> &mdash; Generate a full statement of charges and payments.</li>
+          <li><strong>WhatsApp</strong> &mdash; Message the customer directly from their profile.</li>
+        </ul>
+
+        <h3>Credit Ledger</h3>
+        <p>The <strong>Credit Ledger</strong> page shows a full timeline of all credit transactions (sales on credit and payments received), filterable by customer. Download as CSV for your records.</p>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: EXPENSES                           -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="expenses">
+        <div class="section-number">14</div>
+        <h2>Expenses</h2>
+        <p>Track business spending. Categorize expenses to see where your money goes. Attach receipts to keep records.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Expenses</strong> and tap <strong>Record Expense</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Pick a <strong>category</strong>: Transport, Fuel, Rent, Electricity, Consumables, Wages, Stock Purchases, Ingredient Purchases, Director Withdrawal, or Other.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Enter the <strong>amount</strong>, <strong>date</strong>, and <strong>description</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Optionally attach a <strong>receipt photo</strong>.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>Expenses work offline. They sync when your connection returns.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: PROMOTIONS                         -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="promotions">
+        <div class="section-number">15</div>
+        <h2>Promotions</h2>
+        <p>Create time-limited discounts that apply automatically at the POS.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Promotions</strong> and tap <strong>Add Promotion</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Enter a <strong>name</strong> (e.g. "Weekend Special"), <strong>discount percentage</strong>, and <strong>start/end dates</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body"><strong>Assign products</strong> &mdash; select which items get the discount.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Save. During the promotion period, the POS shows the discounted price and applies it automatically.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: REPORTS                            -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="reports">
+        <div class="section-number">16</div>
+        <h2>Sales Reports</h2>
+        <p>Analyze your sales by period. See revenue totals, payment breakdown, top sellers, and slow movers.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Reports</span>
+          </div>
+          <div class="mockup-body">
+            <div class="mockup-sidebar">
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Dashboard</div>
+              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Reports</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Profit &amp; Loss</div>
+              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Revenue Assu.</div>
+            </div>
+            <div class="mockup-content">
+              <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:var(--space-md);">
+                <div class="mockup-page-title" style="margin:0;">Sales Report</div>
+                <div style="display:flex;gap:6px;">
+                  <div class="m-btn" style="font-size:10px;">Today</div>
+                  <div class="m-btn" style="font-size:10px;background:var(--c-primary-soft);color:var(--c-primary);border-color:var(--c-primary);">This Week</div>
+                  <div class="m-btn" style="font-size:10px;">This Month</div>
+                  <div class="m-btn" style="font-size:10px;">Custom</div>
+                </div>
+              </div>
+              <div class="m-row">
+                <div class="m-card">
+                  <div class="m-card-label">Total Revenue</div>
+                  <div class="m-card-value green">R 28,450.00</div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Transactions</div>
+                  <div class="m-card-value">247</div>
+                </div>
+              </div>
+              <div class="m-row">
+                <div class="m-card" style="flex:2;">
+                  <div class="m-card-label">Payment Breakdown</div>
+                  <div style="margin-top:10px;">
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                      <div style="flex:1;height:8px;background:var(--c-surface-inset);border-radius:4px;overflow:hidden;">
+                        <div style="width:65%;height:100%;background:var(--c-primary);border-radius:4px;"></div>
+                      </div>
+                      <span style="font-size:10px;color:var(--c-text-secondary);min-width:80px;">Cash 65%</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+                      <div style="flex:1;height:8px;background:var(--c-surface-inset);border-radius:4px;overflow:hidden;">
+                        <div style="width:25%;height:100%;background:#3B5BDB;border-radius:4px;"></div>
+                      </div>
+                      <span style="font-size:10px;color:var(--c-text-secondary);min-width:80px;">Card 25%</span>
+                    </div>
+                    <div style="display:flex;align-items:center;gap:8px;">
+                      <div style="flex:1;height:8px;background:var(--c-surface-inset);border-radius:4px;overflow:hidden;">
+                        <div style="width:10%;height:100%;background:var(--c-accent);border-radius:4px;"></div>
+                      </div>
+                      <span style="font-size:10px;color:var(--c-text-secondary);min-width:80px;">Credit 10%</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="m-card">
+                  <div class="m-card-label">Top Sellers</div>
+                  <div style="margin-top:8px;">
+                    <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;"><span>1. Bread White</span><span style="font-weight:600;">168</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;"><span>2. Milk 1L</span><span style="font-weight:600;">124</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:10px;padding:3px 0;"><span>3. Sugar 2.5kg</span><span style="font-weight:600;">89</span></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="feature-list">
+          <li><strong>Period selector</strong> &mdash; Today, this week, this month, or any custom date range.</li>
+          <li><strong>Location filter</strong> &mdash; Filter by branch for multi-location shops.</li>
+          <li><strong>Prior period comparison</strong> &mdash; See percentage change vs. the prior period.</li>
+          <li><strong>CSV export</strong> &mdash; Download full report data.</li>
+        </ul>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: PROFIT & LOSS                      -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="pnl">
+        <div class="section-number">17</div>
+        <h2>Profit &amp; Loss</h2>
+        <p>See your real profitability. Revenue minus cost of goods, shrinkage, and operating expenses.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Profit &amp; Loss</span>
+          </div>
+          <div class="mockup-body" style="min-height:auto;">
+            <div class="mockup-content" style="width:100%;">
+              <div class="mockup-page-title">Profit &amp; Loss &mdash; August 2026</div>
+              <div style="display:flex;flex-direction:column;gap:6px;font-size:var(--fs-sm);">
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c-border);">
+                  <span style="font-weight:700;">Revenue</span>
+                  <span style="font-weight:700;font-variant-numeric:tabular-nums;">R 28,450.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:4px 0 4px 16px;font-size:var(--fs-xs);color:var(--c-text-secondary);">
+                  <span>Cash</span><span style="font-variant-numeric:tabular-nums;">R 18,492.50</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:4px 0 4px 16px;font-size:var(--fs-xs);color:var(--c-text-secondary);">
+                  <span>Card</span><span style="font-variant-numeric:tabular-nums;">R 7,112.50</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:4px 0 4px 16px;font-size:var(--fs-xs);color:var(--c-text-secondary);">
+                  <span>Credit</span><span style="font-variant-numeric:tabular-nums;">R 2,845.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c-border);color:var(--c-danger);">
+                  <span>Cost of Goods Sold</span>
+                  <span style="font-variant-numeric:tabular-nums;">- R 17,070.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c-border);color:var(--c-accent);">
+                  <span>Shrinkage &amp; Losses</span>
+                  <span style="font-variant-numeric:tabular-nums;">- R 420.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:2px solid var(--c-border-strong);font-weight:700;">
+                  <span>Gross Profit</span>
+                  <span style="color:var(--c-success);font-variant-numeric:tabular-nums;">R 10,960.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c-border);">
+                  <span>Operating Expenses</span>
+                  <span style="font-variant-numeric:tabular-nums;">- R 4,200.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--c-border);color:var(--c-text-secondary);">
+                  <span>Director Withdrawals</span>
+                  <span style="font-variant-numeric:tabular-nums;">- R 2,000.00</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:var(--fs-md);">
+                  <span>Net Profit</span>
+                  <span style="color:var(--c-success);font-variant-numeric:tabular-nums;">R 4,760.00</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="feature-list">
+          <li><strong>VAT summary</strong> &mdash; If your business is VAT-registered, all figures show ex-VAT with a separate VAT summary card (output, input, and net payable).</li>
+          <li><strong>Shrinkage</strong> &mdash; Costed from stock adjustments (Breakage, Expired, Theft, Damaged, Samples).</li>
+          <li><strong>Director Withdrawals</strong> &mdash; Separated from operating expenses for clarity.</li>
+          <li><strong>Inventory on Hand</strong> &mdash; Shows current stock value at cost.</li>
+        </ul>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: REVENUE ASSURANCE                  -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="revenue-assurance">
+        <div class="section-number">18</div>
+        <h2>Revenue Assurance</h2>
+        <p>Reconcile stock movement against recorded sales. Identify unrecorded shrinkage (items left the shelf without a sale) and oversells (more rung up than stock explains).</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body"><strong>Do a stock count</strong> first, so Tilify has a closing figure to compare against.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Go to <strong>Revenue Assurance</strong>. Select the stock count session to compare.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Review each product: opening stock + replenished &minus; closing stock = expected sales. Compare to recorded sales.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Products flagged with <strong>discrepancies</strong> need investigation: either stock walked out, or the count was wrong.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-warn">
+          <span class="callout-icon">&#9888;</span>
+          <div>Revenue Assurance is only as accurate as your stock counts. Count regularly for best results.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: SETTINGS                           -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="settings">
+        <div class="section-number">19</div>
+        <h2>Settings</h2>
+        <p>Configure your shop's behavior. Owner-only access.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Settings</span>
+          </div>
+          <div class="mockup-body" style="min-height:auto;">
+            <div class="mockup-content" style="width:100%;">
+              <div class="mockup-page-title">Settings</div>
+              <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:var(--space-md);">
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">Business Info</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Shop name, phone, currency</div>
+                </div>
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">PINs</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Admin &amp; Cashier PINs per branch</div>
+                </div>
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">Payment Methods</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Add, reorder, deactivate</div>
+                </div>
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">Branch Settings</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Receipts, blind cash-up, wholesale</div>
+                </div>
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">Team</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Add staff, assign branches, permissions</div>
+                </div>
+                <div class="m-card">
+                  <div style="font-weight:700;font-size:var(--fs-sm);margin-bottom:6px;color:var(--c-text);">Plan &amp; Billing</div>
+                  <div style="font-size:var(--fs-xs);color:var(--c-text-secondary);">Subscription, upgrade, manage</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <h3>Key Settings</h3>
+        <ul class="feature-list">
+          <li><strong>Shift enforcement</strong> &mdash; Require an open shift before the POS allows sales.</li>
+          <li><strong>Blind cash-up</strong> &mdash; Hides expected cash from cashiers during shift close.</li>
+          <li><strong>Require stock count</strong> &mdash; Cashiers must complete a stock count before closing their shift.</li>
+          <li><strong>Cashier credit sales</strong> &mdash; Toggle whether cashiers can make credit sales or if it's admin-only.</li>
+          <li><strong>Wholesale pricing</strong> &mdash; Enable per-branch wholesale mode with minimum quantities.</li>
+          <li><strong>Cash back</strong> &mdash; Allow cash back against card payments.</li>
+          <li><strong>Card reward</strong> &mdash; Offer a free item when electronic payment exceeds a threshold.</li>
+          <li><strong>Daily digest</strong> &mdash; Receive automated daily sales reports by email.</li>
+          <li><strong>Period lock</strong> &mdash; Lock historical dates to prevent any modifications (voids, edits, deletions).</li>
+          <li><strong>Prepared food</strong> &mdash; Enable ingredient tracking and recipe costing.</li>
+          <li><strong>Warehouse (WMS)</strong> &mdash; Enable the warehouse management module.</li>
+        </ul>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: TEAM                               -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="team">
+        <div class="section-number">20</div>
+        <h2>Team &amp; Permissions</h2>
+        <p>Add staff, assign them to branches, and control what each person can access.</p>
+
+        <h3>Adding Staff</h3>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Settings &rarr; Team</strong> and tap <strong>Add Staff</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Enter their <strong>name</strong>, <strong>email</strong>, and set a <strong>temporary password</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Choose their role: <strong>Cashier</strong> or <strong>Manager</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body"><strong>Assign a branch</strong> (required for cashiers). They will be forced to change their password on first login.</div>
+          </div>
+        </div>
+
+        <h3>Manager Permissions</h3>
+        <p>Owners can grant or revoke individual permissions for each manager:</p>
+        <ul class="feature-list">
+          <li>Manage suppliers</li>
+          <li>Manage locations</li>
+          <li>Manage stock transfers</li>
+          <li>Manage expenses</li>
+          <li>Manage payment methods</li>
+          <li>View reports</li>
+          <li>Void sales</li>
+          <li>Manage blind cash-up</li>
+          <li>Manage warehouse (WMS)</li>
+          <li>Manage shift admin (reopen/delete shifts)</li>
+        </ul>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>You can switch a staff member between Cashier and Manager without removing and re-adding them. Use the role switcher on their profile.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: LOCATIONS                          -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="locations">
+        <div class="section-number">21</div>
+        <h2>Locations</h2>
+        <p>Manage multiple branches. Each location has its own stock levels, PINs, and shift history.</p>
+
+        <ul class="feature-list">
+          <li><strong>Starter plan</strong> &mdash; 1 location</li>
+          <li><strong>Growth plan</strong> &mdash; Up to 3 locations</li>
+          <li><strong>Pro plan</strong> &mdash; Unlimited locations</li>
+        </ul>
+
+        <p>Switch between locations using the <strong>location dropdown</strong> in the sidebar. All data (sales, stock, shifts) is scoped to the currently selected location.</p>
+
+        <h3>Per-Branch Pricing</h3>
+        <p>Charge different prices at different branches. In the product form, expand <strong>"Prices per branch"</strong> (visible only when you have 2+ locations) and set override prices for specific branches. Any branch without an override uses the base price.</p>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: BILLING                            -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="billing">
+        <div class="section-number">22</div>
+        <h2>Plan &amp; Billing</h2>
+        <p>Manage your subscription from <strong>Settings &rarr; Plan &amp; Billing</strong>.</p>
+
+        <div class="mockup">
+          <div class="mockup-bar">
+            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
+            <span class="mockup-bar-title">Choose Your Plan</span>
+          </div>
+          <div class="mockup-body" style="justify-content:center;padding:var(--space-xl);background:var(--c-surface);min-height:auto;">
+            <div style="display:flex;gap:var(--space-md);flex-wrap:wrap;justify-content:center;">
+              <div class="m-card" style="width:160px;text-align:center;">
+                <div style="font-weight:700;font-size:var(--fs-md);color:var(--c-text);margin-bottom:4px;">Starter</div>
+                <div style="font-size:var(--fs-xl);font-weight:700;color:var(--c-primary);margin-bottom:4px;">R 299</div>
+                <div style="font-size:var(--fs-xs);color:var(--c-text-tertiary);margin-bottom:var(--space-md);">/month</div>
+                <div style="font-size:10px;color:var(--c-text-secondary);text-align:left;">
+                  <div style="padding:2px 0;">1 location</div>
+                  <div style="padding:2px 0;">Unlimited products</div>
+                  <div style="padding:2px 0;">POS + Reports</div>
+                </div>
+              </div>
+              <div class="m-card" style="width:160px;text-align:center;border-color:var(--c-primary);border-width:2px;">
+                <div style="font-weight:700;font-size:var(--fs-md);color:var(--c-text);margin-bottom:4px;">Growth</div>
+                <div style="font-size:var(--fs-xl);font-weight:700;color:var(--c-primary);margin-bottom:4px;">R 599</div>
+                <div style="font-size:var(--fs-xs);color:var(--c-text-tertiary);margin-bottom:var(--space-md);">/month</div>
+                <div style="font-size:10px;color:var(--c-text-secondary);text-align:left;">
+                  <div style="padding:2px 0;">Up to 3 locations</div>
+                  <div style="padding:2px 0;">Stock transfers</div>
+                  <div style="padding:2px 0;">Multi-branch pricing</div>
+                </div>
+              </div>
+              <div class="m-card" style="width:160px;text-align:center;">
+                <div style="font-weight:700;font-size:var(--fs-md);color:var(--c-text);margin-bottom:4px;">Pro</div>
+                <div style="font-size:var(--fs-xl);font-weight:700;color:var(--c-primary);margin-bottom:4px;">R 999</div>
+                <div style="font-size:var(--fs-xs);color:var(--c-text-tertiary);margin-bottom:var(--space-md);">/month</div>
+                <div style="font-size:10px;color:var(--c-text-secondary);text-align:left;">
+                  <div style="padding:2px 0;">Unlimited locations</div>
+                  <div style="padding:2px 0;">Warehouse (WMS)</div>
+                  <div style="padding:2px 0;">Everything in Growth</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <ul class="feature-list">
+          <li><strong>Billing cycles</strong> &mdash; Monthly, quarterly (~6% off), or annual (two months free).</li>
+          <li><strong>Payment</strong> &mdash; Processed via Paystack in ZAR.</li>
+          <li><strong>Manage subscription</strong> &mdash; Update your card details or cancel from Settings.</li>
+        </ul>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: WAREHOUSE                          -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="wms">
+        <div class="section-number">23</div>
+        <h2>Warehouse Management (WMS)</h2>
+        <p>For shops with a separate warehouse or storage facility. Enable in <strong>Settings &rarr; Warehouse</strong>. Available on the Pro plan.</p>
+
+        <p>The Warehouse module adds a separate set of screens under a <strong>Warehouse</strong> section in the sidebar:</p>
+
+        <ul class="feature-list">
+          <li><strong>WMS Dashboard</strong> &mdash; Warehouse overview: stock levels, recent activity, alerts.</li>
+          <li><strong>Warehouse Stock</strong> &mdash; Catalog of warehouse items with SKU, category, pack size, and ABC classification. Link items to retail products.</li>
+          <li><strong>Receive</strong> &mdash; Receive goods into the warehouse.</li>
+          <li><strong>Dispatch</strong> &mdash; Pick, pack, and ship stock from warehouse to retail locations.</li>
+          <li><strong>Transfers</strong> &mdash; Move stock between warehouses.</li>
+          <li><strong>Adjustments</strong> &mdash; Warehouse-level stock adjustments.</li>
+          <li><strong>Stock Count</strong> &mdash; Warehouse-level physical counts.</li>
+          <li><strong>Purchase Orders</strong> &mdash; Create and track orders to suppliers.</li>
+          <li><strong>Bin Locations</strong> &mdash; Manage storage locations within the warehouse.</li>
+        </ul>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>WMS items can be linked to retail products. When you dispatch from warehouse to a branch, the retail product stock is updated automatically.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: OFFLINE MODE                       -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="offline">
+        <div class="section-number">24</div>
+        <h2>Offline Mode</h2>
+        <p>Tilify is a Progressive Web App (PWA). Core features work without an internet connection.</p>
+
+        <h3>What works offline</h3>
+        <ul class="feature-list">
+          <li><strong>Point of Sale</strong> &mdash; Browse products, make sales, process payments. Sales queue and sync when you reconnect.</li>
+          <li><strong>Shift management</strong> &mdash; Open and close shifts.</li>
+          <li><strong>Expenses</strong> &mdash; Record expenses. They sync later.</li>
+          <li><strong>Customer adds</strong> &mdash; Add new customers. They sync later.</li>
+        </ul>
+
+        <h3>What requires connection</h3>
+        <ul class="feature-list">
+          <li>Reports and analytics</li>
+          <li>Settings changes</li>
+          <li>Team management</li>
+          <li>Receipt attachments</li>
+          <li>Warehouse (WMS) operations</li>
+        </ul>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>An offline indicator appears in the header when you lose connection. Queued actions sync automatically when your connection returns &mdash; no action needed from you.</div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="margin-top:var(--space-2xl);padding-top:var(--space-xl);border-top:1px solid var(--c-border);text-align:center;">
+        <div style="font-family:var(--ff-display);font-size:var(--fs-lg);font-weight:700;color:var(--c-text);margin-bottom:var(--space-sm);">Tilify<span style="color:var(--c-accent);">.</span></div>
+        <p style="font-size:var(--fs-sm);color:var(--c-text-secondary);max-width:480px;margin:0 auto;">
+          Built for SADC retailers by MK Global SA (Pty) Ltd.<br>
+          Need help? Visit <strong>tilify.mkglobal.co.za</strong> or message us on WhatsApp.
+        </p>
+        <p style="font-size:var(--fs-xs);color:var(--c-text-tertiary);margin-top:var(--space-md);">
+          Manual version 1.0 &mdash; August 2026
+        </p>
+      </div>
+
+    </div>
+  </main>
+</div>
+
+<script>
+  // Close mobile TOC when clicking a link
+  document.querySelectorAll('.toc-link').forEach(function(link) {
+    link.addEventListener('click', function() {
+      document.querySelector('.toc').classList.remove('open');
+      var overlay = document.querySelector('.toc-overlay');
+      if (overlay) overlay.classList.remove('open');
+    });
+  });
+</script>
