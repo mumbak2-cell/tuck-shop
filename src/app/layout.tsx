@@ -11,6 +11,9 @@ export const metadata: Metadata = {
   title: "Tilify",
   description: "Tilify — Inventory, POS and Revenue Assurance for small retail",
   manifest: "/manifest.json",
+  icons: {
+    apple: "/icon-192.png",
+  },
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",

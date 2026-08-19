@@ -253,7 +253,7 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
                           : "bg-white border-gray-200 hover:border-green-400"
                       }`}
                     >
-                      <span className="text-xs font-medium text-gray-900 text-center leading-tight line-clamp-2">
+                      <span className="text-xs font-medium text-gray-900 text-center leading-tight line-clamp-3 sm:line-clamp-2">
                         {product.name}
                       </span>
                       {hasDiscount ? (

@@ -83,7 +83,7 @@ export function Modal({ open, onClose, title, children, wide }: ModalProps) {
       >
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 id="modal-title" className="text-lg font-semibold text-gray-900">{title}</h2>
-          <button onClick={onClose} aria-label="Close dialog" className="p-1 rounded-lg hover:bg-gray-100">
+          <button onClick={onClose} aria-label="Close dialog" className="p-1 rounded-lg hover:bg-gray-100 focus-visible:ring-2 focus-visible:ring-green-500 focus-visible:ring-offset-2">
             <X className="w-5 h-5 text-gray-500" />
           </button>
         </div>
