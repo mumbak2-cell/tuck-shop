@@ -5,6 +5,7 @@ import { ShiftProvider } from "@/lib/shift-context";
 import { CurrencyProvider } from "@/lib/currency-context";
 import { OrgProvider } from "@/lib/org-context";
 import { SwRegister } from "@/components/sw-register";
+import { ToastProvider } from "@/components/ui/toast";
 
 export const metadata: Metadata = {
   title: "Tilify",
@@ -35,7 +36,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en">
       <body className="antialiased bg-gray-50 text-gray-900" suppressHydrationWarning>
-        <SwRegister />
+        <ToastProvider>
+          <SwRegister />
+        </ToastProvider>
         <OrgProvider><CurrencyProvider><AuthProvider><ShiftProvider>{children}</ShiftProvider></AuthProvider></CurrencyProvider></OrgProvider>
       </body>
     </html>

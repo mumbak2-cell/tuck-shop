@@ -19,7 +19,8 @@
 //     show an "App update available, tap to refresh" toast when this
 //     happens (Slice 9 follow-up).
 
-const CACHE_VERSION = "tilify-v3-2026-06-25-offline-shell";
+// Bump on each deploy to purge stale caches.
+const CACHE_VERSION = "tilify-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const STATIC_CACHE = `${CACHE_VERSION}-static`;
 
