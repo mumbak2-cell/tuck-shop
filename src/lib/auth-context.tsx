@@ -4,17 +4,14 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import type { UserRole } from "@/types/database";
 
-const DEFAULT_ADMIN_PIN = "1234";
-const DEFAULT_CASHIER_PIN = "0000";
-
 /** Load the admin/cashier PINs for one location from location_settings.
  *  PINs are per-location (migration 0230): each branch has its own admin and
- *  cashier PIN. Falls back to the built-in defaults when a branch has no row
- *  yet (e.g. a location added before its PINs were set in Settings). Returns
+ *  cashier PIN. A role with no PIN row set returns null for that role, so
+ *  login refuses it rather than falling back to a guessable default. Returns
  *  null only when there is no location to scope to. */
 async function fetchPinsForLocation(
   locationId: string | null
-): Promise<{ admin: string; cashier: string } | null> {
+): Promise<{ admin: string | null; cashier: string | null } | null> {
   if (!locationId) return null;
   const { data } = await db
     .from("location_settings")
@@ -24,8 +21,8 @@ async function fetchPinsForLocation(
   const map: Record<string, string> = {};
   ((data || []) as { key: string; value: string }[]).forEach((row) => (map[row.key] = row.value));
   return {
-    admin: map.admin_pin || DEFAULT_ADMIN_PIN,
-    cashier: map.cashier_pin || DEFAULT_CASHIER_PIN,
+    admin: map.admin_pin || null,
+    cashier: map.cashier_pin || null,
   };
 }
 
@@ -54,9 +51,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [role, setRole] = useState<UserRole | null>(null);
   const [name, setName] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
-  const [pins, setPins] = useState<{ admin: string; cashier: string }>({
-    admin: DEFAULT_ADMIN_PIN,
-    cashier: DEFAULT_CASHIER_PIN,
+  const [pins, setPins] = useState<{ admin: string | null; cashier: string | null }>({
+    admin: null,
+    cashier: null,
   });
 
   // Load PINs for the active location. PINs live in location_settings, keyed

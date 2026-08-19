@@ -10,6 +10,7 @@ import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { readCache } from "@/lib/offline-store";
 import { formatZAR } from "@/lib/format";
+import { useToast } from "@/components/ui/toast";
 import { Play } from "lucide-react";
 import Link from "next/link";
 
@@ -36,6 +37,7 @@ function buildPriceMap(
 export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
   const { requiresShift, currentLocationId, orgId, locations } = useOrg();
+  const toast = useToast();
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
@@ -74,6 +76,7 @@ export default function POSPage() {
     // the POS stuck on a loading state.
     if (!navigator.onLine) {
       setProducts(fromCache());
+      toast.info("Offline — using cached products");
       return;
     }
 
@@ -86,6 +89,7 @@ export default function POSPage() {
       );
     } catch {
       setProducts(fromCache());
+      toast.info("Could not load products — using cached data");
       return;
     }
 
@@ -131,17 +135,28 @@ export default function POSPage() {
               ...(override != null ? { selling_price: override } : {}),
             };
           });
-        setProducts(filtered.length > 0 ? filtered : fromCache());
+        if (filtered.length > 0) {
+          setProducts(filtered);
+        } else {
+          setProducts(fromCache());
+          toast.info("No stock at this branch — showing cached products");
+        }
         return;
       } catch {
+        toast.info("Could not check branch stock — using cached data");
         // fall through to legacy org-wide filter below
       }
     }
 
     // Fallback: legacy org-wide filter
     const filtered = allProducts.filter((p) => p.opening_stock > 0);
-    setProducts(filtered.length > 0 ? filtered : fromCache());
-  }, [currentLocationId, orgId]);
+    if (filtered.length > 0) {
+      setProducts(filtered);
+    } else {
+      setProducts(fromCache());
+      toast.info("No stock at this branch — showing cached products");
+    }
+  }, [currentLocationId, orgId, toast]);
 
   // Fetch active promotions → build product discount map.
   // Returns the new map so callers can use it immediately (React state

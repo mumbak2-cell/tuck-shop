@@ -10,6 +10,7 @@ import { useOrg, hasEverHadOrg } from "@/lib/org-context";
 import { signOutSafely } from "@/lib/sign-out";
 import { useOnline } from "@/lib/use-online";
 import { WelcomeModal } from "@/components/layout/welcome-modal";
+import { ToastProvider } from "@/components/ui/toast";
 import { WifiOff } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -75,15 +76,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       // offline; that's fine — at least navigation isn't blocked.
       if (!authenticated) return <PinPad />;
       return (
-        <div className="flex h-screen">
-          <Sidebar />
-          <main className="flex-1 overflow-y-auto flex flex-col">
-            <TrialBanner />
-            <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
-              {children}
-            </div>
-          </main>
-        </div>
+        <ToastProvider>
+          <div className="flex h-screen">
+            <Sidebar />
+            <main className="flex-1 overflow-y-auto flex flex-col">
+              <TrialBanner />
+              <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
+                {children}
+              </div>
+            </main>
+          </div>
+        </ToastProvider>
       );
     }
     if (!online) {
@@ -127,15 +130,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }
 
   return (
-    <div className="flex h-dvh">
-      <Sidebar />
-      <main className="flex-1 overflow-y-auto flex flex-col">
-        <TrialBanner />
-        <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
-          {children}
-        </div>
-      </main>
-      <WelcomeModal />
-    </div>
+    <ToastProvider>
+      <div className="flex h-dvh">
+        <Sidebar />
+        <main className="flex-1 overflow-y-auto flex flex-col">
+          <TrialBanner />
+          <div className="max-w-7xl mx-auto w-full px-4 sm:px-6 lg:px-8 py-8 flex-1">
+            {children}
+          </div>
+        </main>
+        <WelcomeModal />
+      </div>
+    </ToastProvider>
   );
 }
