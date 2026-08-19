@@ -1,4 +1,4 @@
-﻿<title>Tilify Cashier Guide</title>
+﻿<title>Tilify FAQ</title>
 <style>
   @font-face {
     font-family: 'Manual Display';
@@ -18,23 +18,15 @@
     --c-text-tertiary: #9B9D94;
     --c-border: #E2E0D8;
     --c-border-strong: #C8C5BB;
-    --c-danger: #C0392B;
-    --c-danger-soft: #FDECEA;
-    --c-warning: #D4882E;
-    --c-warning-soft: #FDF3E6;
     --c-success: #1A6B5A;
     --c-success-soft: #E4F0EC;
     --c-sidebar: #1E2A26;
     --c-sidebar-text: #C8D5CF;
     --c-sidebar-active: #2A4A3F;
-    --c-mockup-bg: #F5F4F0;
-    --c-mockup-header: #FFFFFF;
-    --c-mockup-sidebar: #1E2A26;
     --c-shadow: rgba(42,45,53,0.08);
     --c-shadow-lg: rgba(42,45,53,0.12);
     --ff-display: 'Palatino Linotype', Palatino, 'Book Antiqua', Georgia, serif;
     --ff-body: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    --ff-mono: 'Consolas', 'Monaco', 'Courier New', monospace;
     --fs-xs: 0.75rem;
     --fs-sm: 0.8125rem;
     --fs-base: 0.9375rem;
@@ -42,7 +34,6 @@
     --fs-lg: 1.25rem;
     --fs-xl: 1.5rem;
     --fs-2xl: 1.875rem;
-    --fs-3xl: 2.25rem;
     --lh-tight: 1.25;
     --lh-normal: 1.6;
     --space-xs: 0.375rem;
@@ -62,11 +53,8 @@
       --c-surface: #181B20; --c-surface-raised: #22262D; --c-surface-inset: #13161A;
       --c-text: #E0DDD6; --c-text-secondary: #9DA498; --c-text-tertiary: #6B6E64;
       --c-border: #2E3238; --c-border-strong: #3E4248;
-      --c-danger: #E05A4E; --c-danger-soft: #2D1A18;
-      --c-warning: #E8A84C; --c-warning-soft: #332A1A;
       --c-success: #3DAF8E; --c-success-soft: #1C3029;
       --c-sidebar: #12161A; --c-sidebar-text: #9DA498; --c-sidebar-active: #1C3029;
-      --c-mockup-bg: #1A1D22; --c-mockup-header: #22262D; --c-mockup-sidebar: #12161A;
       --c-shadow: rgba(0,0,0,0.25); --c-shadow-lg: rgba(0,0,0,0.35);
     }
   }
@@ -76,18 +64,10 @@
     --c-surface: #181B20; --c-surface-raised: #22262D; --c-surface-inset: #13161A;
     --c-text: #E0DDD6; --c-text-secondary: #9DA498; --c-text-tertiary: #6B6E64;
     --c-border: #2E3238; --c-border-strong: #3E4248;
-    --c-danger: #E05A4E; --c-danger-soft: #2D1A18;
-    --c-warning: #E8A84C; --c-warning-soft: #332A1A;
     --c-success: #3DAF8E; --c-success-soft: #1C3029;
     --c-sidebar: #12161A; --c-sidebar-text: #9DA498; --c-sidebar-active: #1C3029;
-    --c-mockup-bg: #1A1D22; --c-mockup-header: #22262D; --c-mockup-sidebar: #12161A;
     --c-shadow: rgba(0,0,0,0.25); --c-shadow-lg: rgba(0,0,0,0.35);
   }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) .m-badge.card { background: #1E2440; color: #7B9CF5; }
-  }
-  :root[data-theme="dark"] .m-badge.card { background: #1E2440; color: #7B9CF5; }
-
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
   body {
     font-family: var(--ff-body);
@@ -99,7 +79,7 @@
   }
   .manual-wrapper { display: flex; min-height: 100vh; }
 
-  /* â”€â”€ TOC Sidebar â”€â”€ */
+  /* TOC */
   .toc {
     position: fixed; top: 0; left: 0;
     width: var(--toc-width); height: 100vh;
@@ -158,14 +138,14 @@
     background: rgba(0,0,0,0.4); z-index: 90;
   }
 
-  /* â”€â”€ Main Content â”€â”€ */
+  /* Main */
   .main { margin-left: var(--toc-width); flex: 1; min-width: 0; }
   .content {
     max-width: 780px; margin: 0 auto;
     padding: var(--space-2xl) var(--space-xl);
   }
 
-  /* â”€â”€ Hero â”€â”€ */
+  /* Hero */
   .hero {
     text-align: center;
     padding: var(--space-xl) var(--space-lg) var(--space-2xl);
@@ -181,194 +161,113 @@
   .hero p { font-size: var(--fs-md); color: var(--c-text-secondary); max-width: 480px; margin: 0 auto; }
   .hero-badge {
     display: inline-block; padding: 4px 14px; border-radius: 20px;
-    background: var(--c-accent-soft); color: var(--c-accent);
+    background: var(--c-primary-soft); color: var(--c-primary);
     font-size: var(--fs-sm); font-weight: 600; margin-bottom: var(--space-md);
   }
 
-  /* â”€â”€ Sections â”€â”€ */
-  .section { margin-bottom: var(--space-2xl); scroll-margin-top: var(--space-xl); }
-  .section-number {
-    font-family: var(--ff-display); font-size: var(--fs-sm);
-    color: var(--c-primary); font-weight: 700; letter-spacing: 0.04em;
+  /* FAQ Items */
+  .faq-category {
+    margin-bottom: var(--space-2xl);
+    scroll-margin-top: var(--space-xl);
+  }
+  .faq-category-title {
+    font-family: var(--ff-display); font-size: var(--fs-xl); font-weight: 700;
+    color: var(--c-text); letter-spacing: -0.015em;
+    margin-bottom: var(--space-lg);
+    padding-bottom: var(--space-sm);
+    border-bottom: 2px solid var(--c-primary);
+    display: inline-block;
+  }
+  .faq-item {
+    margin-bottom: var(--space-lg);
+    background: var(--c-surface-raised);
+    border: 1px solid var(--c-border);
+    border-radius: var(--radius-lg);
+    overflow: hidden;
+  }
+  .faq-question {
+    display: flex; align-items: center; gap: var(--space-md);
+    padding: var(--space-md) var(--space-lg);
+    cursor: pointer; user-select: none;
+    font-weight: 600; color: var(--c-text);
+    font-size: var(--fs-md);
+    background: none; border: none; width: 100%;
+    text-align: left; font-family: var(--ff-body);
+    transition: background 0.15s;
+  }
+  .faq-question:hover { background: var(--c-surface-inset); }
+  .faq-chevron {
+    flex-shrink: 0; width: 20px; height: 20px;
+    transition: transform 0.2s;
+    color: var(--c-text-tertiary);
+  }
+  .faq-item.open .faq-chevron { transform: rotate(90deg); }
+  .faq-answer {
+    display: none;
+    padding: 0 var(--space-lg) var(--space-lg) var(--space-lg);
+    color: var(--c-text-secondary);
+    font-size: var(--fs-base);
+    line-height: var(--lh-normal);
+  }
+  .faq-item.open .faq-answer { display: block; }
+  .faq-answer p { margin-bottom: var(--space-md); }
+  .faq-answer p:last-child { margin-bottom: 0; }
+  .faq-answer strong { color: var(--c-text); }
+  .faq-answer ul {
+    list-style: none; margin: var(--space-sm) 0 var(--space-md);
+  }
+  .faq-answer ul li {
+    position: relative; padding-left: var(--space-lg);
     margin-bottom: var(--space-xs);
   }
-  .section h2 {
-    font-family: var(--ff-display); font-size: var(--fs-2xl); font-weight: 700;
-    color: var(--c-text); letter-spacing: -0.015em; text-wrap: balance;
-    margin-bottom: var(--space-md); line-height: var(--lh-tight);
-  }
-  .section h3 {
-    font-family: var(--ff-display); font-size: var(--fs-lg); font-weight: 700;
-    color: var(--c-text); margin-top: var(--space-xl); margin-bottom: var(--space-md);
-  }
-  .section p { margin-bottom: var(--space-md); color: var(--c-text); }
-
-  /* â”€â”€ Steps â”€â”€ */
-  .steps { display: flex; flex-direction: column; gap: var(--space-md); margin: var(--space-lg) 0; }
-  .step { display: flex; gap: var(--space-md); align-items: flex-start; }
-  .step-num {
-    flex-shrink: 0; width: 28px; height: 28px; background: var(--c-primary);
-    color: #FFFFFF; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-size: var(--fs-sm); font-weight: 700; margin-top: 1px;
-  }
-  .step-body { flex: 1; }
-  .step-body strong { color: var(--c-text); }
-
-  /* â”€â”€ Callouts â”€â”€ */
-  .callout {
-    display: flex; gap: var(--space-md);
-    padding: var(--space-md) var(--space-lg); border-radius: var(--radius-lg);
-    margin: var(--space-lg) 0; font-size: var(--fs-sm); line-height: var(--lh-normal);
-  }
-  .callout-icon { flex-shrink: 0; font-size: 18px; margin-top: 1px; }
-  .callout-tip { background: var(--c-success-soft); border: 1px solid var(--c-primary); }
-  .callout-warn { background: var(--c-warning-soft); border: 1px solid var(--c-accent); }
-  .callout-danger { background: var(--c-danger-soft); border: 1px solid var(--c-danger); }
-
-  /* â”€â”€ Mockups â”€â”€ */
-  .mockup {
-    border: 1px solid var(--c-border-strong); border-radius: var(--radius-lg);
-    overflow: hidden; margin: var(--space-lg) 0;
-    box-shadow: 0 4px 20px var(--c-shadow-lg); background: var(--c-mockup-bg);
-  }
-  .mockup-bar {
-    display: flex; align-items: center; gap: 6px;
-    padding: 8px 12px; background: var(--c-mockup-header);
-    border-bottom: 1px solid var(--c-border);
-  }
-  .mockup-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--c-border-strong); }
-  .mockup-bar-title { margin-left: 8px; font-size: var(--fs-xs); color: var(--c-text-tertiary); font-weight: 500; }
-  .mockup-body { display: flex; min-height: 300px; }
-  .mockup-sidebar {
-    width: 160px; background: var(--c-mockup-sidebar);
-    padding: var(--space-md) 0; flex-shrink: 0;
-    display: flex; flex-direction: column; gap: 2px;
-  }
-  .mockup-nav-item {
-    padding: 6px 14px; font-size: var(--fs-xs);
-    color: var(--c-sidebar-text); display: flex; align-items: center; gap: 8px;
-  }
-  .mockup-nav-item.active {
-    background: var(--c-sidebar-active); color: #FFFFFF;
-    border-left: 3px solid var(--c-primary); padding-left: 11px;
-  }
-  .mockup-nav-icon {
-    width: 14px; height: 14px; border-radius: 3px;
-    background: currentColor; opacity: 0.3; flex-shrink: 0;
-  }
-  .mockup-content { flex: 1; padding: var(--space-lg); overflow-x: auto; }
-  .mockup-page-title {
-    font-family: var(--ff-body); font-size: var(--fs-md); font-weight: 700;
-    color: var(--c-text); margin-bottom: var(--space-md);
-  }
-
-  /* â”€â”€ Mockup elements â”€â”€ */
-  .m-row { display: flex; gap: var(--space-md); margin-bottom: var(--space-md); flex-wrap: wrap; }
-  .m-card {
-    background: var(--c-surface-raised); border: 1px solid var(--c-border);
-    border-radius: var(--radius); padding: var(--space-md); flex: 1; min-width: 100px;
-  }
-  .m-card-label { font-size: var(--fs-xs); color: var(--c-text-tertiary); margin-bottom: 4px; }
-  .m-card-value { font-size: var(--fs-lg); font-weight: 700; color: var(--c-text); font-variant-numeric: tabular-nums; }
-  .m-card-value.green { color: var(--c-success); }
-  .m-card-value.amber { color: var(--c-accent); }
-  .m-btn {
-    display: inline-flex; align-items: center; gap: 4px;
-    padding: 5px 12px; font-size: var(--fs-xs); border-radius: var(--radius);
-    border: 1px solid var(--c-border); background: var(--c-surface-raised);
-    color: var(--c-text); font-weight: 500;
-  }
-  .m-btn.primary { background: var(--c-primary); color: #FFFFFF; border-color: var(--c-primary); }
-  .m-search {
-    display: flex; align-items: center; gap: 6px;
-    padding: 6px 10px; background: var(--c-surface-raised);
-    border: 1px solid var(--c-border); border-radius: var(--radius);
-    font-size: var(--fs-xs); color: var(--c-text-tertiary); margin-bottom: var(--space-md);
-  }
-  .m-badge {
-    display: inline-block; padding: 2px 6px; border-radius: 4px;
-    font-size: 10px; font-weight: 600; line-height: 1.4;
-  }
-  .m-badge.cash { background: var(--c-success-soft); color: var(--c-success); }
-  .m-badge.card { background: #E8EEFF; color: #3B5BDB; }
-  .m-badge.credit { background: var(--c-warning-soft); color: var(--c-accent); }
-
-  /* POS mockup */
-  .m-pos-layout { display: flex; gap: var(--space-md); }
-  .m-pos-grid { flex: 1; }
-  .m-pos-cart { width: 200px; flex-shrink: 0; }
-  .m-cat-tabs { display: flex; gap: 4px; margin-bottom: var(--space-md); flex-wrap: wrap; }
-  .m-cat-tab {
-    padding: 4px 10px; font-size: 10px; border-radius: var(--radius);
-    background: var(--c-surface-raised); border: 1px solid var(--c-border);
-    color: var(--c-text-secondary); font-weight: 500;
-  }
-  .m-cat-tab.active { background: var(--c-primary); color: #FFFFFF; border-color: var(--c-primary); }
-  .m-product-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-  .m-product-tile {
-    background: var(--c-surface-raised); border: 1px solid var(--c-border);
-    border-radius: var(--radius); padding: 8px; text-align: center; font-size: 10px;
-  }
-  .m-product-name { font-weight: 600; color: var(--c-text); margin-bottom: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .m-product-price { color: var(--c-primary); font-weight: 700; font-variant-numeric: tabular-nums; }
-  .m-product-stock { font-size: 9px; color: var(--c-text-tertiary); }
-  .m-product-stock.low { color: var(--c-accent); font-weight: 600; }
-  .m-cart-card { background: var(--c-surface-raised); border: 1px solid var(--c-border); border-radius: var(--radius); padding: var(--space-md); }
-  .m-cart-title { font-size: var(--fs-xs); font-weight: 700; color: var(--c-text); margin-bottom: var(--space-sm); padding-bottom: var(--space-sm); border-bottom: 1px solid var(--c-border); }
-  .m-cart-item { display: flex; justify-content: space-between; font-size: 10px; padding: 3px 0; color: var(--c-text); }
-  .m-cart-total { display: flex; justify-content: space-between; font-size: var(--fs-sm); font-weight: 700; padding-top: var(--space-sm); margin-top: var(--space-sm); border-top: 1px solid var(--c-border-strong); color: var(--c-text); }
-
-  /* Shift denomination */
-  .m-denom-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: var(--space-md) 0; }
-  .m-denom {
-    background: var(--c-surface-raised); border: 1px solid var(--c-border);
-    border-radius: var(--radius); padding: 6px 8px;
-    display: flex; justify-content: space-between; align-items: center; font-size: 10px;
-  }
-  .m-denom-label { color: var(--c-text-secondary); }
-  .m-denom-input {
-    width: 36px; text-align: center; background: var(--c-surface-inset);
-    border: 1px solid var(--c-border); border-radius: 3px;
-    padding: 2px; font-size: 10px; color: var(--c-text);
-  }
-
-  .feature-list { list-style: none; margin: var(--space-md) 0; }
-  .feature-list li {
-    position: relative; padding: var(--space-sm) 0 var(--space-sm) var(--space-lg);
-    border-bottom: 1px solid var(--c-border); font-size: var(--fs-sm);
-  }
-  .feature-list li:last-child { border-bottom: none; }
-  .feature-list li::before {
-    content: ''; position: absolute; left: 0; top: 50%; transform: translateY(-50%);
+  .faq-answer ul li::before {
+    content: ''; position: absolute; left: 0; top: 9px;
     width: 6px; height: 6px; border-radius: 50%; background: var(--c-primary);
   }
 
+  /* Pricing table */
+  .pricing-table {
+    width: 100%; border-collapse: collapse;
+    margin: var(--space-md) 0;
+    font-size: var(--fs-sm);
+  }
+  .pricing-table th, .pricing-table td {
+    padding: var(--space-sm) var(--space-md);
+    text-align: left;
+    border-bottom: 1px solid var(--c-border);
+  }
+  .pricing-table th {
+    font-weight: 700; color: var(--c-text);
+    background: var(--c-surface-inset);
+    font-size: var(--fs-xs); text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .pricing-table td { color: var(--c-text); }
+  .pricing-table .highlight { background: var(--c-primary-soft); }
+  .pricing-table .price { font-weight: 700; font-variant-numeric: tabular-nums; }
+
   kbd {
     display: inline-block; padding: 1px 5px; font-size: var(--fs-xs);
-    font-family: var(--ff-mono); background: var(--c-surface-inset);
+    font-family: Consolas, Monaco, monospace; background: var(--c-surface-inset);
     border: 1px solid var(--c-border); border-radius: 3px; color: var(--c-text);
   }
 
-  /* â”€â”€ Responsive â”€â”€ */
+  /* Responsive */
   @media (max-width: 768px) {
     .toc { transform: translateX(-100%); transition: transform 0.25s; }
     .toc.open { transform: translateX(0); }
     .toc-toggle { display: flex; }
     .toc-overlay.open { display: block; z-index: 90; }
     .main { margin-left: 0; }
-    .content { padding: var(--space-xl) var(--space-md); }
-    .mockup-sidebar { display: none; }
-    .m-pos-layout { flex-direction: column; }
-    .m-pos-cart { width: 100%; }
-    .m-product-grid { grid-template-columns: repeat(2, 1fr); }
-    .m-denom-grid { grid-template-columns: repeat(2, 1fr); }
-    .content { padding-top: 60px; }
+    .content { padding: var(--space-xl) var(--space-md); padding-top: 60px; }
+    .pricing-table { font-size: var(--fs-xs); }
+    .pricing-table th, .pricing-table td { padding: var(--space-xs) var(--space-sm); }
   }
   @media print {
     .toc, .toc-toggle { display: none !important; }
     .main { margin-left: 0; }
-    .mockup { break-inside: avoid; }
+    .faq-answer { display: block !important; }
+    .faq-chevron { display: none; }
   }
 </style>
 
@@ -379,28 +278,38 @@
   <nav class="toc">
     <div class="toc-header">
       <div class="toc-logo">Tilify<span>.</span></div>
-      <div class="toc-subtitle">Cashier Guide</div>
+      <div class="toc-subtitle">FAQ</div>
     </div>
     <div class="toc-nav">
       <div class="toc-section-label">Getting Started</div>
-      <a class="toc-link" href="#login">Logging In</a>
-      <a class="toc-link" href="#pin">PIN Entry</a>
-      <a class="toc-link" href="#your-screens">Your Screens</a>
+      <a class="toc-link" href="#getting-started">How It Works</a>
+      <a class="toc-link" href="#who-is-it-for">Who Is It For?</a>
+      <a class="toc-link" href="#get-started">How Do I Start?</a>
 
-      <div class="toc-section-label">Selling</div>
-      <a class="toc-link" href="#pos">Point of Sale</a>
-      <a class="toc-link" href="#payment">Taking Payment</a>
-      <a class="toc-link" href="#credit-sale">Credit Sales</a>
+      <div class="toc-section-label">Pricing</div>
+      <a class="toc-link" href="#pricing">Plans & Pricing</a>
+      <a class="toc-link" href="#trial">Free Trial</a>
+      <a class="toc-link" href="#payment-methods">Payment Methods</a>
+      <a class="toc-link" href="#cancel">Cancellation</a>
 
-      <div class="toc-section-label">Shift</div>
-      <a class="toc-link" href="#open-shift">Opening a Shift</a>
-      <a class="toc-link" href="#close-shift">Closing a Shift</a>
-
-      <div class="toc-section-label">Other Tasks</div>
-      <a class="toc-link" href="#stock-count">Stock Count</a>
-      <a class="toc-link" href="#expenses">Expenses</a>
-      <a class="toc-link" href="#customers">Customers</a>
+      <div class="toc-section-label">Features</div>
       <a class="toc-link" href="#offline">Offline Mode</a>
+      <a class="toc-link" href="#multi-branch">Multiple Branches</a>
+      <a class="toc-link" href="#credit-sales">Credit Sales</a>
+      <a class="toc-link" href="#reports">Reports & Profit</a>
+      <a class="toc-link" href="#revenue-assurance">Revenue Assurance</a>
+      <a class="toc-link" href="#warehouse">Warehouse (WMS)</a>
+
+      <div class="toc-section-label">Operations</div>
+      <a class="toc-link" href="#add-products">Adding Products</a>
+      <a class="toc-link" href="#cashiers">Managing Cashiers</a>
+      <a class="toc-link" href="#receipts">Receipts</a>
+      <a class="toc-link" href="#stock-count">Stock Counts</a>
+      <a class="toc-link" href="#vat">VAT</a>
+
+      <div class="toc-section-label">Security & Data</div>
+      <a class="toc-link" href="#data-security">Data Security</a>
+      <a class="toc-link" href="#support">Support</a>
     </div>
     <div class="toc-footer">
       Tilify &copy; MK Global SA (Pty) Ltd
@@ -413,480 +322,415 @@
       <!-- Hero -->
       <div class="hero">
         <img src="data:image/png;base64,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" alt="Tilify Logo" class="hero-logo">
-        <div class="hero-badge">Cashier Quick-Start</div>
-        <h1>Tilify Cashier Guide</h1>
-        <p>Everything you need to sell, count stock, and close your shift. Takes about 2 minutes to read.</p>
+        <div class="hero-badge">Frequently Asked Questions</div>
+        <h1>Tilify FAQ</h1>
+        <p>Answers to common questions about Tilify's point-of-sale, inventory, and revenue assurance platform for SADC retailers.</p>
       </div>
 
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- LOGGING IN                  -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="login">
-        <div class="section-number">01</div>
-        <h2>Logging In</h2>
-        <p>Your shop owner will give you an <strong>email address</strong> and a <strong>temporary password</strong>. Use these to sign in at <strong>tilify.mkglobal.co.za</strong>.</p>
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <!-- GETTING STARTED         -->
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <div class="faq-category" id="getting-started">
+        <div class="faq-category-title">Getting Started</div>
 
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Open Tilify in your browser and enter your email and temporary password.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body"><strong>Change your password</strong> &mdash; You will be asked to set a new password on your first login. Choose something you'll remember.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">After changing your password, you'll see the <strong>PIN pad</strong>.</div>
+        <div class="faq-item open">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How does Tilify work?
+          </button>
+          <div class="faq-answer">
+            <p>Tilify is a <strong>web-based point-of-sale (POS) and inventory management app</strong> built for retail shops across Southern Africa. It runs in your browser on any device &mdash; phone, tablet, or computer &mdash; with no software to install.</p>
+            <p>Here's what happens when you use Tilify:</p>
+            <ul>
+              <li><strong>Sell</strong> &mdash; Ring up sales on a visual product grid. Accept cash, card, mobile money, or credit account payments. Receipts are generated with a unique code for lookup.</li>
+              <li><strong>Track stock</strong> &mdash; Every sale automatically deducts stock at your branch. Receive deliveries, transfer between branches, count physical stock, and track adjustments (breakage, theft, expired).</li>
+              <li><strong>Manage shifts</strong> &mdash; Cashiers open and close shifts with denomination-level cash counts. Blind cash-up ensures honest counting.</li>
+              <li><strong>See your profit</strong> &mdash; Real-time dashboard, daily sales reports, full Profit &amp; Loss statements, and Revenue Assurance to catch discrepancies between stock and sales.</li>
+              <li><strong>Work offline</strong> &mdash; Tilify is a Progressive Web App (PWA). Sales, expenses, and shift operations continue without internet and sync automatically when the connection returns.</li>
+            </ul>
+            <p>Your data is stored securely in the cloud and accessible from any device where you sign in.</p>
           </div>
         </div>
 
-        <div class="callout callout-warn">
-          <span class="callout-icon">&#9888;</span>
-          <div>You <strong>must</strong> change your password before you can access anything. This is for security.</div>
+        <div class="faq-item" id="who-is-it-for">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Who is Tilify for?
+          </button>
+          <div class="faq-answer">
+            <p>Tilify is designed for <strong>retail shop owners in Southern Africa (SADC)</strong> &mdash; tuck shops, grocery stores, convenience stores, hardware shops, takeaways, and any business that sells physical products over a counter.</p>
+            <p>It works especially well for:</p>
+            <ul>
+              <li>Single shops wanting professional POS without expensive hardware</li>
+              <li>Multi-branch operators who need consolidated reporting</li>
+              <li>Shops in areas with unreliable internet (offline-first design)</li>
+              <li>Businesses offering customer credit accounts</li>
+              <li>Food businesses that prepare items from ingredients</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item" id="get-started">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I get started?
+          </button>
+          <div class="faq-answer">
+            <p>Getting started takes about 10 minutes:</p>
+            <ul>
+              <li><strong>Sign up</strong> at <strong>tilify.mkglobal.co.za</strong> with your email. No credit card needed.</li>
+              <li><strong>Set up your shop</strong> &mdash; Enter your business name, currency, and basic settings.</li>
+              <li><strong>Add your products</strong> &mdash; Name, selling price, cost price, and category. You can add stock quantities per branch.</li>
+              <li><strong>Start selling</strong> &mdash; Your 14-day free trial begins immediately with full access to all features.</li>
+            </ul>
+            <p>If you're importing from another system, contact us and we can help migrate your product catalogue.</p>
+          </div>
         </div>
       </div>
 
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- PIN ENTRY                   -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="pin">
-        <div class="section-number">02</div>
-        <h2>PIN Entry</h2>
-        <p>After logging in, enter the <strong>Cashier PIN</strong> for your branch. Your manager will tell you this PIN.</p>
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <!-- PRICING                 -->
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <div class="faq-category" id="pricing">
+        <div class="faq-category-title">Pricing &amp; Subscription</div>
 
-        <div class="mockup">
-          <div class="mockup-bar">
-            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
-            <span class="mockup-bar-title">PIN Entry</span>
-          </div>
-          <div class="mockup-body" style="justify-content:center;align-items:center;padding:var(--space-xl);background:var(--c-surface);">
-            <div style="text-align:center;width:200px;">
-              <div style="font-size:var(--fs-lg);font-weight:700;color:var(--c-text);margin-bottom:var(--space-sm);">Enter PIN</div>
-              <div style="font-size:var(--fs-sm);color:var(--c-text-secondary);margin-bottom:var(--space-lg);">Main Branch</div>
-              <div style="display:flex;justify-content:center;gap:12px;margin-bottom:var(--space-lg);">
-                <div style="width:18px;height:18px;border-radius:50%;background:var(--c-primary);"></div>
-                <div style="width:18px;height:18px;border-radius:50%;background:var(--c-primary);"></div>
-                <div style="width:18px;height:18px;border-radius:50%;border:2px solid var(--c-border);"></div>
-                <div style="width:18px;height:18px;border-radius:50%;border:2px solid var(--c-border);"></div>
-              </div>
-              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:6px;max-width:150px;margin:0 auto;">
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">1</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">2</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">3</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">4</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">5</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">6</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">7</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">8</div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">9</div>
-                <div></div>
-                <div style="padding:8px;background:var(--c-surface-raised);border:1px solid var(--c-border);border-radius:var(--radius);text-align:center;font-weight:600;color:var(--c-text);">0</div>
-                <div></div>
-              </div>
+        <div class="faq-item open">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How much does Tilify cost?
+          </button>
+          <div class="faq-answer">
+            <p>Tilify has three plans, all billed in <strong>South African Rand (ZAR)</strong> via Paystack. Save with quarterly (~6% off) or annual billing (two months free).</p>
+            <div style="overflow-x:auto;">
+              <table class="pricing-table">
+                <thead>
+                  <tr>
+                    <th>Plan</th>
+                    <th>Monthly</th>
+                    <th>Quarterly</th>
+                    <th>Annual</th>
+                    <th>Locations</th>
+                    <th>Users</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td><strong>Starter</strong></td>
+                    <td class="price">R299</td>
+                    <td class="price">R849</td>
+                    <td class="price">R2,990</td>
+                    <td>1</td>
+                    <td>2</td>
+                  </tr>
+                  <tr class="highlight">
+                    <td><strong>Growth</strong></td>
+                    <td class="price">R599</td>
+                    <td class="price">R1,699</td>
+                    <td class="price">R5,990</td>
+                    <td>Up to 3</td>
+                    <td>5</td>
+                  </tr>
+                  <tr>
+                    <td><strong>Pro</strong></td>
+                    <td class="price">R999</td>
+                    <td class="price">R2,799</td>
+                    <td class="price">R9,990</td>
+                    <td>Unlimited</td>
+                    <td>15</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
+            <p><strong>Every plan includes:</strong> full POS, stock management, customer credit, Revenue Assurance, Profit &amp; Loss reports, offline mode, receipt printing, and WhatsApp receipt sharing.</p>
+            <p>The main differences between plans are the number of branches and team members you can add.</p>
           </div>
         </div>
 
-        <p>The PIN is 4 digits. It auto-submits when you enter the last digit &mdash; no need to press Enter.</p>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- YOUR SCREENS                -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="your-screens">
-        <div class="section-number">03</div>
-        <h2>Your Screens</h2>
-        <p>As a cashier, you have access to these screens in the sidebar:</p>
-
-        <ul class="feature-list">
-          <li><strong>Shift</strong> &mdash; Open and close your shift</li>
-          <li><strong>Point of Sale</strong> &mdash; Ring up sales</li>
-          <li><strong>Stock Count</strong> &mdash; Count physical stock</li>
-          <li><strong>Expenses</strong> &mdash; Record business expenses</li>
-          <li><strong>Customers</strong> &mdash; View customers and record payments (if enabled by your manager)</li>
-          <li><strong>Credit Ledger</strong> &mdash; See credit history (if enabled by your manager)</li>
-        </ul>
-
-        <p>Other screens like Dashboard, Products, Reports, and Settings are for your manager/owner only.</p>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- POINT OF SALE               -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="pos">
-        <div class="section-number">04</div>
-        <h2>Point of Sale</h2>
-        <p>This is where you make sales. Products are displayed as tiles grouped by category, with a cart on the right.</p>
-
-        <div class="mockup">
-          <div class="mockup-bar">
-            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
-            <span class="mockup-bar-title">Point of Sale</span>
-          </div>
-          <div class="mockup-body">
-            <div class="mockup-sidebar">
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Shift</div>
-              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> POS</div>
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Stock Count</div>
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Expenses</div>
-            </div>
-            <div class="mockup-content">
-              <div class="m-pos-layout">
-                <div class="m-pos-grid">
-                  <div class="m-search">&#128269; Search products...</div>
-                  <div class="m-cat-tabs">
-                    <div class="m-cat-tab active">All</div>
-                    <div class="m-cat-tab">Drinks</div>
-                    <div class="m-cat-tab">Snacks</div>
-                    <div class="m-cat-tab">Bread</div>
-                  </div>
-                  <div class="m-product-grid">
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Bread White</div>
-                      <div class="m-product-price">R 16.99</div>
-                      <div class="m-product-stock">42 in stock</div>
-                    </div>
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Milk 1L</div>
-                      <div class="m-product-price">R 19.99</div>
-                      <div class="m-product-stock">28 in stock</div>
-                    </div>
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Coca Cola 500ml</div>
-                      <div class="m-product-price">R 14.99</div>
-                      <div class="m-product-stock">56 in stock</div>
-                    </div>
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Eggs 6-pack</div>
-                      <div class="m-product-price">R 24.99</div>
-                      <div class="m-product-stock low">3 left</div>
-                    </div>
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Sugar 2.5kg</div>
-                      <div class="m-product-price">R 42.99</div>
-                      <div class="m-product-stock">15 in stock</div>
-                    </div>
-                    <div class="m-product-tile">
-                      <div class="m-product-name">Rice 2kg</div>
-                      <div class="m-product-price">R 38.99</div>
-                      <div class="m-product-stock">22 in stock</div>
-                    </div>
-                  </div>
-                </div>
-                <div class="m-pos-cart">
-                  <div class="m-cart-card">
-                    <div class="m-cart-title">Cart (3 items)</div>
-                    <div class="m-cart-item"><span>Bread White &times; 2</span><span>R 33.98</span></div>
-                    <div class="m-cart-item"><span>Milk 1L &times; 1</span><span>R 19.99</span></div>
-                    <div class="m-cart-item"><span>Coca Cola &times; 1</span><span>R 14.99</span></div>
-                    <div class="m-cart-total"><span>Total</span><span>R 68.96</span></div>
-                    <div class="m-btn primary" style="width:100%;justify-content:center;margin-top:var(--space-md);padding:8px;">Pay</div>
-                  </div>
-                </div>
-              </div>
-            </div>
+        <div class="faq-item" id="trial">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Is there a free trial?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. Every new account starts with a <strong>14-day free trial</strong> &mdash; no credit card required. You get full access to all features during the trial so you can evaluate Tilify with real data before committing.</p>
+            <p>When the trial ends, you'll be prompted to choose a plan. Your data is preserved &mdash; nothing is deleted.</p>
           </div>
         </div>
 
-        <h3>How to Ring Up a Sale</h3>
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body"><strong>Find the product</strong> &mdash; Tap a category tab or type in the search box.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body"><strong>Tap the product</strong> to add it to the cart. Tap again to add more, or use the +/&minus; buttons.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body"><strong>Change quantity</strong> &mdash; Tap the number in the cart and type the exact amount you need.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">4</div>
-            <div class="step-body"><strong>Remove an item</strong> &mdash; Tap the trash icon next to it.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">5</div>
-            <div class="step-body">When ready, tap <strong>Pay</strong>.</div>
+        <div class="faq-item" id="payment-methods">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I pay for Tilify?
+          </button>
+          <div class="faq-answer">
+            <p>Subscription payments are processed through <strong>Paystack</strong>, a trusted payment provider used across Africa. You can pay with any Visa or Mastercard &mdash; debit or credit. Your card issuer handles any currency conversion automatically if you're outside South Africa.</p>
+            <p>Subscriptions renew automatically. You can update your card details or cancel any time through <strong>Settings &rarr; Plan &amp; Billing &rarr; Manage Subscription</strong>.</p>
           </div>
         </div>
 
-        <div class="callout callout-tip">
-          <span class="callout-icon">&#9432;</span>
-          <div>Items with an amber <strong>"3 left"</strong> badge are running low. At zero stock, they disappear from the grid.</div>
-        </div>
-
-        <div class="callout callout-tip">
-          <span class="callout-icon">&#9432;</span>
-          <div>Use the grid/list toggle (next to search) to switch to a list view if product names are long.</div>
-        </div>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- TAKING PAYMENT              -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="payment">
-        <div class="section-number">05</div>
-        <h2>Taking Payment</h2>
-        <p>After tapping <strong>Pay</strong>, a payment screen appears. Choose how the customer is paying.</p>
-
-        <h3>Cash</h3>
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Tap <strong>Cash</strong>.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body">Enter the amount the customer gives you. <strong>Change is calculated automatically.</strong></div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">Confirm the sale. A receipt is generated.</div>
-          </div>
-        </div>
-
-        <h3>Card / Mobile Money / EFT</h3>
-        <p>Tap the matching button. Process the payment on your card machine or phone, then confirm in Tilify.</p>
-
-        <h3>After Payment</h3>
-        <p>A receipt appears with a 6-character code (like <kbd>3F9A2C</kbd>). You can:</p>
-        <ul class="feature-list">
-          <li><strong>Print</strong> the receipt (if a printer is connected)</li>
-          <li><strong>Share via WhatsApp</strong> &mdash; send to the customer</li>
-        </ul>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- CREDIT SALES                -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="credit-sale">
-        <div class="section-number">06</div>
-        <h2>Credit Sales</h2>
-        <p>If your manager has enabled credit sales for cashiers, you can sell on credit.</p>
-
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">On the payment screen, tap <strong>Credit Account</strong>.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body">Select the customer from the list.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">Tilify checks their credit limit. If they're within limits, the sale goes through.</div>
-          </div>
-        </div>
-
-        <div class="callout callout-warn">
-          <span class="callout-icon">&#9888;</span>
-          <div>If you don't see the Credit Account option, your manager hasn't enabled credit sales for cashiers. Ask them to enable it in Settings.</div>
-        </div>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- OPENING A SHIFT             -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="open-shift">
-        <div class="section-number">07</div>
-        <h2>Opening a Shift</h2>
-        <p>You may need to open a shift before the POS lets you sell (depends on your shop's settings).</p>
-
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Go to <strong>Shift</strong> in the sidebar.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body">Enter your <strong>opening float</strong> &mdash; the cash already in the drawer.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">Tap <strong>Open Shift</strong>. You're ready to sell.</div>
+        <div class="faq-item" id="cancel">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Can I cancel my subscription?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. Cancel any time from <strong>Settings &rarr; Plan &amp; Billing &rarr; Manage Subscription</strong>. When you cancel:</p>
+            <ul>
+              <li>You keep full access until the end of your current billing period.</li>
+              <li>No further charges are made.</li>
+              <li>Your data remains stored and accessible in read-only mode.</li>
+            </ul>
+            <p>For the full refund and cancellation terms, visit <strong>tilify.mkglobal.co.za/refund-policy</strong>.</p>
           </div>
         </div>
       </div>
 
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- CLOSING A SHIFT             -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="close-shift">
-        <div class="section-number">08</div>
-        <h2>Closing a Shift</h2>
-        <p>At the end of your shift, count the cash in the drawer and close out.</p>
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <!-- FEATURES                -->
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <div class="faq-category" id="offline">
+        <div class="faq-category-title">Features</div>
 
-        <div class="mockup">
-          <div class="mockup-bar">
-            <div class="mockup-dot"></div><div class="mockup-dot"></div><div class="mockup-dot"></div>
-            <span class="mockup-bar-title">Close Shift</span>
-          </div>
-          <div class="mockup-body">
-            <div class="mockup-sidebar">
-              <div class="mockup-nav-item active"><div class="mockup-nav-icon"></div> Shift</div>
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> POS</div>
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Stock Count</div>
-              <div class="mockup-nav-item"><div class="mockup-nav-icon"></div> Expenses</div>
-            </div>
-            <div class="mockup-content">
-              <div class="mockup-page-title">Close Shift</div>
-              <div class="m-row">
-                <div class="m-card">
-                  <div class="m-card-label">Opening Float</div>
-                  <div class="m-card-value">R 500.00</div>
-                </div>
-                <div class="m-card">
-                  <div class="m-card-label">Cash Sales</div>
-                  <div class="m-card-value green">R 2,800.00</div>
-                </div>
-              </div>
-              <div style="font-size:var(--fs-sm);font-weight:600;color:var(--c-text);margin-bottom:var(--space-sm);">Count Your Cash</div>
-              <div class="m-denom-grid">
-                <div class="m-denom"><span class="m-denom-label">R 200</span><input class="m-denom-input" value="2" readonly></div>
-                <div class="m-denom"><span class="m-denom-label">R 100</span><input class="m-denom-input" value="5" readonly></div>
-                <div class="m-denom"><span class="m-denom-label">R 50</span><input class="m-denom-input" value="3" readonly></div>
-                <div class="m-denom"><span class="m-denom-label">R 20</span><input class="m-denom-input" value="8" readonly></div>
-                <div class="m-denom"><span class="m-denom-label">R 10</span><input class="m-denom-input" value="12" readonly></div>
-                <div class="m-denom"><span class="m-denom-label">R 5</span><input class="m-denom-input" value="6" readonly></div>
-              </div>
-              <div style="margin-top:var(--space-md);display:flex;justify-content:flex-end;">
-                <div class="m-btn primary" style="padding:8px 20px;">Close Shift</div>
-              </div>
-            </div>
+        <div class="faq-item">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Does Tilify work without internet?
+          </button>
+          <div class="faq-answer">
+            <p><strong>Yes.</strong> Tilify is a Progressive Web App (PWA) with full offline support. When the internet drops:</p>
+            <ul>
+              <li><strong>Sales continue</strong> &mdash; All transactions queue locally and sync when the connection returns.</li>
+              <li><strong>Shift operations</strong> work normally &mdash; open and close shifts, count cash.</li>
+              <li><strong>Expenses</strong> can be recorded offline.</li>
+              <li><strong>New customers</strong> can be added.</li>
+            </ul>
+            <p>An offline indicator appears in the header. Everything syncs automatically &mdash; don't sign out while offline.</p>
           </div>
         </div>
 
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Go to <strong>Shift</strong> and tap <strong>Close Shift</strong>.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body"><strong>Count every note and coin</strong> in the drawer. Enter quantities in the denomination counter.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">The total is calculated automatically. Tap <strong>Close Shift</strong>.</div>
-          </div>
-        </div>
-
-        <div class="callout callout-tip">
-          <span class="callout-icon">&#9432;</span>
-          <div><strong>Blind cash-up:</strong> Your manager may hide the expected cash amount from you. Just count what's in the drawer honestly.</div>
-        </div>
-
-        <div class="callout callout-warn">
-          <span class="callout-icon">&#9888;</span>
-          <div>Some shops require a <strong>stock count</strong> before you can close your shift. If prompted, complete the count first (see next section).</div>
-        </div>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- STOCK COUNT                 -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="stock-count">
-        <div class="section-number">09</div>
-        <h2>Stock Count</h2>
-        <p>Count the physical stock on the shelves. Your count is saved for the owner to review &mdash; it does <strong>not</strong> change stock levels directly.</p>
-
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Go to <strong>Stock Count</strong> in the sidebar.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body">All products appear with their expected quantities. Use <strong>search</strong> to find specific items.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">Enter the <strong>actual quantity</strong> you counted for each product.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">4</div>
-            <div class="step-body">Tap <strong>Save Count</strong>. Your count is submitted for review.</div>
+        <div class="faq-item" id="multi-branch">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Can I manage multiple branches?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. On the <strong>Growth</strong> plan (up to 3 branches) or <strong>Pro</strong> plan (unlimited):</p>
+            <ul>
+              <li>Each branch has its own stock levels, shifts, and sales records.</li>
+              <li>Products are shared across branches, with optional <strong>per-branch pricing</strong> for items that cost differently at different locations.</li>
+              <li>Cashiers are assigned to a specific branch and can only sell there.</li>
+              <li>Managers and owners see consolidated reports or filter by branch.</li>
+              <li>Stock can be <strong>transferred between branches</strong> with full tracking.</li>
+            </ul>
           </div>
         </div>
 
-        <div class="callout callout-danger">
-          <span class="callout-icon">&#9888;</span>
-          <div>Be accurate. Stock counts feed into the shop's revenue assurance and profit calculations. Count carefully.</div>
-        </div>
-      </div>
-
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- EXPENSES                    -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="expenses">
-        <div class="section-number">10</div>
-        <h2>Expenses</h2>
-        <p>Record money spent during your shift (transport, fuel, consumables, etc.).</p>
-
-        <div class="steps">
-          <div class="step">
-            <div class="step-num">1</div>
-            <div class="step-body">Go to <strong>Expenses</strong> and tap <strong>Record Expense</strong>.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">2</div>
-            <div class="step-body">Pick a <strong>category</strong> (Transport, Fuel, Consumables, etc.).</div>
-          </div>
-          <div class="step">
-            <div class="step-num">3</div>
-            <div class="step-body">Enter the <strong>amount</strong> and a short <strong>description</strong>.</div>
-          </div>
-          <div class="step">
-            <div class="step-num">4</div>
-            <div class="step-body">Optionally snap a <strong>photo of the receipt</strong>.</div>
+        <div class="faq-item" id="credit-sales">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do credit sales work?
+          </button>
+          <div class="faq-answer">
+            <p>Tilify has a built-in <strong>customer credit system</strong>:</p>
+            <ul>
+              <li>Add customers with a name, phone number, and optional credit limit.</li>
+              <li>At checkout, choose <strong>Credit Account</strong> and select the customer. The sale is recorded against their balance.</li>
+              <li>Track outstanding balances on the <strong>Customers</strong> page. Record payments as customers settle.</li>
+              <li>The <strong>Credit Ledger</strong> shows full transaction history per customer.</li>
+            </ul>
+            <p>Credit sales access for cashiers is optional &mdash; the owner can enable or disable it in Settings.</p>
           </div>
         </div>
 
-        <div class="callout callout-tip">
-          <span class="callout-icon">&#9432;</span>
-          <div>Expenses work offline. They sync when the internet comes back.</div>
+        <div class="faq-item" id="reports">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            What reports are available?
+          </button>
+          <div class="faq-answer">
+            <p>Tilify provides comprehensive business intelligence:</p>
+            <ul>
+              <li><strong>Dashboard</strong> &mdash; Today's sales, top products, revenue trends at a glance.</li>
+              <li><strong>Today's Sales</strong> &mdash; Receipt-level detail of every sale, expandable to line items. Void and return from here.</li>
+              <li><strong>Reports</strong> &mdash; Sales by category, payment method breakdown, daily/weekly/monthly trends.</li>
+              <li><strong>Profit &amp; Loss</strong> &mdash; Full P&amp;L statement with revenue, cost of goods sold, shrinkage, operating expenses, and net profit. VAT-registered businesses see ex-VAT figures with a VAT summary.</li>
+              <li><strong>Revenue Assurance</strong> &mdash; Reconciles sales vs. stock movement to detect unrecorded sales, overselling, and shrinkage.</li>
+              <li><strong>Daily email reports</strong> &mdash; Automated summary sent to the owner every morning.</li>
+            </ul>
+          </div>
+        </div>
+
+        <div class="faq-item" id="revenue-assurance">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            What is Revenue Assurance?
+          </button>
+          <div class="faq-answer">
+            <p>Revenue Assurance is Tilify's <strong>stock-vs-sales reconciliation tool</strong>. It answers the question: <em>"Did every product that left my shelf get rung up?"</em></p>
+            <ul>
+              <li>Compares opening stock + deliveries against closing stock + sales.</li>
+              <li>Flags <strong>unrecorded units</strong> (stock left the shelf but no sale was recorded &mdash; possible theft or wastage).</li>
+              <li>Flags <strong>oversold units</strong> (more rung up than stock movement explains &mdash; indicates a counting error).</li>
+              <li>Calculates estimated <strong>missing revenue</strong> in Rands.</li>
+            </ul>
+            <p>This is the feature owners use to hold their shop accountable. Available on all plans.</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="warehouse">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            What is the Warehouse (WMS) module?
+          </button>
+          <div class="faq-answer">
+            <p>The Warehouse Management System is for businesses that have a <strong>central warehouse or distribution centre</strong> separate from their retail locations. It includes:</p>
+            <ul>
+              <li>Warehouse-specific stock tracking with bin locations</li>
+              <li>Receive and dispatch workflows</li>
+              <li>Purchase orders for suppliers</li>
+              <li>Warehouse-to-shop transfers</li>
+              <li>Warehouse stock counts and adjustments</li>
+            </ul>
+            <p>WMS is available on all plans. Enable it in Settings &rarr; Warehouse.</p>
+          </div>
         </div>
       </div>
 
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- CUSTOMERS                   -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="customers">
-        <div class="section-number">11</div>
-        <h2>Customers</h2>
-        <p>If your manager has enabled customer access for cashiers, you can view customer profiles and record payments.</p>
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <!-- OPERATIONS              -->
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <div class="faq-category" id="add-products">
+        <div class="faq-category-title">Operations</div>
 
-        <ul class="feature-list">
-          <li><strong>View balance</strong> &mdash; See how much a customer owes.</li>
-          <li><strong>Record payment</strong> &mdash; When a customer pays off their balance, tap Payment and enter the amount.</li>
-          <li><strong>Add customer</strong> &mdash; Add new customers with their name and phone number.</li>
-        </ul>
+        <div class="faq-item">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I add products?
+          </button>
+          <div class="faq-answer">
+            <p>Go to <strong>Products &rarr; Add Product</strong>. For each product you enter:</p>
+            <ul>
+              <li><strong>Name</strong> and <strong>category</strong> (e.g. Drinks, Snacks, Bread)</li>
+              <li><strong>Selling price</strong> &mdash; what the customer pays</li>
+              <li><strong>Cost price</strong> &mdash; what you pay (package price &divide; quantity in pack)</li>
+              <li><strong>Reorder level</strong> &mdash; get alerts when stock drops below this</li>
+              <li>Optional: per-branch price overrides, barcode/SKU</li>
+            </ul>
+            <p>Products appear in the POS grid immediately. Stock is managed per branch &mdash; add quantities via Receive Stock.</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="cashiers">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I add and manage cashiers?
+          </button>
+          <div class="faq-answer">
+            <p>Go to <strong>Settings &rarr; Team</strong>:</p>
+            <ul>
+              <li>Tap <strong>Add Team Member</strong>. Enter their name and email. They'll receive a login with a temporary password.</li>
+              <li>Choose their role: <strong>Cashier</strong> (POS, shift, stock count, expenses) or <strong>Manager</strong> (everything except billing).</li>
+              <li>Assign cashiers to a <strong>specific branch</strong> &mdash; they can only sell at that location.</li>
+              <li>For managers, you can <strong>fine-tune permissions</strong> (e.g. allow reports but not voiding sales).</li>
+            </ul>
+            <p>Each branch has a shared <strong>4-digit PIN</strong> for the till (separate admin and cashier PINs). Team members sign in with email/password first, then enter the branch PIN.</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="receipts">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Can I print receipts?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. After every sale, Tilify generates a receipt with a <strong>6-character code</strong> (e.g. <kbd>3F9A2C</kbd>). You can:</p>
+            <ul>
+              <li><strong>Print</strong> to any connected printer (thermal receipt printers work best)</li>
+              <li><strong>Share via WhatsApp</strong> &mdash; send the receipt as an image to the customer</li>
+              <li><strong>Look up any receipt</strong> later using its code on the Sales page</li>
+            </ul>
+            <p>Receipts show your shop name, items, prices, payment method, and date/time.</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="stock-count">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How does stock counting work?
+          </button>
+          <div class="faq-answer">
+            <p>Stock counts in Tilify follow a <strong>two-step approval process</strong>:</p>
+            <ul>
+              <li><strong>Count</strong> &mdash; Any team member (cashier or manager) goes to Stock Count, enters actual quantities for each product, and taps Save. This creates a <em>pending</em> count session.</li>
+              <li><strong>Approve</strong> &mdash; Only the shop owner can review and confirm a pending count. Confirming updates the stock levels in the system.</li>
+            </ul>
+            <p>This prevents a cashier from silently adjusting stock to hide losses. The count is recorded but doesn't change anything until the owner approves it.</p>
+            <p>Optionally, you can require a stock count before a shift can be closed (enable in Settings).</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="vat">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Does Tilify handle VAT?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. If your business is VAT-registered, enter your VAT percentage in <strong>Settings</strong>. Tilify then:</p>
+            <ul>
+              <li>Calculates all revenue and COGS figures <strong>ex-VAT</strong> on the Profit &amp; Loss page</li>
+              <li>Shows a <strong>VAT Summary</strong> card with output VAT collected, input VAT on stock purchases, and net VAT payable</li>
+              <li>Assumes all selling prices are <strong>VAT-inclusive</strong> (standard in SADC markets)</li>
+            </ul>
+            <p>Non-VAT-registered businesses see raw figures with no VAT breakdown.</p>
+          </div>
+        </div>
       </div>
 
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <!-- OFFLINE MODE                -->
-      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
-      <div class="section" id="offline">
-        <div class="section-number">12</div>
-        <h2>Offline Mode</h2>
-        <p>If the internet goes down, <strong>keep working</strong>. These features work without a connection:</p>
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <!-- SECURITY & SUPPORT      -->
+      <!-- â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• -->
+      <div class="faq-category" id="data-security">
+        <div class="faq-category-title">Security &amp; Support</div>
 
-        <ul class="feature-list">
-          <li><strong>Point of Sale</strong> &mdash; All sales are saved and will sync later.</li>
-          <li><strong>Shift</strong> &mdash; Open and close shifts.</li>
-          <li><strong>Expenses</strong> &mdash; Record expenses.</li>
-          <li><strong>Add customers</strong> &mdash; New customers sync when you reconnect.</li>
-        </ul>
+        <div class="faq-item">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Is my data secure?
+          </button>
+          <div class="faq-answer">
+            <p>Yes. Tilify takes data security seriously:</p>
+            <ul>
+              <li><strong>Encryption in transit</strong> &mdash; All data is encrypted with HTTPS/TLS.</li>
+              <li><strong>Row-level security</strong> &mdash; Your data is isolated at the database level. No other business can see or access your records.</li>
+              <li><strong>PIN-based till access</strong> &mdash; Separate admin and cashier PINs protect till operations even on shared devices.</li>
+              <li><strong>Permission controls</strong> &mdash; Owners can restrict what each manager can see and do.</li>
+              <li><strong>Immutable sales records</strong> &mdash; Sales cannot be edited or deleted. Voids and returns create new audit-trailed records.</li>
+              <li><strong>Period locking</strong> &mdash; Lock past periods to prevent changes to historical data.</li>
+            </ul>
+            <p>Data is hosted on Supabase infrastructure with automatic backups. Tilify is built by MK Global SA (Pty) Ltd, registered in South Africa (2025/522597/07).</p>
+          </div>
+        </div>
 
-        <p>An <strong>offline indicator</strong> appears in the header when you're disconnected. Everything syncs automatically when the connection returns &mdash; you don't need to do anything.</p>
-
-        <div class="callout callout-tip">
-          <span class="callout-icon">&#9432;</span>
-          <div>Don't sign out when offline. Your session stays active and sales keep queuing.</div>
+        <div class="faq-item" id="support">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I get support?
+          </button>
+          <div class="faq-answer">
+            <p>Support depends on your plan:</p>
+            <ul>
+              <li><strong>Starter</strong> &mdash; WhatsApp support</li>
+              <li><strong>Growth</strong> &mdash; Email support with 24-hour response time</li>
+              <li><strong>Pro</strong> &mdash; Priority support with 8-hour response + WhatsApp, plus onboarding sessions for new locations</li>
+            </ul>
+            <p>For all plans, you can reach us at:</p>
+            <ul>
+              <li>Email: <strong>support@mkglobal.co.za</strong></li>
+              <li>Phone: <strong>+27 83 680 2141</strong></li>
+              <li>Website: <strong>www.mkglobal.co.za</strong></li>
+            </ul>
+            <p>Tilify also includes built-in guides &mdash; look for the <strong>User Manual</strong> or <strong>Cashier Guide</strong> link in the sidebar.</p>
+          </div>
         </div>
       </div>
 
@@ -894,10 +738,10 @@
       <div style="margin-top:var(--space-2xl);padding-top:var(--space-xl);border-top:1px solid var(--c-border);text-align:center;">
         <div style="font-family:var(--ff-display);font-size:var(--fs-lg);font-weight:700;color:var(--c-text);margin-bottom:var(--space-sm);">Tilify<span style="color:var(--c-accent);">.</span></div>
         <p style="font-size:var(--fs-sm);color:var(--c-text-secondary);max-width:400px;margin:0 auto;">
-          Need help? Ask your manager, or visit <strong>tilify.mkglobal.co.za</strong>.
+          More questions? Email <strong>support@mkglobal.co.za</strong> or visit <strong>tilify.mkglobal.co.za</strong>.
         </p>
         <p style="font-size:var(--fs-xs);color:var(--c-text-tertiary);margin-top:var(--space-md);">
-          Cashier Guide v1.0
+          FAQ v1.0 &mdash; MK Global SA (Pty) Ltd
         </p>
       </div>
 
