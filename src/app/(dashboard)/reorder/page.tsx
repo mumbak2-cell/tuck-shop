@@ -128,21 +128,15 @@ export default function ReorderPage() {
       : null;
 
     const lines: string[] = [];
-    lines.push(`*Reorder Request${supplierName ? ` for ${supplierName}` : ""}*`);
+    lines.push(`*Reorder Request*`);
     lines.push(`From: ${orgName || "Our Shop"}`);
     lines.push(`Date: ${new Date().toLocaleDateString("en-ZA")}`);
     lines.push("");
-    lines.push("Items needed:");
-    lines.push("─".repeat(30));
 
     for (const p of selected) {
       const qty = orderQtys[p.id] ?? 1;
-      lines.push(`• ${p.name} (${p.inventory_id})`);
-      lines.push(`  Qty: ${qty} | Current stock: ${p.stock}`);
+      lines.push(`${selected.indexOf(p) + 1}. ${p.name} — Qty: ${qty}`);
     }
-
-    lines.push("─".repeat(30));
-    lines.push(`Total items: ${selected.length}`);
     return lines.join("\n");
   }
 
