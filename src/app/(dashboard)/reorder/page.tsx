@@ -22,7 +22,7 @@ interface SupplierInfo {
 }
 
 export default function ReorderPage() {
-  const { lowStockThreshold, orgName } = useOrg();
+  const { lowStockThreshold, orgName, currentLocationName, locations, currentLocationId } = useOrg();
   const [products, setProducts] = useState<LowStockProduct[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierInfo[]>([]);
   const [loading, setLoading] = useState(true);
@@ -121,32 +121,58 @@ export default function ReorderPage() {
     });
   }
 
+  function orderRef(): string {
+    const d = new Date();
+    const pad = (n: number) => n.toString().padStart(2, "0");
+    return `PO-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  }
+
+  function getSupplierInfo() {
+    if (filterSupplier === "__all__" || filterSupplier === "__none__") return null;
+    return suppliers.find((s) => s.name === filterSupplier) ?? null;
+  }
+
+  function getLocationInfo() {
+    return locations.find((l) => l.id === currentLocationId) ?? null;
+  }
+
   function buildOrderText(): string {
     if (selected.length === 0) return "";
-    const supplierName = filterSupplier !== "__all__" && filterSupplier !== "__none__"
-      ? filterSupplier
-      : null;
+    const ref = orderRef();
+    const sup = getSupplierInfo();
+    const loc = getLocationInfo();
 
     const lines: string[] = [];
-    lines.push(`*Reorder Request*`);
-    lines.push(`*From: ${orgName || "Our Shop"}*`);
+    lines.push(`*PURCHASE ORDER*`);
+    lines.push(`Order No: ${ref}`);
     lines.push(`Date: ${new Date().toLocaleDateString("en-ZA")}`);
     lines.push("");
-
-    for (const p of selected) {
-      const qty = orderQtys[p.id] ?? 1;
-      lines.push(`${selected.indexOf(p) + 1}. ${p.name} — Qty: ${qty}`);
+    lines.push(`*From:* ${orgName || "Our Shop"}${currentLocationName ? ` (${currentLocationName})` : ""}`);
+    if (loc?.address) lines.push(loc.address);
+    if (loc?.phone) lines.push(`Tel: ${loc.phone}`);
+    if (sup) {
+      lines.push("");
+      lines.push(`*To:* ${sup.name}`);
+      if (sup.phone) lines.push(`Tel: ${sup.phone}`);
+      if (sup.email) lines.push(`Email: ${sup.email}`);
     }
+    lines.push("");
+    lines.push("*Items:*");
+    for (let i = 0; i < selected.length; i++) {
+      const p = selected[i];
+      const qty = orderQtys[p.id] ?? 1;
+      lines.push(`${i + 1}. ${p.name} — Qty: ${qty}`);
+    }
+    lines.push("");
+    lines.push(`Total line items: ${selected.length}`);
     return lines.join("\n");
   }
 
   function shareWhatsApp() {
     const text = buildOrderText();
     if (!text) return;
-    const supplierInfo = filterSupplier !== "__all__" && filterSupplier !== "__none__"
-      ? suppliers.find((s) => s.name === filterSupplier)
-      : null;
-    const phone = supplierInfo?.phone?.replace(/[^0-9+]/g, "") || "";
+    const sup = getSupplierInfo();
+    const phone = sup?.phone?.replace(/[^0-9+]/g, "") || "";
     const url = phone
       ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(text)}`
       : `https://wa.me/?text=${encodeURIComponent(text)}`;
@@ -163,13 +189,85 @@ export default function ReorderPage() {
 
   function exportPDF() {
     if (selected.length === 0) return;
-    const supplierName = filterSupplier !== "__all__" && filterSupplier !== "__none__"
-      ? filterSupplier : null;
+    const ref = orderRef();
+    const sup = getSupplierInfo();
+    const loc = getLocationInfo();
+    const date = new Date().toLocaleDateString("en-ZA");
+    const shopName = orgName || "Our Shop";
+    const branchLabel = currentLocationName ? ` (${currentLocationName})` : "";
+
     const rows = selected.map((p, i) => {
       const qty = orderQtys[p.id] ?? 1;
-      return `<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb">${i + 1}</td><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb">${p.name}</td><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${qty}</td></tr>`;
+      return `<tr>
+        <td class="cell">${i + 1}</td>
+        <td class="cell">${p.name}</td>
+        <td class="cell r">${qty}</td>
+      </tr>`;
     }).join("");
-    const html = `<!DOCTYPE html><html><head><title>Reorder - ${orgName || "Shop"}</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#111}table{width:100%;border-collapse:collapse;margin-top:20px}th{text-align:left;padding:8px 12px;border-bottom:2px solid #111;font-size:13px}td{font-size:13px}@media print{body{padding:20px}}</style></head><body><h2 style="margin:0">Reorder Request</h2><p style="margin:4px 0 0;color:#555">From: <strong>${orgName || "Our Shop"}</strong></p>${supplierName ? `<p style="margin:2px 0 0;color:#555">To: <strong>${supplierName}</strong></p>` : ""}<p style="margin:2px 0 0;color:#555">Date: ${new Date().toLocaleDateString("en-ZA")}</p><table><thead><tr><th>#</th><th>Product</th><th style="text-align:right">Qty</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+
+    const totalQty = selected.reduce((s, p) => s + (orderQtys[p.id] ?? 1), 0);
+
+    const html = `<!DOCTYPE html><html><head><title>PO ${ref}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;padding:40px;color:#111;font-size:13px;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px}
+  .meta{color:#555;margin:2px 0}
+  .grid{display:flex;justify-content:space-between;margin:24px 0 20px;gap:40px}
+  .block{flex:1}
+  .block h3{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin:0 0 4px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  .block p{margin:2px 0}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{text-align:left;padding:8px 12px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555}
+  .cell{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  .r{text-align:right}
+  .foot{padding:10px 12px;font-weight:bold;border-top:2px solid #333}
+  .sig{margin-top:60px;display:flex;gap:80px}
+  .sig-line{border-top:1px solid #333;padding-top:6px;width:200px;font-size:12px;color:#555}
+  @media print{body{padding:20px}}
+</style></head><body>
+
+<h1>PURCHASE ORDER</h1>
+<p class="meta"><strong>Order No:</strong> ${ref}</p>
+<p class="meta"><strong>Date:</strong> ${date}</p>
+
+<div class="grid">
+  <div class="block">
+    <h3>From (Buyer)</h3>
+    <p><strong>${shopName}${branchLabel}</strong></p>
+    ${loc?.address ? `<p>${loc.address}</p>` : ""}
+    ${loc?.phone ? `<p>Tel: ${loc.phone}</p>` : ""}
+  </div>
+  ${sup ? `<div class="block">
+    <h3>To (Supplier)</h3>
+    <p><strong>${sup.name}</strong></p>
+    ${sup.phone ? `<p>Tel: ${sup.phone}</p>` : ""}
+    ${sup.email ? `<p>Email: ${sup.email}</p>` : ""}
+  </div>` : ""}
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:40px">#</th>
+      <th>Product Description</th>
+      <th class="r" style="width:80px">Qty</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+  <tfoot>
+    <tr>
+      <td class="foot" colspan="2">Total (${selected.length} item${selected.length !== 1 ? "s" : ""})</td>
+      <td class="foot r">${totalQty}</td>
+    </tr>
+  </tfoot>
+</table>
+
+<div class="sig">
+  <div class="sig-line">Authorized by</div>
+  <div class="sig-line">Date</div>
+</div>
+
+</body></html>`;
     const w = window.open("", "_blank");
     if (!w) return;
     w.document.write(html);
