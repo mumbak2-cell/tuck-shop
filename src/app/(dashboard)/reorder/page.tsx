@@ -129,7 +129,7 @@ export default function ReorderPage() {
 
     const lines: string[] = [];
     lines.push(`*Reorder Request*`);
-    lines.push(`From: ${orgName || "Our Shop"}`);
+    lines.push(`*From: ${orgName || "Our Shop"}*`);
     lines.push(`Date: ${new Date().toLocaleDateString("en-ZA")}`);
     lines.push("");
 
