@@ -6,6 +6,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { initDevice, VsdcError } from "@/lib/zra-vsdc";
+import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -40,6 +41,9 @@ export async function POST(req: Request) {
   if (!membership) {
     return NextResponse.json({ error: "No organization found" }, { status: 404 });
   }
+
+  const rl = rateLimit(`zra-init:${membership.org_id}`, { max: 3 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   // Get ZRA config
   const { data: config } = await admin

@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { requireOrgOwner, requireOrgManager } from "@/lib/org-owner";
 import { getPlan, type PlanCode } from "@/lib/plans";
+import { rateLimit } from "@/lib/rate-limit";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
@@ -167,6 +168,9 @@ async function resolveAssignedLocation(
 export async function POST(req: Request) {
   const auth = await requireOrgOwner(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
+
+  const rl = rateLimit(`team:${auth.orgId}`, { max: 10 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   let body: InviteBody;
   try {

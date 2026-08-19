@@ -27,6 +27,7 @@ import {
   type VsdcSaveSalesRequest,
   type VsdcCredentials,
 } from "@/lib/zra-vsdc";
+import { rateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -100,6 +101,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "No organization found" }, { status: 404 });
   }
   const orgId = membership.org_id;
+
+  const rl = rateLimit(`zra:${orgId}`, { max: 30 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const { data: config } = await admin
     .from("zra_config")

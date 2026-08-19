@@ -395,7 +395,7 @@ export default function POSPage() {
       </div>
 
       {/* Desktop/tablet cart (hidden on mobile) */}
-      <div className="hidden md:block w-80 flex-shrink-0 md:w-96">
+      <div className="hidden md:block md:w-80 lg:w-96 flex-shrink-0">
         <Cart
           items={cart}
           onUpdateQty={updateQty}
