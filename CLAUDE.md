@@ -211,10 +211,6 @@ client to open (card updates, cancellation). Returns 404 if no active subscripti
 if Paystack is unconfigured. The "Manage subscription" button in Settings → Plan &
 Billing is visible only to owners with an active subscription.
 
-**Temporary:** `src/app/api/billing/plan-check/route.ts` is a token-gated diagnostic
-(plan-code validity + key mode) kept for the live cutover. **Delete it once live billing
-is verified.**
-
 ## Public legal pages (Paystack compliance)
 
 Paystack business activation requires terms, a refund/cancellation policy, and a visible
