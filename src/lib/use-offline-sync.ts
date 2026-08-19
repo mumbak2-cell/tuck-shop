@@ -44,6 +44,43 @@ export function usePendingCount(orgId: string | null): number {
 }
 
 /**
+ * Subscribes to queue changes for the given org. Returns the count of ops
+ * that have hit MAX_RETRIES_BEFORE_PARK (8, offline-sync.ts) and were
+ * dropped from the drain loop — these need the cashier's attention, they
+ * will not sync on their own.
+ */
+export function useParkedCount(orgId: string | null): number {
+  const [count, setCount] = useState<number>(0);
+
+  useEffect(() => {
+    if (!orgId) { setCount(0); return; }
+    const id: string = orgId;
+    const update = () => {
+      const parked = readQueue(id).filter((op) => op.attempts >= 8).length;
+      setCount(parked);
+    };
+    update();
+
+    function onChange(e: Event) {
+      const detail = (e as CustomEvent).detail as { orgId: string };
+      if (detail.orgId === id) update();
+    }
+    function onStorage(e: StorageEvent) {
+      if (e.key && e.key.startsWith(`tilify_queue_${id}`)) update();
+    }
+
+    window.addEventListener("tilify:queue-changed", onChange as EventListener);
+    window.addEventListener("storage", onStorage);
+    return () => {
+      window.removeEventListener("tilify:queue-changed", onChange as EventListener);
+      window.removeEventListener("storage", onStorage);
+    };
+  }, [orgId]);
+
+  return count;
+}
+
+/**
  * Returns the full current queue. Use sparingly — most pages just need the
  * count for a badge.
  */

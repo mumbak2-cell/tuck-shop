@@ -11,7 +11,8 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { readCache } from "@/lib/offline-store";
 import { formatZAR } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
-import { Play } from "lucide-react";
+import { useParkedCount } from "@/lib/use-offline-sync";
+import { Play, AlertTriangle } from "lucide-react";
 import Link from "next/link";
 
 /** product_id → discount percent for currently active promotions */
@@ -38,6 +39,7 @@ export default function POSPage() {
   const { isOpen, loading: shiftLoading } = useShift();
   const { requiresShift, currentLocationId, orgId, locations } = useOrg();
   const toast = useToast();
+  const parkedCount = useParkedCount(orgId);
   const [products, setProducts] = useState<Product[]>([]);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showPayment, setShowPayment] = useState(false);
@@ -377,6 +379,12 @@ export default function POSPage() {
       {/* Product grid */}
       <div className="flex-1 min-w-0 overflow-y-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-4">Point of Sale</h1>
+        {parkedCount > 0 && (
+          <div className="mx-4 mt-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm text-red-700">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0" />
+            <span>{parkedCount} sale{parkedCount > 1 ? "s" : ""} failed to sync after multiple attempts.</span>
+          </div>
+        )}
         <ProductGrid
           products={products}
           onAddToCart={addToCart}
