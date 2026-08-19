@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
-import { ArrowLeft, Send, Copy, Check, Package } from "lucide-react";
+import { ArrowLeft, Send, Copy, Check, Package, FileDown } from "lucide-react";
 import Link from "next/link";
 
 interface LowStockProduct {
@@ -161,6 +161,22 @@ export default function ReorderPage() {
     setTimeout(() => setCopied(false), 2000);
   }
 
+  function exportPDF() {
+    if (selected.length === 0) return;
+    const supplierName = filterSupplier !== "__all__" && filterSupplier !== "__none__"
+      ? filterSupplier : null;
+    const rows = selected.map((p, i) => {
+      const qty = orderQtys[p.id] ?? 1;
+      return `<tr><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb">${i + 1}</td><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb">${p.name}</td><td style="padding:6px 12px;border-bottom:1px solid #e5e7eb;text-align:right">${qty}</td></tr>`;
+    }).join("");
+    const html = `<!DOCTYPE html><html><head><title>Reorder - ${orgName || "Shop"}</title><style>body{font-family:Arial,sans-serif;padding:40px;color:#111}table{width:100%;border-collapse:collapse;margin-top:20px}th{text-align:left;padding:8px 12px;border-bottom:2px solid #111;font-size:13px}td{font-size:13px}@media print{body{padding:20px}}</style></head><body><h2 style="margin:0">Reorder Request</h2><p style="margin:4px 0 0;color:#555">From: <strong>${orgName || "Our Shop"}</strong></p>${supplierName ? `<p style="margin:2px 0 0;color:#555">To: <strong>${supplierName}</strong></p>` : ""}<p style="margin:2px 0 0;color:#555">Date: ${new Date().toLocaleDateString("en-ZA")}</p><table><thead><tr><th>#</th><th>Product</th><th style="text-align:right">Qty</th></tr></thead><tbody>${rows}</tbody></table></body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.setTimeout(() => { w.print(); }, 300);
+  }
+
   if (loading) {
     return (
       <div className="p-6">
@@ -215,6 +231,14 @@ export default function ReorderPage() {
               >
                 <Send className="w-4 h-4" />
                 WhatsApp
+              </button>
+              <button
+                onClick={exportPDF}
+                disabled={selected.length === 0}
+                className="flex items-center gap-2 px-4 py-2 border border-gray-300 rounded-lg text-sm font-medium hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <FileDown className="w-4 h-4" />
+                PDF
               </button>
               <button
                 onClick={copyToClipboard}
