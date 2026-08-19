@@ -16,10 +16,16 @@ import { replayOp } from "@/lib/offline-ops";
 import { fetchAllPaged } from "@/lib/fetch-all";
 
 const CACHE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+// Customers, locations, payment methods and settings change rarely (daily at
+// most) compared to products/stock, which move on every sale. Refreshing
+// them on the same 5-min cycle as hot data wastes bandwidth on large
+// catalogues, so they're refreshed on a longer interval instead.
+const COLD_REFRESH_MS = 30 * 60 * 1000;
 const MAX_RETRIES_BEFORE_PARK = 8;
 
 let intervalId: number | null = null;
 let inFlight = false;
+let lastColdRefresh = 0;
 
 /**
  * Refresh the local cache for the given org. Pulls products, payment_methods,
@@ -29,11 +35,14 @@ let inFlight = false;
 export async function refreshCache(orgId: string): Promise<void> {
   if (!navigator.onLine) return;
 
-  // Products, customers, and product_stock can all exceed Supabase's
-  // server-side max_rows ceiling (default 1000), so they're paginated via
-  // .range(). Without this, offline POS at large operators would silently
-  // miss every SKU past the first 1000.
-  const [products, productStock, locationPrices, customers, { data: paymentMethods }, { data: locations }, { data: settings }] = await Promise.all([
+  const now = Date.now();
+  const refreshCold = now - lastColdRefresh > COLD_REFRESH_MS;
+
+  // Products and product_stock can both exceed Supabase's server-side
+  // max_rows ceiling (default 1000), so they're paginated via .range().
+  // Without this, offline POS at large operators would silently miss every
+  // SKU past the first 1000.
+  const [products, productStock, locationPrices] = await Promise.all([
     fetchAllPaged<Record<string, unknown>>(() =>
       db.from("products").select("*").eq("discontinued", false).order("name")
     ),
@@ -46,21 +55,28 @@ export async function refreshCache(orgId: string): Promise<void> {
     fetchAllPaged<Record<string, unknown>>(() =>
       db.from("product_location_prices").select("*")
     ).catch(() => []),
-    fetchAllPaged<Record<string, unknown>>(() =>
-      db.from("customers").select("*")
-    ),
-    db.from("payment_methods").select("*").eq("active", true).order("sort_order"),
-    db.from("locations").select("*").eq("active", true).order("sort_order"),
-    db.from("app_settings").select("*"),
   ]);
 
   saveCache(orgId, "products", products);
   saveCache(orgId, "product_stock", productStock);
   saveCache(orgId, "product_location_prices", locationPrices);
-  saveCache(orgId, "customers", customers);
-  if (paymentMethods) saveCache(orgId, "payment_methods", paymentMethods);
-  if (locations) saveCache(orgId, "locations", locations);
-  if (settings) saveCache(orgId, "app_settings", settings);
+
+  if (refreshCold) {
+    const [customers, { data: paymentMethods }, { data: locations }, { data: settings }] = await Promise.all([
+      fetchAllPaged<Record<string, unknown>>(() =>
+        db.from("customers").select("*")
+      ),
+      db.from("payment_methods").select("*").eq("active", true).order("sort_order"),
+      db.from("locations").select("*").eq("active", true).order("sort_order"),
+      db.from("app_settings").select("*"),
+    ]);
+
+    saveCache(orgId, "customers", customers);
+    if (paymentMethods) saveCache(orgId, "payment_methods", paymentMethods);
+    if (locations) saveCache(orgId, "locations", locations);
+    if (settings) saveCache(orgId, "app_settings", settings);
+    lastColdRefresh = now;
+  }
 }
 
 /**

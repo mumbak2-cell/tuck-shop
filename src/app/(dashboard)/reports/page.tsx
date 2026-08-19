@@ -98,6 +98,7 @@ export default function ReportsPage() {
   const [customFrom, setCustomFrom] = useState(localMonthStart);
   const [customTo, setCustomTo] = useState(localToday);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
 
   const [revenue, setRevenue] = useState(0);
   const [cogs, setCogs] = useState(0);
@@ -395,6 +396,20 @@ export default function ReportsPage() {
     return isFiltered && filteredLocName ? `-${slug(filteredLocName)}` : "";
   }
 
+  // Shared guard around every export* function below — signals progress via
+  // the CsvButton's disabled/label state while the CSV string is built on
+  // the main thread. Doesn't prevent a freeze on very large exports, but a
+  // stuck-looking button without it is worse.
+  function withExportGuard(fn: () => void) {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      fn();
+    } finally {
+      setExporting(false);
+    }
+  }
+
   function exportSales() {
     const { from, to } = getDateRange();
     downloadCsv(
@@ -607,7 +622,7 @@ export default function ReportsPage() {
                   <Banknote className="w-4 h-4 text-green-600" />
                   Cash intake
                 </h2>
-                <CsvButton onClick={exportIntake} disabled={intakeByDay.length === 0} />
+                <CsvButton onClick={() => withExportGuard(exportIntake)} disabled={intakeByDay.length === 0} loading={exporting} />
               </div>
               <p className="text-xs text-gray-500 mb-4">
                 What actually came in at {scopeLabel}, by how it was paid.
@@ -684,7 +699,7 @@ export default function ReportsPage() {
                   <Wallet className="w-4 h-4 text-red-500" />
                   Cash spent
                 </h2>
-                <CsvButton onClick={exportSpend} disabled={totalSpent === 0 && stockOnAccount === 0} />
+                <CsvButton onClick={() => withExportGuard(exportSpend)} disabled={totalSpent === 0 && stockOnAccount === 0} loading={exporting} />
               </div>
               <p className="text-xs text-gray-500 mb-4">
                 What actually went out — stock you paid for, plus running costs.
@@ -779,7 +794,7 @@ export default function ReportsPage() {
               iconColor="text-green-600"
               title="Top sellers"
               summary={topSellers.length === 0 ? "No sales" : `${productsSold} products · ${formatZAR(top5Revenue)} from top 5`}
-              action={<CsvButton onClick={exportSales} disabled={allProductSales.length === 0} />}
+              action={<CsvButton onClick={() => withExportGuard(exportSales)} disabled={allProductSales.length === 0} loading={exporting} />}
             >
               {topSellers.length === 0 ? (
                 <p className="text-sm text-gray-400 py-2">No sales recorded in this period.</p>
@@ -809,7 +824,7 @@ export default function ReportsPage() {
               iconColor="text-amber-600"
               title="Slowest movers"
               summary={slowestMovers.length === 0 ? "No stock" : `${slowestMovers.length} shown · ${zeroSellers} not selling`}
-              action={<CsvButton onClick={exportSlowest} disabled={slowestMovers.length === 0} />}
+              action={<CsvButton onClick={() => withExportGuard(exportSlowest)} disabled={slowestMovers.length === 0} loading={exporting} />}
             >
               <p className="text-xs text-gray-500 mb-3">In-stock products that sold the fewest units at {scopeLabel} this period — watch for dead stock.</p>
               {slowestMovers.length === 0 ? (
@@ -837,7 +852,7 @@ export default function ReportsPage() {
             title="Low stock"
             summary={lowStock.length === 0 ? "All good" : `${lowStock.length} low`}
             summaryTone={lowStock.length > 0 ? "warn" : "muted"}
-            action={<CsvButton onClick={exportLowStock} disabled={lowStock.length === 0} />}
+            action={<CsvButton onClick={() => withExportGuard(exportLowStock)} disabled={lowStock.length === 0} loading={exporting} />}
           >
             <p className="text-xs text-gray-500 mb-3">
               In-stock products at or below {lowStockThreshold} units at {scopeLabel}.
@@ -971,15 +986,15 @@ function CollapsibleCard({
   );
 }
 
-function CsvButton({ onClick, disabled }: { onClick: () => void; disabled?: boolean }) {
+function CsvButton({ onClick, disabled, loading }: { onClick: () => void; disabled?: boolean; loading?: boolean }) {
   return (
     <button
       onClick={onClick}
-      disabled={disabled}
+      disabled={disabled || loading}
       className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed"
     >
       <Download className="w-3.5 h-3.5" />
-      Export
+      {loading ? "Exporting..." : "Export"}
     </button>
   );
 }

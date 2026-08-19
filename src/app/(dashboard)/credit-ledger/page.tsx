@@ -41,6 +41,7 @@ export default function CreditLedgerPage() {
   const [filterFrom, setFilterFrom] = useState(localMonthStart);
   const [filterTo, setFilterTo] = useState(localToday);
   const [broughtForward, setBroughtForward] = useState(0);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     loadCustomers();
@@ -288,6 +289,15 @@ export default function CreditLedgerPage() {
   }
 
   function exportToExcel() {
+    setExporting(true);
+    try {
+      exportToExcelInner();
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  function exportToExcelInner() {
     const bom = "﻿";
     const lines: string[] = [];
 
@@ -434,11 +444,11 @@ export default function CreditLedgerPage() {
         </div>
         <button
           onClick={exportToExcel}
-          disabled={entries.length === 0 && broughtForward <= 0}
+          disabled={exporting || (entries.length === 0 && broughtForward <= 0)}
           className="flex items-center gap-1.5 px-4 py-2 bg-green-600 text-white rounded-lg text-sm font-medium hover:bg-green-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <Download className="w-4 h-4" />
-          Export
+          {exporting ? "Exporting..." : "Export"}
         </button>
       </div>
 

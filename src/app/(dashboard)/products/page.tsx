@@ -16,6 +16,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { localToday } from "@/lib/date-utils";
 import { TruncatedText } from "@/components/ui/truncate";
 import { ActionMenu, MenuItem } from "@/components/ui/menu";
+import { useToast } from "@/components/ui/toast";
 import { Plus, Search, Filter, Upload, Download, Tag, Pencil, Trash2 } from "lucide-react";
 
 export default function ProductsPage() {
@@ -39,6 +40,8 @@ export default function ProductsPage() {
   const [bulkAction, setBulkAction] = useState<"" | "price" | "discontinue">("");
   const [bulkPricePercent, setBulkPricePercent] = useState("");
   const [bulkProcessing, setBulkProcessing] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const toast = useToast();
 
   // Load the org's categories. We merge the explicit categories table with
   // any category values actually present on products — bulk CSV imports
@@ -153,6 +156,21 @@ export default function ProductsPage() {
   }
 
   async function handleExport() {
+    // The export menu item closes its dropdown immediately on click, so
+    // there's no button left to disable — a toast is the only visible
+    // feedback while the main thread builds the CSV string on large
+    // catalogues. The exporting guard just prevents a double-trigger.
+    if (exporting) return;
+    setExporting(true);
+    toast.info("Exporting products…");
+    try {
+      await handleExportInner();
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function handleExportInner() {
     // Export the full product list (subject to current search / category filter)
     // as CSV with per-location current stock attached. The format mirrors what
     // CSV Import accepts, so round-trip editing in Excel/Sheets is clean.
@@ -241,11 +259,16 @@ export default function ProductsPage() {
     if (!window.confirm(`Adjust selling price by ${pct > 0 ? "+" : ""}${pct}% for ${selectedIds.size} products?`)) return;
     setBulkProcessing(true);
     const targets = products.filter((p) => selectedIds.has(p.id));
+    const failures: string[] = [];
     for (const p of targets) {
       const newPrice = Math.round(p.selling_price * (1 + pct / 100) * 100) / 100;
-      await db.from("products").update({ selling_price: newPrice }).eq("id", p.id);
+      const { error } = await db.from("products").update({ selling_price: newPrice }).eq("id", p.id);
+      if (error) failures.push(`${p.name}: ${error.message}`);
     }
     setBulkProcessing(false);
+    if (failures.length > 0) {
+      alert(`${targets.length - failures.length} updated, ${failures.length} failed:\n${failures.join("\n")}`);
+    }
     setSelectedIds(new Set());
     setBulkAction("");
     setBulkPricePercent("");
@@ -255,10 +278,19 @@ export default function ProductsPage() {
   async function handleBulkDiscontinue() {
     if (!window.confirm(`Discontinue ${selectedIds.size} selected products?`)) return;
     setBulkProcessing(true);
+    const targets = products.filter((p) => selectedIds.has(p.id));
+    const failures: string[] = [];
     for (const id of selectedIds) {
-      await db.from("products").update({ discontinued: true }).eq("id", id);
+      const { error } = await db.from("products").update({ discontinued: true }).eq("id", id);
+      if (error) {
+        const name = targets.find((p) => p.id === id)?.name ?? id;
+        failures.push(`${name}: ${error.message}`);
+      }
     }
     setBulkProcessing(false);
+    if (failures.length > 0) {
+      alert(`${selectedIds.size - failures.length} discontinued, ${failures.length} failed:\n${failures.join("\n")}`);
+    }
     setSelectedIds(new Set());
     setBulkAction("");
     fetchProducts();

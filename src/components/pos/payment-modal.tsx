@@ -722,8 +722,9 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
         {selectedKind === "cash" && (
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Cash tendered</p>
+            <label htmlFor="cash-tendered" className="text-sm font-medium text-gray-700 mb-2 block">Cash tendered</label>
             <input
+              id="cash-tendered"
               type="number"
               inputMode="decimal"
               step="0.01"
@@ -770,8 +771,9 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
         {allowsCashBack && (
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Cash back (optional)</p>
+            <label htmlFor="cash-back" className="text-sm font-medium text-gray-700 mb-2 block">Cash back (optional)</label>
             <input
+              id="cash-back"
               type="number"
               inputMode="decimal"
               step="0.01"
@@ -809,10 +811,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
         {(selectedKind === "card" || selectedKind === "eft") && (
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">
+            <label htmlFor="payment-ref" className="text-sm font-medium text-gray-700 mb-2 block">
               Reference (optional)
-            </p>
+            </label>
             <input
+              id="payment-ref"
               type="text"
               value={paymentReference}
               onChange={(e) => setPaymentReference(e.target.value)}
@@ -824,13 +827,14 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
 
         {selectedKind === "credit" && (
           <div>
-            <p className="text-sm font-medium text-gray-700 mb-2">Select customer</p>
+            <label htmlFor="credit-customer" className="text-sm font-medium text-gray-700 mb-2 block">Select customer</label>
             {customers.length === 0 ? (
               <p className="text-sm text-gray-400">
                 No customers found. Add customers in the Customers module first.
               </p>
             ) : (
               <select
+                id="credit-customer"
                 value={selectedCustomer}
                 onChange={(e) => setSelectedCustomer(e.target.value)}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2.5 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
