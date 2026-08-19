@@ -157,7 +157,7 @@ export default function ReportsPage() {
     const stockList = [...stockByProduct.values()];
     setLowStock(
       stockList
-        .filter((r) => r.quantity > 0 && r.quantity <= lowStockThreshold)
+        .filter((r) => r.quantity >= 0 && r.quantity <= lowStockThreshold)
         .sort((a, b) => a.quantity - b.quantity)
     );
 

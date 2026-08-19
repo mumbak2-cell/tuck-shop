@@ -135,7 +135,7 @@ export default function DashboardPage() {
       stockByProduct.set(r.product_id, cur);
     });
     const lowStockItems = [...stockByProduct.values()]
-      .filter((s) => s.quantity > 0 && s.quantity <= lowStockThreshold)
+      .filter((s) => s.quantity >= 0 && s.quantity <= lowStockThreshold)
       .sort((a, b) => a.quantity - b.quantity)
       .slice(0, 8)
       .map((s) => ({ name: s.name, stock: s.quantity }));
