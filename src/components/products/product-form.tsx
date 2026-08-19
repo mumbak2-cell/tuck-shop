@@ -8,6 +8,7 @@ import { Select } from "@/components/ui/select";
 import { formatMoney, getActiveSymbol } from "@/lib/format";
 import { useOrg } from "@/lib/org-context";
 import { RecipeEditor, RecipeLine } from "@/components/products/recipe-editor";
+import { SupplierSelect } from "@/components/suppliers/supplier-select";
 
 interface Props {
   product?: Product | null;
@@ -44,6 +45,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     units_per_batch: product?.units_per_batch?.toString() || "",
     wholesale_enabled: product?.wholesale_enabled || false,
     wholesale_min_qty: product?.wholesale_min_qty?.toString() || "1",
+    default_supplier: product?.default_supplier || "",
   });
 
   // Recipe lines for a prepared item. Held here rather than written directly so
@@ -132,6 +134,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       reorder_level: parseInt(form.reorder_level) || 0,
       wholesale_enabled: form.wholesale_enabled,
       wholesale_min_qty: form.wholesale_enabled ? parseInt(form.wholesale_min_qty) || 1 : 1,
+      default_supplier: form.default_supplier.trim() || null,
     };
 
     if (!payload.name || !payload.category || !payload.selling_price) {
@@ -306,7 +309,16 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           onChange={(e) => update("category", e.target.value)}
           disabled={categoryOptions.length === 0}
         />
-        <div className="flex flex-col gap-2 justify-end pb-1">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
+          <SupplierSelect
+            value={form.default_supplier}
+            onChange={(name) => update("default_supplier", name)}
+          />
+        </div>
+      </div>
+
+      <div className="flex flex-col gap-2">
           {preparesFood && (
             <label className="flex items-center gap-2 text-sm">
               <input
@@ -327,7 +339,6 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
             />
             Sellable item (included in Revenue Assurance)
           </label>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">

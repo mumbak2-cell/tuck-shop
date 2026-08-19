@@ -96,6 +96,7 @@ export interface Product {
   created_at: string;
   wholesale_enabled: boolean;
   wholesale_min_qty: number;
+  default_supplier: string | null;
 }
 
 export interface Ingredient {

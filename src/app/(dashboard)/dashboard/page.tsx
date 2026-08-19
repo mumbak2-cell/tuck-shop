@@ -384,9 +384,14 @@ export default function DashboardPage() {
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <div className="flex items-center justify-between mb-4">
             <h2 className="font-semibold text-gray-900">Low Stock Alerts</h2>
-            <Link href="/stock" className="text-sm text-green-600 hover:underline flex items-center gap-1">
-              Stock Count <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="flex items-center gap-3">
+              <Link href="/reorder" className="text-sm text-green-600 hover:underline flex items-center gap-1">
+                Reorder <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+              <Link href="/stock" className="text-sm text-gray-400 hover:underline flex items-center gap-1">
+                Stock Count <ArrowRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
           </div>
           {data.lowStockItems.length === 0 ? (
             <p className="text-sm text-gray-400 py-4 text-center">Nothing at or below {lowStockThreshold} units.</p>

@@ -1,6 +1,5 @@
 "use client";
 import { useEffect, useState, useCallback, useRef } from "react";
-import { useRouter } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { useAuth } from "@/lib/auth-context";
 import { formatZAR } from "@/lib/format";
@@ -83,15 +82,10 @@ interface SaleGroup {
 }
 
 export default function SalesPage() {
-  const router = useRouter();
   const { role, name: userName } = useAuth();
   const { role: orgRole, assignedLocationId, currentLocationId, locations, orgName, tpin, vatPercent, currentLocationName, orgId, can, currency } = useOrg();
 
-  // Today's Sales is admin-only in the menu now; cashiers who land here
-  // directly (bookmark, back button) get bounced to the POS instead.
-  useEffect(() => {
-    if (role === "cashier") router.replace("/pos");
-  }, [role, router]);
+  const isCashier = role === "cashier";
 
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
   const effectiveLoc = orgRole === "member" ? (assignedLocationId || currentLocationId || LOCATION_FILTER_ALL) : locFilter;
@@ -648,10 +642,73 @@ export default function SalesPage() {
   const liveSaleCount = saleGroups.filter((g) => !g.allVoided).length;
   const voidedCount = saleGroups.filter((g) => g.allVoided).length;
 
-  if (role === "cashier") return null;
-
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;
+  }
+
+  if (isCashier) {
+    return (
+      <div className="max-w-2xl mx-auto">
+        <h1 className="text-xl font-bold text-gray-900 mb-4">My Transactions</h1>
+        <div className="bg-white rounded-xl border border-gray-200 p-4 mb-4 flex justify-between items-center">
+          <div>
+            <p className="text-sm text-gray-500">Total Today</p>
+            <p className="text-2xl font-bold text-gray-900">{formatZAR(summary.total)}</p>
+          </div>
+          <div className="text-right">
+            <p className="text-sm text-gray-500">Transactions</p>
+            <p className="text-2xl font-bold text-gray-900">{liveSaleCount}</p>
+          </div>
+        </div>
+        <div className="bg-white rounded-xl border border-gray-200">
+          {saleGroups.length === 0 ? (
+            <div className="px-5 py-8 text-center text-gray-400 text-sm">No transactions yet today.</div>
+          ) : (
+            <div className="divide-y divide-gray-100">
+              {saleGroups.map((g) => {
+                const bucket: PaymentBucket = paymentBucket(g.paymentMethod);
+                const time = new Date(g.createdAt).toLocaleTimeString("en-ZA", { hour: "2-digit", minute: "2-digit" });
+                const isOpen = !!expanded[g.key];
+                return (
+                  <div key={g.key} className={g.allVoided ? "bg-red-50/50" : ""}>
+                    <button
+                      onClick={() => setExpanded((m) => ({ ...m, [g.key]: !isOpen }))}
+                      className="w-full px-4 py-3 text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <ChevronDown className={`w-4 h-4 text-gray-400 transition-transform ${isOpen ? "rotate-180" : ""}`} />
+                          <span className="text-sm font-mono font-semibold text-gray-900">{g.code}</span>
+                          <span className="text-sm text-gray-500">{time}</span>
+                          <Badge color={bucket === "cash" ? "green" : bucket === "card" ? "blue" : "amber"}>
+                            {g.paymentMethod || "—"}
+                          </Badge>
+                          {g.allVoided && <Badge color="red">Voided</Badge>}
+                        </div>
+                        <span className={`font-bold ${g.allVoided ? "line-through text-gray-400" : "text-gray-900"}`}>
+                          {formatZAR(g.total)}
+                        </span>
+                      </div>
+                      <p className="text-xs text-gray-500 ml-6">{g.itemCount} item{g.itemCount === 1 ? "" : "s"}</p>
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-3 ml-6 space-y-1">
+                        {g.lines.map((l) => (
+                          <div key={l.id} className={`flex justify-between text-sm ${l.voided ? "line-through text-gray-400" : "text-gray-700"}`}>
+                            <span>{l.product_name} x{l.quantity}</span>
+                            <span>{formatZAR(Number(l.total_amount))}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </div>
+    );
   }
 
   return (
