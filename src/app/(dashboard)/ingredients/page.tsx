@@ -9,11 +9,15 @@ import { Modal } from "@/components/ui/modal";
 import { useDebounce } from "@/lib/use-debounce";
 import { Plus, Search } from "lucide-react";
 
+const PAGE_SIZE = 50;
+
 export default function IngredientsPage() {
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const debouncedSearch = useDebounce(search, 300);
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
   const [showForm, setShowForm] = useState(false);
   const [editing, setEditing] = useState<Ingredient | null>(null);
   const [saving, setSaving] = useState(false);
@@ -24,16 +28,33 @@ export default function IngredientsPage() {
     current_stock: "0", reorder_level: "0",
   });
 
-  const fetchIngredients = useCallback(async () => {
-    setLoading(true);
-    let query = db.from("ingredients").select("*").order("name");
+  const fetchIngredients = useCallback(async (pageArg: number, reset: boolean) => {
+    if (reset) setLoading(true);
+    let query = db.from("ingredients").select("*").order("name")
+      .range(pageArg * PAGE_SIZE, (pageArg + 1) * PAGE_SIZE - 1);
     if (debouncedSearch) query = query.ilike("name", `%${debouncedSearch}%`);
     const { data } = await query;
-    setIngredients(data || []);
+    const rows = data || [];
+    setIngredients((prev) => (reset ? rows : [...prev, ...rows]));
+    setHasMore(rows.length === PAGE_SIZE);
     setLoading(false);
   }, [debouncedSearch]);
 
-  useEffect(() => { fetchIngredients(); }, [fetchIngredients]);
+  useEffect(() => {
+    setPage(0);
+    fetchIngredients(0, true);
+  }, [debouncedSearch, fetchIngredients]);
+
+  function loadMore() {
+    const next = page + 1;
+    setPage(next);
+    fetchIngredients(next, false);
+  }
+
+  function refetch() {
+    setPage(0);
+    fetchIngredients(0, true);
+  }
 
   function openNew() {
     setEditing(null);
@@ -76,7 +97,7 @@ export default function IngredientsPage() {
     if (result.error) { setError(result.error.message); setSaving(false); return; }
     setSaving(false);
     setShowForm(false);
-    fetchIngredients();
+    refetch();
   }
 
   return (
@@ -142,6 +163,14 @@ export default function IngredientsPage() {
           </table>
         </div>
       </div>
+
+      {hasMore && !loading && (
+        <div className="flex justify-center py-4">
+          <Button variant="secondary" onClick={loadMore}>
+            Load more
+          </Button>
+        </div>
+      )}
 
       <Modal open={showForm} onClose={() => setShowForm(false)} title={editing ? "Edit Ingredient" : "Add Ingredient"}>
         <form onSubmit={handleSubmit} className="space-y-4">

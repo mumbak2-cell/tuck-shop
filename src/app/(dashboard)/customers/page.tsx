@@ -24,10 +24,14 @@ import {
 import { insertOrQueue } from "@/lib/offline-ops";
 import { localToday } from "@/lib/date-utils";
 
+const PAGE_SIZE = 50;
+
 export default function CustomersPage() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [hasMore, setHasMore] = useState(true);
+  const [page, setPage] = useState(0);
 
   // Modals
   const [showForm, setShowForm] = useState(false);
@@ -40,21 +44,39 @@ export default function CustomersPage() {
 
   const { currentLocationId, currentLocationName, currency } = useOrg();
 
-  const fetchCustomers = useCallback(async () => {
-    setLoading(true);
-    let q = db.from("customers").select("*").order("name");
+  // Server-side pagination via .range() — accepts the page explicitly rather
+  // than reading it from state, so "Load more" can't race a stale closure
+  // over the async setPage.
+  const fetchCustomers = useCallback(async (pageArg: number, reset: boolean) => {
+    if (reset) setLoading(true);
+    let q = db.from("customers").select("*").order("name")
+      .range(pageArg * PAGE_SIZE, (pageArg + 1) * PAGE_SIZE - 1);
     if (currentLocationId) {
       // Per-location credit book: only show this shop's customers.
       q = q.eq("location_id", currentLocationId);
     }
     const { data } = await q;
-    setCustomers(data || []);
+    const rows = data || [];
+    setCustomers((prev) => (reset ? rows : [...prev, ...rows]));
+    setHasMore(rows.length === PAGE_SIZE);
     setLoading(false);
   }, [currentLocationId]);
 
   useEffect(() => {
-    fetchCustomers();
-  }, [fetchCustomers]);
+    setPage(0);
+    fetchCustomers(0, true);
+  }, [currentLocationId, fetchCustomers]);
+
+  function loadMore() {
+    const next = page + 1;
+    setPage(next);
+    fetchCustomers(next, false);
+  }
+
+  function refetch() {
+    setPage(0);
+    fetchCustomers(0, true);
+  }
 
   const filtered = customers.filter((c) =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
@@ -318,12 +340,20 @@ export default function CustomersPage() {
         </div>
       )}
 
+      {hasMore && !loading && (
+        <div className="flex justify-center py-4">
+          <Button variant="secondary" onClick={loadMore}>
+            Load more
+          </Button>
+        </div>
+      )}
+
       {/* Add/Edit Customer Modal */}
       <CustomerFormModal
         open={showForm}
         onClose={() => setShowForm(false)}
         customer={editingCustomer}
-        onSaved={fetchCustomers}
+        onSaved={refetch}
       />
 
       {/* Record Payment Modal */}
@@ -335,7 +365,7 @@ export default function CustomersPage() {
             setPaymentCustomer(null);
           }}
           customer={paymentCustomer}
-          onSaved={fetchCustomers}
+          onSaved={refetch}
         />
       )}
 
