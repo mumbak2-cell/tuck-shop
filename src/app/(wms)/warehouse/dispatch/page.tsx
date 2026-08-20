@@ -36,6 +36,7 @@ interface WmsCatalogItem {
   item_name: string;
   pack_size: number;
   barcode: string | null;
+  product_id: string | null;
 }
 
 interface WmsInventoryRow {
@@ -50,6 +51,7 @@ interface DispatchLine {
   sku: string;
   qty: number;
   available: number;
+  productId: string | null;
 }
 
 interface PastDispatch {
@@ -118,7 +120,7 @@ export default function WmsDispatchPage() {
   const loadData = useCallback(async () => {
     const [catalog, inventory, { data: dispatches }, { data: wmsLocs, error: locErr }] =
       await Promise.all([
-        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size, barcode").order("item_name")),
+        fetchAllPaged<WmsCatalogItem>(() => db.from("wms_catalog").select("id, sku, item_name, pack_size, barcode, product_id").order("item_name")),
         fetchAllPaged<WmsInventoryRow>(() => db.from("wms_inventory").select("wms_item_id, physical_qty")),
         db
           .from("wms_dispatches")
@@ -384,6 +386,7 @@ export default function WmsDispatchPage() {
     }
 
     const available = inventoryMap.get(item.id) ?? 0;
+    const productId = catalogItems.find((c: WmsCatalogItem) => c.id === item.id)?.product_id ?? null;
 
     setLines((prev: DispatchLine[]) => [
       ...prev,
@@ -394,6 +397,7 @@ export default function WmsDispatchPage() {
         sku: item.sku,
         qty: 1,
         available,
+        productId,
       },
     ]);
     setShowPicker(false);
@@ -459,7 +463,15 @@ export default function WmsDispatchPage() {
         });
 
         if (error) throw error;
-        toast.success("Dispatch created");
+        const unlinked = lines.filter((l: DispatchLine) => !l.productId);
+        if (destinationType === "Internal Shop" && unlinked.length > 0) {
+          toast.error(
+            `Dispatch created — ${unlinked.length} item(s) not credited to shop stock`,
+            { hint: unlinked.map((l: DispatchLine) => l.itemName).join(", ") }
+          );
+        } else {
+          toast.success("Dispatch created");
+        }
       } else {
         // Draft flow: inserts at status Draft with no stock deduction. Picking,
         // packing and shipping happen as separate steps from the History tab.
@@ -476,7 +488,15 @@ export default function WmsDispatchPage() {
         });
 
         if (error) throw error;
-        toast.success("Dispatch drafted — go to picking");
+        const unlinked = lines.filter((l: DispatchLine) => !l.productId);
+        if (destinationType === "Internal Shop" && unlinked.length > 0) {
+          toast.error(
+            `Dispatch drafted — ${unlinked.length} item(s) won't credit shop stock when shipped`,
+            { hint: unlinked.map((l: DispatchLine) => l.itemName).join(", ") }
+          );
+        } else {
+          toast.success("Dispatch drafted — go to picking");
+        }
       }
 
       setSuccess(true);
@@ -932,6 +952,23 @@ export default function WmsDispatchPage() {
               </div>
             )}
           </div>
+
+          {destinationType === "Internal Shop" && lines.some((l: DispatchLine) => !l.productId) && (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+              <p className="font-medium">Some items are not linked to shop products</p>
+              <p className="mt-1 text-amber-600">
+                These items will leave the warehouse but will NOT appear in shop stock:
+              </p>
+              <ul className="mt-1 list-disc pl-5 text-amber-700">
+                {lines.filter((l: DispatchLine) => !l.productId).map((l: DispatchLine) => (
+                  <li key={l.id}>{l.itemName} ({l.sku})</li>
+                ))}
+              </ul>
+              <p className="mt-2 text-xs text-amber-500">
+                Link them in the warehouse catalog or create matching products first.
+              </p>
+            </div>
+          )}
 
           {/* Submit */}
           <div className="flex justify-end">
