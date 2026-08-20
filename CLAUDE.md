@@ -133,7 +133,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **080**.
+number, never reuse a prefix. Latest applied: **096**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -161,6 +161,15 @@ silently hides the first checks:
 **A missing column surfaces as a useless error.** PostgREST returns `PGRST204` as a plain
 object, not an `Error`, so `err instanceof Error ? err.message : "Unknown error"` prints
 **"Unknown error"** and hides the cause. Read `.message` off the object in catch blocks.
+
+**The Supabase SQL Editor may not run a pasted multi-statement script on one
+connection.** Temp tables, `BEGIN/COMMIT` blocks, and session variables created in one
+statement may be invisible to the next. Migration 096 hit this: `CREATE TEMP TABLE` in
+statement A, `SELECT` from it in statement B, "relation does not exist". Write each
+migration as a sequence of independently-runnable statements that communicate only
+through committed real-table data — never through temp tables, session state, or
+transaction scope. Mark the file with `-- STATEMENT N:` headers so the operator knows
+to paste and run each block separately.
 
 ## Billing (Paystack subscriptions)
 
@@ -499,6 +508,32 @@ per-product threshold; a flat 5 was chosen deliberately.
   (`currentLocationId`, `switchLocation`); cashiers are pinned to `assigned_location_id`.
 - `product_stock` (migration 024) — per-branch quantity, `UNIQUE(product_id, location_id)`.
   POS shows only items with stock > 0 at the current location.
+
+## WMS catalog → POS product link (migrations 081, 096)
+
+WMS dispatches to Internal Shop destinations credit `product_stock` via
+`add_product_stock_at_location` — but **only when `wms_catalog.product_id` is set**.
+If NULL, the RPC silently succeeds: warehouse stock falls, shop stock doesn't rise.
+This silent failure hit production three times before migration 096 fixed it.
+
+- **`products.inventory_id`** is auto-generated (`PRD0001` …) by a BEFORE INSERT
+  trigger and read-only in the product form. **`wms_catalog.sku`** is user-entered.
+  They never match organically, so the SKU-based auto-link from migration 081 missed
+  every org that added products through the UI.
+- **Migration 096** added a name-based fallback: `LOWER(TRIM(item_name)) =
+  LOWER(TRIM(name))`, only when exactly one product matches (ambiguous = skip). Both
+  triggers (`trg_wms_catalog_autolink`, `trg_products_autolink_wms`) now try SKU
+  first, then name. They fire on INSERT and on UPDATE of `sku`/`item_name` (catalog)
+  or `inventory_id`/`name` (products).
+- **Reconciliation tracking**: `wms_dispatch_items.reconciled_at` records whether a
+  dispatch item was credited at dispatch time (`'1970-01-01'` sentinel), reconciled
+  by migration 096 (real timestamp), or not yet processed (NULL). Prevents double-
+  crediting on re-run.
+- **Dispatch page warning**: when dispatching to Internal Shop, unlinked items show
+  an amber banner listing the items that won't credit shop stock, and the post-dispatch
+  toast warns about uncredited items.
+- **Still-unlinked items** (different names between catalog and products) need manual
+  linking or a matching product created. No manual-link UI exists yet.
 
 ## Per-manager admin permissions (migration 077)
 
