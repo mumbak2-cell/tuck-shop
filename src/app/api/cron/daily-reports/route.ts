@@ -68,11 +68,12 @@ export async function GET(req: Request) {
   const cronSecret = process.env.CRON_SECRET;
   const authHeader = req.headers.get("authorization") || "";
 
-  if (cronSecret) {
-    const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-    if (headerToken !== cronSecret) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+  if (!cronSecret) {
+    return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
+  }
+  const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
+  if (headerToken !== cronSecret) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const supabase = getSupabaseAdmin();
