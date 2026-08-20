@@ -10,6 +10,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildDailySummary, renderDailyEmail, buildDailyItemsCsv } from "@/lib/daily-report";
+import { rateLimit } from "@/lib/rate-limit";
 import { z } from "zod";
 
 export const runtime = "nodejs";
@@ -87,6 +88,9 @@ export async function POST(req: Request) {
   if (userErr || !userData.user) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
+
+  const rl = rateLimit(`send-test:${userData.user.id}`, { max: 5 });
+  if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const admin = getSupabaseAdmin();
 
