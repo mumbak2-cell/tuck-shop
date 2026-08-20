@@ -23,6 +23,8 @@ interface Member {
   assignedLocationId: string | null;
   assignedLocationName: string | null;
   permissions: Record<string, boolean>;
+  hasPin: boolean;
+  displayName: string | null;
 }
 
 /** Admin functions an owner can grant to or withhold from a manager.
@@ -71,6 +73,11 @@ export function TeamSection() {
   const [locationId, setLocationId] = useState("");
   const [memberRole, setMemberRole] = useState<"member" | "admin">("member");
   const [adding, setAdding] = useState(false);
+  const [initialPin, setInitialPin] = useState("");
+
+  const [editingPinId, setEditingPinId] = useState<string | null>(null);
+  const [pinValue, setPinValue] = useState("");
+  const [pinSaving, setPinSaving] = useState(false);
 
   // Managers (admins) can only be added once the shop runs more than one
   // location; a single-branch shop is managed by the owner directly.
@@ -130,6 +137,8 @@ export function TeamSection() {
           role: memberRole,
           // A manager is never location-locked, so only send a restriction for a cashier.
           locationId: memberRole === "member" && locationId ? locationId : undefined,
+          pin: initialPin || undefined,
+          displayName: name || undefined,
         }),
       });
       const json = await res.json();
@@ -143,6 +152,7 @@ export function TeamSection() {
       setName("");
       setLocationId("");
       setMemberRole("member");
+      setInitialPin("");
       await reload();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not add team member");
@@ -225,6 +235,50 @@ export function TeamSection() {
     }
   }
 
+  /** Owner sets or changes one member's PIN. */
+  async function handleSetPin(m: Member) {
+    if (!/^\d{4,6}$/.test(pinValue)) {
+      setError("PIN must be 4–6 digits");
+      return;
+    }
+    setPinSaving(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ pin: pinValue }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not set PIN");
+      setEditingPinId(null);
+      setPinValue("");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not set PIN");
+    } finally {
+      setPinSaving(false);
+    }
+  }
+
+  /** Owner clears a member's PIN — they fall back to the shared branch PIN. */
+  async function handleClearPin(m: Member) {
+    if (!confirm(`Remove ${m.email}'s PIN? They'll need to use the shared PIN.`)) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await token()}` },
+        body: JSON.stringify({ pin: null }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not clear PIN");
+      await reload();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Could not clear PIN");
+    }
+  }
+
   const atLimit = seats.max !== null && seats.used >= seats.max;
 
   return (
@@ -292,7 +346,8 @@ export function TeamSection() {
             <div className="flex items-center justify-between">
               <div className="min-w-0">
                 <p className="text-sm font-medium text-gray-900 truncate">
-                  {m.email}
+                  {m.displayName || m.email}
+                  {m.displayName && <span className="text-gray-400 font-normal text-xs ml-1">({m.email})</span>}
                   {m.isSelf && <span className="text-gray-400 font-normal"> (you)</span>}
                 </p>
                 {m.role === "member" && (
@@ -375,6 +430,76 @@ export function TeamSection() {
                 </div>
               </div>
             )}
+            {!m.isOwner && canManageStaff && (
+              <div className="mt-2 pt-2 border-t border-gray-100">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-gray-500">PIN:</span>
+                  {editingPinId === m.id ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        inputMode="numeric"
+                        pattern="[0-9]*"
+                        maxLength={6}
+                        value={pinValue}
+                        onChange={(e) => setPinValue(e.target.value.replace(/\D/g, ""))}
+                        placeholder="4–6 digits"
+                        className="w-24 border border-gray-300 rounded px-2 py-1 text-xs focus:outline-none focus:border-green-500"
+                        autoFocus
+                      />
+                      <button
+                        type="button"
+                        onClick={() => handleSetPin(m)}
+                        disabled={pinSaving || pinValue.length < 4}
+                        className="text-xs text-green-700 hover:underline disabled:opacity-50"
+                      >
+                        Save
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setEditingPinId(null); setPinValue(""); }}
+                        className="text-xs text-gray-500 hover:underline"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex items-center gap-2">
+                      {m.hasPin ? (
+                        <>
+                          <span className="text-xs text-green-700 font-medium">Set</span>
+                          <button
+                            type="button"
+                            onClick={() => { setEditingPinId(m.id); setPinValue(""); }}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Change
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleClearPin(m)}
+                            className="text-xs text-red-600 hover:underline"
+                          >
+                            Remove
+                          </button>
+                        </>
+                      ) : (
+                        <>
+                          <span className="text-xs text-gray-400">Not set</span>
+                          <button
+                            type="button"
+                            onClick={() => { setEditingPinId(m.id); setPinValue(""); }}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            Set PIN
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
             </div>
           ))
         )}
@@ -404,6 +529,16 @@ export function TeamSection() {
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
             />
           </div>
+          <input
+            type="text"
+            inputMode="numeric"
+            pattern="[0-9]*"
+            maxLength={6}
+            value={initialPin}
+            onChange={(e) => setInitialPin(e.target.value.replace(/\D/g, ""))}
+            placeholder="PIN (4–6 digits, optional)"
+            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+          />
           {canAddManager && (
             <div>
               <select

@@ -27,6 +27,8 @@ interface MemberRow {
   created_at: string;
   assigned_location_id: string | null;
   permissions: Record<string, boolean> | null;
+  pin: string | null;
+  display_name: string | null;
 }
 
 /** Map user ids to emails by looking up each user individually. */
@@ -78,7 +80,7 @@ export async function GET(req: Request) {
     const admin = getSupabaseAdmin();
     const { data: membersData, error } = await admin
       .from("org_members")
-      .select("id, user_id, role, created_at, assigned_location_id, permissions")
+      .select("id, user_id, role, created_at, assigned_location_id, permissions, pin, display_name")
       .eq("org_id", auth.orgId!)
       .order("created_at", { ascending: true });
     if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -107,6 +109,8 @@ export async function GET(req: Request) {
         assignedLocationId: m.assigned_location_id,
         assignedLocationName: m.assigned_location_id ? locationNames.get(m.assigned_location_id) ?? null : null,
         permissions: m.permissions ?? {},
+        hasPin: !!m.pin,
+        displayName: m.display_name,
       })),
       seats: { used: memberCount, max: maxUsers },
     });
@@ -128,6 +132,8 @@ interface InviteBody {
   locationId?: string;
   /** "member" (cashier) or "admin" (manager). Defaults to member. */
   role?: string;
+  pin?: string;
+  displayName?: string;
 }
 
 /** Managers (org_members.admin) may only be added by an owner whose org runs
@@ -184,6 +190,11 @@ export async function POST(req: Request) {
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "Enter a valid email address" }, { status: 400 });
   }
+  const initialPin = (body.pin || "").trim();
+  if (initialPin && !/^\d{4,6}$/.test(initialPin)) {
+    return NextResponse.json({ error: "PIN must be 4–6 digits" }, { status: 400 });
+  }
+  const displayName = (body.displayName || body.name || "").trim() || null;
 
   const admin = getSupabaseAdmin();
 
@@ -275,13 +286,23 @@ export async function POST(req: Request) {
     // Unattached existing login — safe to make this org their only membership.
     const { error: linkErr } = await admin
       .from("org_members")
-      .insert({ org_id: auth.orgId!, user_id: existingId, role: desiredRole, assigned_location_id: assignedLocationId });
+      .insert({
+        org_id: auth.orgId!,
+        user_id: existingId,
+        role: desiredRole,
+        assigned_location_id: assignedLocationId,
+        ...(initialPin ? { pin: initialPin } : {}),
+        ...(displayName ? { display_name: displayName } : {}),
+      });
     if (linkErr) {
-      // 23505 = unique_violation on (org_id, user_id): a concurrent add of the
-      // same person raced us here. That's the "already on your team" outcome,
-      // not a server error.
+      // 23505 = unique_violation — either (org_id, user_id) (a concurrent add
+      // of the same person raced us here) or the partial PIN index (someone
+      // else on this org already has that PIN).
       if (linkErr.code === "23505") {
-        return NextResponse.json({ error: `${email} is already on your team` }, { status: 409 });
+        const msg = linkErr.message?.includes("idx_org_members_org_pin")
+          ? "That PIN is already used by another team member"
+          : `${email} is already on your team`;
+        return NextResponse.json({ error: msg }, { status: 409 });
       }
       return NextResponse.json({ error: linkErr.message }, { status: 500 });
     }
@@ -308,10 +329,20 @@ export async function POST(req: Request) {
 
   const { error: memberErr } = await admin
     .from("org_members")
-    .insert({ org_id: auth.orgId!, user_id: created.user.id, role: desiredRole, assigned_location_id: assignedLocationId });
+    .insert({
+      org_id: auth.orgId!,
+      user_id: created.user.id,
+      role: desiredRole,
+      assigned_location_id: assignedLocationId,
+      ...(initialPin ? { pin: initialPin } : {}),
+      ...(displayName ? { display_name: displayName } : {}),
+    });
   if (memberErr) {
     // Roll back the orphaned auth user so a retry isn't blocked by "email exists".
     await admin.auth.admin.deleteUser(created.user.id);
+    if (memberErr.code === "23505" && memberErr.message?.includes("idx_org_members_org_pin")) {
+      return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+    }
     return NextResponse.json({ error: memberErr.message }, { status: 500 });
   }
 

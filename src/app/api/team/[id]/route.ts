@@ -35,19 +35,20 @@ async function locationCount(admin: ReturnType<typeof getSupabaseAdmin>, orgId: 
  * correct it without deleting and re-adding the person.
  */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  let body: { locationId?: string; permissions?: Record<string, boolean>; role?: string };
+  let body: { locationId?: string; permissions?: Record<string, boolean>; role?: string; pin?: string | null; displayName?: string };
   try {
-    body = (await req.json()) as { locationId?: string; permissions?: Record<string, boolean>; role?: string };
+    body = (await req.json()) as { locationId?: string; permissions?: Record<string, boolean>; role?: string; pin?: string | null; displayName?: string };
   } catch {
     return NextResponse.json({ error: "Invalid request" }, { status: 400 });
   }
 
-  // Editing permissions or role is an owner-only action (it decides what
-  // someone may do); reassigning a cashier's branch stays open to managers
-  // too — day-to-day floor management.
+  // Editing permissions, role, or PIN is an owner-only action (it decides
+  // what someone may do, or who they can log in as); reassigning a cashier's
+  // branch stays open to managers too — day-to-day floor management.
   const editingPermissions = body.permissions !== undefined;
   const editingRole = body.role !== undefined;
-  const auth = editingPermissions || editingRole ? await requireOrgOwner(req) : await requireOrgManager(req);
+  const editingPin = body.pin !== undefined;
+  const auth = editingPermissions || editingRole || editingPin ? await requireOrgOwner(req) : await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
   const { id } = await ctx.params;
@@ -67,6 +68,8 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     assigned_location_id?: string | null;
     permissions?: Record<string, boolean>;
     role?: "admin" | "member";
+    pin?: string | null;
+    display_name?: string | null;
   } = {};
 
   if (editingRole) {
@@ -100,6 +103,25 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     update.permissions = body.permissions;
   }
 
+  if (editingPin) {
+    if (member.role === "owner") {
+      return NextResponse.json({ error: "The owner's PIN is managed in account settings" }, { status: 409 });
+    }
+    if (body.pin === null || body.pin === "") {
+      update.pin = null;
+    } else {
+      const pinVal = (body.pin || "").trim();
+      if (!/^\d{4,6}$/.test(pinVal)) {
+        return NextResponse.json({ error: "PIN must be 4–6 digits" }, { status: 400 });
+      }
+      update.pin = pinVal;
+    }
+  }
+
+  if (body.displayName !== undefined) {
+    update.display_name = (body.displayName || "").trim() || null;
+  }
+
   if (body.locationId !== undefined) {
     if (member.role !== "member") {
       return NextResponse.json(
@@ -128,7 +150,12 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
   }
 
   const { error } = await admin.from("org_members").update(update).eq("id", id);
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
+  if (error) {
+    if (error.code === "23505" && error.message?.includes("idx_org_members_org_pin")) {
+      return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+    }
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   return NextResponse.json({ updated: true });
 }

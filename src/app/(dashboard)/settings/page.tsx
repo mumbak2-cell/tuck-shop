@@ -18,6 +18,9 @@ import { getPlan } from "@/lib/plans";
 export default function SettingsPage() {
   const [adminPin, setAdminPin] = useState("");
   const [cashierPin, setCashierPin] = useState("");
+  const [myNewPin, setMyNewPin] = useState("");
+  const [myPinSaving, setMyPinSaving] = useState(false);
+  const [myPinSuccess, setMyPinSuccess] = useState(false);
   const [ikhokhaLink, setIkhokhaLink] = useState("");
   const [businessName, setBusinessName] = useState("");
   const [businessPhone, setBusinessPhone] = useState("");
@@ -263,6 +266,32 @@ export default function SettingsPage() {
       window.open(url, "_blank", "noopener");
     } finally {
       setManagingSubscription(false);
+    }
+  }
+
+  async function handleChangeMyPin(e: React.FormEvent) {
+    e.preventDefault();
+    if (!/^\d{4,6}$/.test(myNewPin)) return;
+    setMyPinSaving(true);
+    setMyPinSuccess(false);
+    try {
+      const { data: sessionData } = await db.auth.getSession();
+      const token = sessionData.session?.access_token;
+      if (!token) throw new Error("Not signed in");
+      const res = await fetch("/api/pin", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ newPin: myNewPin }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Could not change PIN");
+      setMyNewPin("");
+      setMyPinSuccess(true);
+      setTimeout(() => setMyPinSuccess(false), 3000);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "Could not change PIN");
+    } finally {
+      setMyPinSaving(false);
     }
   }
 
@@ -652,6 +681,28 @@ export default function SettingsPage() {
               <p className="text-xs text-gray-500 mt-1">Limited access: POS, stock count, daily sales only</p>
             </div>
           </div>
+        </CollapsibleSection>
+
+        {/* My PIN — self-service, visible to every role (not just owner) */}
+        <CollapsibleSection title="My PIN" icon={Key}>
+          <p className="text-sm text-gray-500 mb-3">
+            Set or change your personal till PIN. This identifies you when you log in at the POS.
+          </p>
+          <form onSubmit={handleChangeMyPin} className="flex items-center gap-3">
+            <input
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]*"
+              maxLength={6}
+              value={myNewPin}
+              onChange={(e) => setMyNewPin(e.target.value.replace(/\D/g, ""))}
+              placeholder="New PIN (4-6 digits)"
+              className="w-40 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500"
+            />
+            <Button type="submit" loading={myPinSaving} disabled={myNewPin.length < 4}>
+              {myPinSuccess ? "Saved!" : "Save PIN"}
+            </Button>
+          </form>
         </CollapsibleSection>
 
         {/* Receipts — per branch */}
