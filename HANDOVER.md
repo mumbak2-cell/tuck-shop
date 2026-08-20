@@ -241,8 +241,9 @@ Run the reset script (like 008) but update for current month. Clears sales, expe
 ## Environment Variables
 
 ```
-NEXT_PUBLIC_SUPABASE_URL=https://kepddgyckksidponheha.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtlcGRkZ3lja2tzaWRwb25oZWhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzk3NTIzOTMsImV4cCI6MjA5NTMyODM5M30.K189kQ_Wf0udUKr64ft9c3eDpM0TgrAt84-JeltZMtU
+# See .env.local (local) or Vercel dashboard (production)
+NEXT_PUBLIC_SUPABASE_URL=<from .env.local>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<from .env.local>
 ```
 
 These are set in Vercel under Project Settings → Environment Variables, and locally in `.env.local`.
