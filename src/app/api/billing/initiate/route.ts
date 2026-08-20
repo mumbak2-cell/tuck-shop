@@ -7,8 +7,7 @@
 // Operators pay with any Visa or Mastercard; the card issuer handles FX.
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { requireOrgOwner } from "@/lib/org-owner";
 import { PLANS, BILLING_CURRENCY } from "@/lib/plans";
 import { paystackPlanCode } from "@/lib/paystack-plans";
 import { rateLimit } from "@/lib/rate-limit";
@@ -40,40 +39,16 @@ export async function POST(req: Request) {
 
   try {
 
-  // Identify the calling user from their Supabase access token.
-  const authHeader = req.headers.get("authorization") || "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!accessToken) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requireOrgOwner(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
-
-  const supabaseUser = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: `Bearer ${accessToken}` } } }
-  );
-  const { data: userData, error: userErr } = await supabaseUser.auth.getUser(accessToken);
-  if (userErr || !userData.user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-  const userId = userData.user.id;
-  const userEmail = userData.user.email!;
+  const userId = auth.userId!;
+  const userEmail = auth.email!;
+  const orgId = auth.orgId!;
 
   const rl = rateLimit(`billing:${userId}`, { max: 5 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
-
-  // Look up the org the user belongs to.
-  const { data: membership } = await getSupabaseAdmin()
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", userId)
-    .limit(1)
-    .maybeSingle();
-
-  if (!membership) {
-    return NextResponse.json({ error: "No organization for this user" }, { status: 404 });
-  }
-  const orgId = membership.org_id;
 
   const plan = PLANS.find((p) => p.code === planCode);
   if (!plan) {

@@ -3,53 +3,29 @@
 // security key in zra_config. Only needs to be called once per org.
 
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
+import { requireOrgOwner } from "@/lib/org-owner";
 import { initDevice, VsdcError } from "@/lib/zra-vsdc";
 import { rateLimit } from "@/lib/rate-limit";
 
 export const runtime = "nodejs";
 
 export async function POST(req: Request) {
-  // --- Auth: resolve calling user → org ---
-  const authHeader = req.headers.get("authorization") || "";
-  const accessToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (!accessToken) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-  }
-
-  const supabaseUser = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    { global: { headers: { Authorization: `Bearer ${accessToken}` } } },
-  );
-  const { data: userData, error: userErr } = await supabaseUser.auth.getUser(accessToken);
-  if (userErr || !userData.user) {
-    return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
+  const auth = await requireOrgOwner(req);
+  if (!auth.ok) {
+    return NextResponse.json({ error: auth.error }, { status: auth.status });
   }
 
   const admin = getSupabaseAdmin();
 
-  // Get user's org
-  const { data: membership } = await admin
-    .from("org_members")
-    .select("org_id")
-    .eq("user_id", userData.user.id)
-    .limit(1)
-    .maybeSingle();
-
-  if (!membership) {
-    return NextResponse.json({ error: "No organization found" }, { status: 404 });
-  }
-
-  const rl = rateLimit(`zra-init:${membership.org_id}`, { max: 3 });
+  const rl = rateLimit(`zra-init:${auth.orgId}`, { max: 3 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   // Get ZRA config
   const { data: config } = await admin
     .from("zra_config")
     .select("*")
-    .eq("org_id", membership.org_id)
+    .eq("org_id", auth.orgId!)
     .maybeSingle();
 
   if (!config) {
