@@ -9,7 +9,7 @@
 // insensitive) and runs together with the category filter so the cashier can
 // drill from 1,300 → 200 → 5 products in two taps and one search.
 
-import { useEffect, useState, useMemo, useRef } from "react";
+import { useEffect, useLayoutEffect, useState, useMemo } from "react";
 import { Product } from "@/types/database";
 import { formatMoney } from "@/lib/format";
 import { db } from "@/lib/supabase";
@@ -117,28 +117,40 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
   }, [liveProducts, activeCategory, searchLower]);
 
   // L2: Barcode scan auto-add. When the search box contains an exact
-  // inventory_id match against a single product, auto-add it to the cart and
-  // clear the search. A small delay (400ms) prevents firing while the user
-  // is still typing or while a barcode scanner is streaming characters.
-  const autoAddTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (autoAddTimer.current) clearTimeout(autoAddTimer.current);
+  // inventory_id match against a single product, add it to the cart and
+  // clear the search immediately — no artificial delay.
+  //
+  // This used to wait 400ms of quiet before deciding a scan was complete,
+  // to avoid firing mid-scan while a barcode scanner was still streaming
+  // characters in. But an exact match against exactly one product is
+  // already unambiguous the instant it happens — waiting doesn't make it
+  // any more certain, it only opens a window where a SECOND scan's
+  // keystrokes can land in the box before the delayed clear runs, append
+  // onto the first code instead of starting fresh, and silently match
+  // nothing at all. Confirmed: two scans of the same item ~200ms apart
+  // lost the second scan entirely — no error, no charge for that unit,
+  // just a garbled leftover string sitting in the search box.
+  //
+  // useLayoutEffect (not useEffect) so the match is detected synchronously
+  // with the render that produced it, before the browser can process any
+  // further queued keyboard event. The state update itself goes through
+  // queueMicrotask rather than running directly in the effect body — a
+  // microtask still fully drains before the next queued event (so the
+  // timing guarantee against the old race is unchanged, just deferred by
+  // a fraction of a millisecond), and it's the pattern react-hooks'
+  // set-state-in-effect rule expects for a setState that belongs here.
+  useLayoutEffect(() => {
     if (!searchLower) return;
-
-    autoAddTimer.current = setTimeout(() => {
-      const exactMatch = liveProducts.filter(
-        (p) => p.inventory_id && p.inventory_id.toLowerCase() === searchLower
-      );
-      if (exactMatch.length === 1) {
+    const exactMatch = liveProducts.filter(
+      (p) => p.inventory_id && p.inventory_id.toLowerCase() === searchLower
+    );
+    if (exactMatch.length === 1) {
+      queueMicrotask(() => {
         onAddToCart(exactMatch[0]);
         setSearch("");
         onBarcodeAutoAdd?.();
-      }
-    }, 400);
-
-    return () => {
-      if (autoAddTimer.current) clearTimeout(autoAddTimer.current);
-    };
+      });
+    }
   }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd]);
 
   // Cap the number of rendered products to avoid jank when search is empty and
