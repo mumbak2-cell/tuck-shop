@@ -33,6 +33,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
   const isMultiBranch = locations.length > 1;
 
   const [form, setForm] = useState({
+    inventory_id: product?.inventory_id || "",
     name: product?.name || "",
     category: product?.category || "",
     package_price: product?.package_price?.toString() || "",
@@ -119,6 +120,12 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     setLoading(true);
 
     const payload: Record<string, unknown> = {
+      // Blank on CREATE is fine — the BEFORE INSERT trigger auto-generates
+      // one when it sees NULL/''. It only ever fires on INSERT, never
+      // UPDATE, so a blank value here on an EDIT would stick permanently
+      // instead of being filled in — the required-fields check below
+      // blocks that case explicitly.
+      inventory_id: form.inventory_id.trim() || null,
       name: form.name.trim(),
       category: form.category,
       package_price: form.package_price ? parseFloat(form.package_price) : null,
@@ -139,6 +146,14 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
 
     if (!payload.name || !payload.category || !payload.selling_price) {
       setError("Please fill in all required fields.");
+      setLoading(false);
+      return;
+    }
+    // Only the auto-generation trigger (INSERT-only) can fill a blank
+    // inventory_id — on an edit, blanking it would leave it permanently
+    // empty, breaking POS barcode/search lookup for this product.
+    if (product && !form.inventory_id.trim()) {
+      setError("Inventory ID / barcode can't be blank.");
       setLoading(false);
       return;
     }
@@ -171,7 +186,13 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     }
 
     if (result.error) {
-      setError(result.error.message);
+      // 23505 = unique_violation on (org_id, inventory_id) — most likely the
+      // typed/scanned code already belongs to another product in this shop.
+      setError(
+        result.error.code === "23505"
+          ? "That inventory ID / barcode is already used by another product."
+          : result.error.message
+      );
       setLoading(false);
       return;
     }
@@ -285,13 +306,20 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
         <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
       )}
 
-      {product && (
-        <div className="text-xs text-gray-500">
-          Inventory ID:{" "}
-          <span className="font-mono font-medium text-gray-700">{product.inventory_id}</span>
-          <span className="ml-2 text-gray-400">(auto-generated)</span>
-        </div>
-      )}
+      <div>
+        <Input
+          label="Inventory ID / Barcode"
+          placeholder={product ? undefined : "Leave blank to auto-generate"}
+          className="font-mono"
+          value={form.inventory_id}
+          onChange={(e) => update("inventory_id", e.target.value)}
+        />
+        <p className="text-xs text-gray-500 mt-1">
+          {product
+            ? "Scan a barcode into this field to use it at the till instead of the auto-generated code."
+            : "Scan a barcode to use it at the till, or leave blank to auto-generate one."}
+        </p>
+      </div>
 
       <Input
         label="Product Name *"
