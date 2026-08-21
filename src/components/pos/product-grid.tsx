@@ -21,6 +21,14 @@ interface Props {
   discountMap?: Map<string, number>;
   /** Called after barcode auto-add clears the search. */
   onBarcodeAutoAdd?: () => void;
+  /** inventory_id (lowercased) -> product name, covering the FULL catalogue
+   *  (not just in-stock items). Lets a scan that matches a real product with
+   *  no stock here say so, instead of behaving identically to an unknown
+   *  barcode. */
+  catalogLookup?: Map<string, string>;
+  /** Called when a scan exact-matches catalogLookup but not any in-stock
+   *  product — i.e. the product exists but has none here. */
+  onOutOfStock?: (productName: string) => void;
   /** Active location name — shown in the empty state so an empty grid caused
    *  by being on the wrong branch is self-explanatory. */
   locationName?: string | null;
@@ -41,7 +49,7 @@ const ALL_TAB = "__all__";
  *  the item leaves the grid entirely, which is its own (existing) signal. */
 const LOW_STOCK_AT = 5;
 
-export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations }: Props) {
+export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations, catalogLookup, onOutOfStock }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
@@ -150,8 +158,19 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
         setSearch("");
         onBarcodeAutoAdd?.();
       });
+    } else if (exactMatch.length === 0 && catalogLookup) {
+      // Not sellable here, but it does exist in the catalogue — a scan that
+      // matches a real product with zero stock should say so, not behave
+      // identically to a mistyped or genuinely unknown barcode.
+      const knownName = catalogLookup.get(searchLower);
+      if (knownName) {
+        queueMicrotask(() => {
+          onOutOfStock?.(knownName);
+          setSearch("");
+        });
+      }
     }
-  }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd]);
+  }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd, catalogLookup, onOutOfStock]);
 
   // Cap the number of rendered products to avoid jank when search is empty and
   // catalogue is huge. Anything past the cap is reachable via search/category.

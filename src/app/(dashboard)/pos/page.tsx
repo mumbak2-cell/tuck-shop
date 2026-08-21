@@ -69,6 +69,11 @@ export default function POSPage() {
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
   const [combos, setCombos] = useState<ComboDef[]>([]);
+  // inventory_id (lowercased) -> product name, built from the FULL catalogue
+  // (before the per-location stock filter runs) so a barcode scan can tell
+  // "this product doesn't exist" apart from "it exists but has no stock
+  // here" and say so, instead of just doing nothing either way.
+  const [catalogLookup, setCatalogLookup] = useState<Map<string, string>>(new Map());
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -117,6 +122,10 @@ export default function POSPage() {
       toast.info("Could not load products — using cached data");
       return;
     }
+
+    setCatalogLookup(
+      new Map(allProducts.filter((p) => p.inventory_id).map((p) => [p.inventory_id.toLowerCase(), p.name]))
+    );
 
     // Filter to products that have stock at the CURRENT LOCATION (per-location
     // model). Falls back to the legacy org-wide opening_stock > 0 filter if
@@ -392,6 +401,13 @@ export default function POSPage() {
     setCart([]);
   }
 
+  /** A scanned barcode exact-matched a real product in the catalogue, but it
+   *  has no stock at this location — say so, rather than the scan silently
+   *  doing nothing (indistinguishable from an unknown/mistyped barcode). */
+  function handleBarcodeOutOfStock(name: string) {
+    toast.error(`No stock available for "${name}"`);
+  }
+
   /** Wholesale price for a line, given the discount the cashier typed. */
   function wholesalePrice(retailPrice: number, pct: string | undefined): number {
     const discount = parseFloat(pct ?? "");
@@ -523,6 +539,8 @@ export default function POSPage() {
           discountMap={discountMap}
           locationName={locations.find((l) => l.id === currentLocationId)?.name ?? null}
           hasMultipleLocations={locations.length > 1}
+          catalogLookup={catalogLookup}
+          onOutOfStock={handleBarcodeOutOfStock}
         />
       </div>
 
