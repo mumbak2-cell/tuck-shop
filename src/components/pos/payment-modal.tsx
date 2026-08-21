@@ -101,6 +101,18 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [cashBack, setCashBack] = useState<string>("");
   const [paymentReference, setPaymentReference] = useState<string>("");
   const [processing, setProcessing] = useState(false);
+  // Reentrancy guard for handlePay. `processing` (React state) is NOT enough
+  // on its own — a state update only takes effect on the next render, so if
+  // the same click/tap somehow re-invokes handlePay before that render
+  // commits (slow device, a queued second click event, etc.), `processing`
+  // can still read false the second time through. A ref updates immediately
+  // and synchronously, with no render in between, so it can't be beaten by
+  // that race. Surfaced as duplicated sales: a cashier tapping "Complete
+  // Sale" more than once while it was loading got one real sale per tap —
+  // submit_sale_batch's own dedupe check (id = ANY(p_sale_ids)) never caught
+  // it because offline-ops.ts generates fresh random sale_ids on every call,
+  // so back-to-back attempts never shared an id for that check to match on.
+  const submittingRef = useRef(false);
   const [success, setSuccess] = useState(false);
   const [error, setError] = useState("");
 
@@ -357,6 +369,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   }
 
   async function handlePay() {
+    // Must be the very first check — before validation, before anything else
+    // — so a reentrant call can never slip past it regardless of why it fired.
+    if (submittingRef.current) return;
+
     // Never fail silently — a dead button with no message is impossible for a
     // cashier to diagnose mid-queue.
     if (!selectedMethod) {
@@ -372,9 +388,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       return;
     }
 
+    submittingRef.current = true;
     setProcessing(true);
     setError("");
 
+    try {
     const result = await submitSaleBatch({
       org_id: orgId,
       location_id: currentLocationId,
@@ -451,6 +469,9 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       }).catch(() => {
         // Silently fail — sale is already recorded, ZRA can be retried
       });
+    }
+    } finally {
+      submittingRef.current = false;
     }
   }
 
