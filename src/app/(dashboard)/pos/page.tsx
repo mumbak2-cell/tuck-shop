@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { db } from "@/lib/supabase";
 import { Product } from "@/types/database";
 import { ProductGrid } from "@/components/pos/product-grid";
@@ -69,11 +69,13 @@ export default function POSPage() {
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
   const [combos, setCombos] = useState<ComboDef[]>([]);
-  // inventory_id (lowercased) -> product name, built from the FULL catalogue
-  // (before the per-location stock filter runs) so a barcode scan can tell
-  // "this product doesn't exist" apart from "it exists but has no stock
-  // here" and say so, instead of just doing nothing either way.
-  const [catalogLookup, setCatalogLookup] = useState<Map<string, string>>(new Map());
+  // FULL catalogue (before the per-location stock filter runs) so a barcode
+  // scan or a name search can tell "this product doesn't exist" apart from
+  // "it exists but has no stock here" and say so, instead of doing nothing
+  // either way.
+  const [catalogProducts, setCatalogProducts] = useState<Product[]>([]);
+  const [outOfStockMessage, setOutOfStockMessage] = useState<string | null>(null);
+  const outOfStockTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -123,9 +125,7 @@ export default function POSPage() {
       return;
     }
 
-    setCatalogLookup(
-      new Map(allProducts.filter((p) => p.inventory_id).map((p) => [p.inventory_id.toLowerCase(), p.name]))
-    );
+    setCatalogProducts(allProducts);
 
     // Filter to products that have stock at the CURRENT LOCATION (per-location
     // model). Falls back to the legacy org-wide opening_stock > 0 filter if
@@ -275,6 +275,12 @@ export default function POSPage() {
   }, [fetchProducts, fetchPromotions, fetchCombos]);
 
   useEffect(() => {
+    return () => {
+      if (outOfStockTimer.current) clearTimeout(outOfStockTimer.current);
+    };
+  }, []);
+
+  useEffect(() => {
     if (!currentLocationId || !navigator.onLine) return;
     (async () => {
       const { data } = await db
@@ -401,12 +407,33 @@ export default function POSPage() {
     setCart([]);
   }
 
-  /** A scanned barcode exact-matched a real product in the catalogue, but it
-   *  has no stock at this location — say so, rather than the scan silently
-   *  doing nothing (indistinguishable from an unknown/mistyped barcode). */
-  function handleBarcodeOutOfStock(name: string) {
-    toast.error(`No stock available for "${name}"`);
-  }
+  /** A barcode scan or name search matched a real product in the catalogue
+   *  that has no stock at this location — say so, rather than behaving
+   *  identically to an unknown/mistyped search. Shown as a centered banner
+   *  (not the corner toast stack) and held longer, so it's hard to miss at
+   *  a till mid-scan. */
+  const showOutOfStockMessage = useCallback((message: string) => {
+    if (outOfStockTimer.current) clearTimeout(outOfStockTimer.current);
+    setOutOfStockMessage(message);
+    outOfStockTimer.current = setTimeout(() => setOutOfStockMessage(null), 8000);
+  }, []);
+  // Stable references: ProductGrid's debounced name-search effect depends on
+  // these, and an unstable (freshly-created-every-render) function reference
+  // there re-triggers that effect on every render this component makes —
+  // including the render caused by dismissing the message, which would
+  // immediately reschedule and reshow it right after dismissal.
+  const handleBarcodeOutOfStock = useCallback(
+    (name: string) => showOutOfStockMessage(`No stock available for "${name}"`),
+    [showOutOfStockMessage]
+  );
+  const handleNameSearchOutOfStock = useCallback(
+    (names: string[]) => {
+      const shown = names.slice(0, 3).join(", ");
+      const rest = names.length > 3 ? ` +${names.length - 3} more` : "";
+      showOutOfStockMessage(`No stock available for ${shown}${rest}`);
+    },
+    [showOutOfStockMessage]
+  );
 
   /** Wholesale price for a line, given the discount the cashier typed. */
   function wholesalePrice(retailPrice: number, pct: string | undefined): number {
@@ -539,8 +566,9 @@ export default function POSPage() {
           discountMap={discountMap}
           locationName={locations.find((l) => l.id === currentLocationId)?.name ?? null}
           hasMultipleLocations={locations.length > 1}
-          catalogLookup={catalogLookup}
+          catalogProducts={catalogProducts}
           onOutOfStock={handleBarcodeOutOfStock}
+          onNameSearchOutOfStock={handleNameSearchOutOfStock}
         />
       </div>
 
@@ -601,6 +629,19 @@ export default function POSPage() {
                 branchWholesaleEnabled={wholesaleEnabled}
               />
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* Out-of-stock banner — centered and held longer than the corner
+          toasts, so it's hard to miss mid-scan. Tap to dismiss early. */}
+      {outOfStockMessage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none">
+          <div
+            onClick={() => setOutOfStockMessage(null)}
+            className="pointer-events-auto max-w-sm text-center bg-red-600 text-white text-base font-semibold px-6 py-4 rounded-xl shadow-2xl cursor-pointer"
+          >
+            {outOfStockMessage}
           </div>
         </div>
       )}

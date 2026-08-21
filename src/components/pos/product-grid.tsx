@@ -21,14 +21,16 @@ interface Props {
   discountMap?: Map<string, number>;
   /** Called after barcode auto-add clears the search. */
   onBarcodeAutoAdd?: () => void;
-  /** inventory_id (lowercased) -> product name, covering the FULL catalogue
-   *  (not just in-stock items). Lets a scan that matches a real product with
-   *  no stock here say so, instead of behaving identically to an unknown
-   *  barcode. */
-  catalogLookup?: Map<string, string>;
-  /** Called when a scan exact-matches catalogLookup but not any in-stock
+  /** FULL catalogue (not just in-stock items). Lets a scan or a name search
+   *  that matches a real product with no stock here say so, instead of
+   *  behaving identically to an unknown search. */
+  catalogProducts?: Product[];
+  /** Called when a scan exact-matches the catalogue but not any in-stock
    *  product — i.e. the product exists but has none here. */
   onOutOfStock?: (productName: string) => void;
+  /** Called when, after the user pauses typing, the name/ID search matches
+   *  nothing in stock but does match one or more catalogue products. */
+  onNameSearchOutOfStock?: (productNames: string[]) => void;
   /** Active location name — shown in the empty state so an empty grid caused
    *  by being on the wrong branch is self-explanatory. */
   locationName?: string | null;
@@ -49,7 +51,7 @@ const ALL_TAB = "__all__";
  *  the item leaves the grid entirely, which is its own (existing) signal. */
 const LOW_STOCK_AT = 5;
 
-export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations, catalogLookup, onOutOfStock }: Props) {
+export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoAdd, locationName, hasMultipleLocations, catalogProducts, onOutOfStock, onNameSearchOutOfStock }: Props) {
   const [categories, setCategories] = useState<string[]>([]);
   const [activeCategory, setActiveCategory] = useState<string>(ALL_TAB);
   const [search, setSearch] = useState("");
@@ -124,6 +126,17 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
     return list;
   }, [liveProducts, activeCategory, searchLower]);
 
+  // inventory_id (lowercased) -> full catalogue product, for the exact-match
+  // barcode check below. Memoized so it's only rebuilt when the catalogue
+  // itself changes, not on every keystroke.
+  const catalogById = useMemo(() => {
+    const m = new Map<string, Product>();
+    (catalogProducts ?? []).forEach((p) => {
+      if (p.inventory_id) m.set(p.inventory_id.toLowerCase(), p);
+    });
+    return m;
+  }, [catalogProducts]);
+
   // L2: Barcode scan auto-add. When the search box contains an exact
   // inventory_id match against a single product, add it to the cart and
   // clear the search immediately — no artificial delay.
@@ -158,19 +171,41 @@ export function ProductGrid({ products, onAddToCart, discountMap, onBarcodeAutoA
         setSearch("");
         onBarcodeAutoAdd?.();
       });
-    } else if (exactMatch.length === 0 && catalogLookup) {
+    } else if (exactMatch.length === 0) {
       // Not sellable here, but it does exist in the catalogue — a scan that
       // matches a real product with zero stock should say so, not behave
       // identically to a mistyped or genuinely unknown barcode.
-      const knownName = catalogLookup.get(searchLower);
-      if (knownName) {
+      const known = catalogById.get(searchLower);
+      if (known) {
         queueMicrotask(() => {
-          onOutOfStock?.(knownName);
+          onOutOfStock?.(known.name);
           setSearch("");
         });
       }
     }
-  }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd, catalogLookup, onOutOfStock]);
+  }, [searchLower, liveProducts, onAddToCart, onBarcodeAutoAdd, catalogById, onOutOfStock]);
+
+  // Name/ID search, out-of-stock case. Unlike the barcode check above, there
+  // is no unambiguous "the user is done" signal while typing a name — a
+  // partial name is still a valid prefix of a longer one — so this needs an
+  // actual settling delay, unlike L2's instant fire. Only fires when the
+  // visible (in-stock) grid has nothing for the current search: if
+  // `filtered` already has results there's nothing to explain.
+  useEffect(() => {
+    if (!searchLower || filtered.length > 0 || !catalogProducts?.length) return;
+    const timer = setTimeout(() => {
+      const matches = catalogProducts.filter(
+        (p) =>
+          p.category !== "Ingredients" &&
+          (p.name.toLowerCase().includes(searchLower) ||
+            (p.inventory_id && p.inventory_id.toLowerCase().includes(searchLower)))
+      );
+      if (matches.length > 0) {
+        onNameSearchOutOfStock?.(matches.map((p) => p.name));
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [searchLower, filtered.length, catalogProducts, onNameSearchOutOfStock]);
 
   // Cap the number of rendered products to avoid jank when search is empty and
   // catalogue is huge. Anything past the cap is reachable via search/category.
