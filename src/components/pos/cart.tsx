@@ -19,6 +19,11 @@ export interface CartItem {
   /** Discount the cashier negotiated on this line, as a percentage. */
   wholesaleDiscountPct?: string;
   retailPrice?: number;
+  /** Set on a combo line (productId is a synthetic "combo:<id>" string, not
+   *  a real product). Holds the two real products' split pricing, used only
+   *  at sale-submission time to expand this one cart line into two ordinary
+   *  sales rows — see payment-modal.tsx's expandComboLine. */
+  comboBreakdown?: { productId: string; name: string; unitPrice: number; costPrice: number }[];
 }
 
 interface Props {
@@ -77,7 +82,14 @@ export function Cart({ items, onUpdateQty, onSetQty, onRemove, onClear, onChecko
                 className="flex items-center gap-3 py-2 border-b border-gray-100 last:border-0"
               >
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-gray-900 truncate">{item.name}</p>
+                  <p className="text-sm font-medium text-gray-900 truncate">
+                    {item.name}
+                    {item.comboBreakdown && (
+                      <span className="ml-1.5 inline-block text-xs font-normal text-green-700 bg-green-50 rounded px-1.5 py-0.5 align-middle">
+                        Combo
+                      </span>
+                    )}
+                  </p>
                   <p className="text-xs text-gray-500">
                     {formatZAR(item.unitPrice)} each
                     {item.isWholesale && item.retailPrice != null && item.unitPrice < item.retailPrice && (

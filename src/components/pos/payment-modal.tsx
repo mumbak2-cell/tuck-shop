@@ -28,6 +28,23 @@ import {
 import { Receipt, ReceiptData, ZraFiscalData, buildReceiptLines, LINE_WIDTH } from "./receipt";
 import { receiptCode } from "@/lib/receipt-code";
 
+/** Expands a combo cart line into its two real underlying product lines.
+ *  Ordinary lines pass through unchanged. Used only where a REAL product_id
+ *  is required — the sale RPC (stock deduction, sales rows) and the ZRA
+ *  fiscal submission — never for the receipt shown to the customer, which
+ *  keeps the single, friendlier "Combo: X" line from the cart. */
+function expandComboLine(item: CartItem): CartItem[] {
+  if (!item.comboBreakdown) return [item];
+  return item.comboBreakdown.map((c) => ({
+    productId: c.productId,
+    name: c.name,
+    unitPrice: c.unitPrice,
+    quantity: item.quantity,
+    costPrice: c.costPrice,
+    isWholesale: false,
+  }));
+}
+
 type PaymentKind = "cash" | "card" | "credit" | "mobile_money" | "eft" | "other";
 
 interface PaymentMethodRow {
@@ -367,7 +384,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       sale_date: localToday(),
       created_at: new Date().toISOString(),
       cash_back: cashBackAmount,
-      lines: linesForSale.map((item) => ({
+      // Expanded here, not in linesForSale itself — the receipt (built from
+      // linesForSale elsewhere) should keep showing one "Combo: X" line, but
+      // the actual sale needs real product_ids for stock deduction and
+      // per-product reporting.
+      lines: linesForSale.flatMap(expandComboLine).map((item) => ({
         product_id: item.productId,
         quantity: item.quantity,
         unit_price: item.unitPrice,
@@ -412,7 +433,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const saleId = result.sale_ids[0];
       submitToZra({
         saleId,
-        items: items.map((item) => ({
+        items: items.flatMap(expandComboLine).map((item) => ({
           productId: item.productId,
           name: item.name,
           quantity: item.quantity,

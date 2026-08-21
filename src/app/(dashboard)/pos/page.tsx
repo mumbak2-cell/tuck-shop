@@ -12,11 +12,33 @@ import { readCache } from "@/lib/offline-store";
 import { formatZAR } from "@/lib/format";
 import { useToast } from "@/components/ui/toast";
 import { useParkedCount } from "@/lib/use-offline-sync";
-import { Play, AlertTriangle } from "lucide-react";
+import { Play, AlertTriangle, Layers } from "lucide-react";
 import Link from "next/link";
 
 /** product_id → discount percent for currently active promotions */
 type DiscountMap = Map<string, number>;
+
+/** A combo as stored in the DB — just the definition, not resolved against
+ *  the current product/stock list yet (that happens at render time). */
+interface ComboDef {
+  id: string;
+  name: string;
+  combo_price: number;
+  productIds: string[];
+}
+
+/** A combo actually offerable right now — both products exist at this
+ *  location and have stock. Resolved from ComboDef + the current products
+ *  list, same "no row unless there's something to sell" rule the rest of
+ *  the POS already follows. */
+interface ComboTile {
+  id: string;
+  name: string;
+  combo_price: number;
+  prodA: Product;
+  prodB: Product;
+  stock: number;
+}
 
 /**
  * Build a product_id → override-price map from per-location price rows,
@@ -46,6 +68,7 @@ export default function POSPage() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false);
   const [discountMap, setDiscountMap] = useState<DiscountMap>(new Map());
   const [wholesaleEnabled, setWholesaleEnabled] = useState(false);
+  const [combos, setCombos] = useState<ComboDef[]>([]);
 
   const fetchProducts = useCallback(async () => {
     // Cached fallback - shared between online-failure and offline paths.
@@ -201,12 +224,46 @@ export default function POSPage() {
     }
   }, [orgId]);
 
+  // Fetch active combos (manual-add bundle tiles). Independent of the
+  // per-product discount system (promotions) — a combo is a deliberate
+  // cashier action, not something that applies automatically.
+  const fetchCombos = useCallback(async () => {
+    if (!orgId || !navigator.onLine) { setCombos([]); return; }
+    try {
+      const { data: rows } = await db
+        .from("combos")
+        .select("id, name, combo_price")
+        .eq("org_id", orgId)
+        .eq("active", true);
+      if (!rows || rows.length === 0) { setCombos([]); return; }
+      const ids = (rows as { id: string }[]).map((r) => r.id);
+      const { data: items } = await db
+        .from("combo_items")
+        .select("combo_id, product_id")
+        .in("combo_id", ids);
+      const itemsByCombo: Record<string, string[]> = {};
+      for (const it of (items ?? []) as { combo_id: string; product_id: string }[]) {
+        (itemsByCombo[it.combo_id] ??= []).push(it.product_id);
+      }
+      setCombos(
+        (rows as { id: string; name: string; combo_price: number }[]).map((r) => ({
+          ...r,
+          productIds: itemsByCombo[r.id] ?? [],
+        }))
+      );
+    } catch {
+      // combos table may not exist yet — silently ignore
+      setCombos([]);
+    }
+  }, [orgId]);
+
   useEffect(() => {
     void (async () => {
       await fetchProducts();
       await fetchPromotions();
+      await fetchCombos();
     })();
-  }, [fetchProducts, fetchPromotions]);
+  }, [fetchProducts, fetchPromotions, fetchCombos]);
 
   useEffect(() => {
     if (!currentLocationId || !navigator.onLine) return;
@@ -247,6 +304,63 @@ export default function POSPage() {
           wholesaleMinQty: product.wholesale_min_qty,
           isWholesale: false,
           retailPrice: effectivePrice,
+        },
+      ];
+    });
+  }
+
+  /** Combos resolved against the current product list: only offered when
+   *  both underlying products exist here (right branch, in stock). */
+  const comboTiles: ComboTile[] = combos
+    .map((c): ComboTile | null => {
+      if (c.productIds.length !== 2) return null;
+      const prodA = products.find((p) => p.id === c.productIds[0]);
+      const prodB = products.find((p) => p.id === c.productIds[1]);
+      if (!prodA || !prodB) return null;
+      const stock = Math.min(prodA.opening_stock ?? 0, prodB.opening_stock ?? 0);
+      if (stock <= 0) return null;
+      return { id: c.id, name: c.name, combo_price: c.combo_price, prodA, prodB, stock };
+    })
+    .filter((c): c is ComboTile => c !== null);
+
+  function addComboToCart(combo: ComboTile) {
+    const { prodA, prodB } = combo;
+    // Split the fixed combo price between the two products proportionally
+    // to their normal selling price, so per-product revenue/COGS reporting
+    // stays meaningful. The remainder goes to the second product so the
+    // two amounts always sum to EXACTLY combo_price — never a cent off
+    // from independent rounding.
+    const totalNormal = prodA.selling_price + prodB.selling_price;
+    const priceA = totalNormal > 0
+      ? Math.round(combo.combo_price * (prodA.selling_price / totalNormal) * 100) / 100
+      : Math.round((combo.combo_price / 2) * 100) / 100;
+    const priceB = Math.round((combo.combo_price - priceA) * 100) / 100;
+
+    // Synthetic id — never collides with a real product id, so a combo
+    // line can never accidentally merge with (or be merged into) a normal
+    // cart line for either of its underlying products.
+    const comboLineId = `combo:${combo.id}`;
+
+    setCart((prev) => {
+      const existing = prev.find((i) => i.productId === comboLineId);
+      if (existing) {
+        return prev.map((i) =>
+          i.productId === comboLineId ? { ...i, quantity: i.quantity + 1 } : i
+        );
+      }
+      return [
+        ...prev,
+        {
+          productId: comboLineId,
+          name: combo.name,
+          unitPrice: combo.combo_price,
+          quantity: 1,
+          costPrice: (prodA.cost_per_unit ?? 0) + (prodB.cost_per_unit ?? 0),
+          availableStock: combo.stock,
+          comboBreakdown: [
+            { productId: prodA.id, name: prodA.name, unitPrice: priceA, costPrice: prodA.cost_per_unit ?? 0 },
+            { productId: prodB.id, name: prodB.name, unitPrice: priceB, costPrice: prodB.cost_per_unit ?? 0 },
+          ],
         },
       ];
     });
@@ -383,6 +497,24 @@ export default function POSPage() {
           <div className="mx-4 mt-2 px-4 py-2 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-sm text-red-700">
             <AlertTriangle className="w-4 h-4 flex-shrink-0" />
             <span>{parkedCount} sale{parkedCount > 1 ? "s" : ""} failed to sync after multiple attempts.</span>
+          </div>
+        )}
+        {comboTiles.length > 0 && (
+          <div className="mb-4 flex flex-wrap gap-2">
+            {comboTiles.map((c) => (
+              <button
+                key={c.id}
+                onClick={() => addComboToCart(c)}
+                aria-label={`Add combo ${c.name} to cart, ${formatZAR(c.combo_price)}`}
+                className="flex items-center gap-2 rounded-xl border border-green-200 bg-green-50 hover:bg-green-100 active:bg-green-200 px-3 py-2 text-left transition-colors touch-manipulation"
+              >
+                <Layers className="w-4 h-4 text-green-600 flex-shrink-0" />
+                <span>
+                  <span className="block text-sm font-medium text-gray-900">{c.name}</span>
+                  <span className="block text-xs text-green-700">{formatZAR(c.combo_price)}</span>
+                </span>
+              </button>
+            ))}
           </div>
         )}
         <ProductGrid
