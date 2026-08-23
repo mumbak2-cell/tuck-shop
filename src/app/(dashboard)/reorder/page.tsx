@@ -13,6 +13,7 @@ interface LowStockProduct {
   reorder_level: number;
   default_supplier: string | null;
   category: string | null;
+  qtyInPack: number;
   stock: number;
 }
 
@@ -44,10 +45,11 @@ export default function ReorderPage() {
           reorder_level: number;
           default_supplier: string | null;
           category: string | null;
+          qty_in_pack: number | null;
           discontinued: boolean;
         }>(() =>
           db.from("products")
-            .select("id, name, inventory_id, reorder_level, default_supplier, category, discontinued")
+            .select("id, name, inventory_id, reorder_level, default_supplier, category, qty_in_pack, discontinued")
             .eq("discontinued", false)
             .order("name")
         ),
@@ -71,6 +73,7 @@ export default function ReorderPage() {
         const stock = stockByProduct.get(p.id) ?? 0;
         const threshold = p.reorder_level > 0 ? p.reorder_level : lowStockThreshold;
         if (stock <= threshold) {
+          const qtyInPack = p.qty_in_pack || 1;
           low.push({
             id: p.id,
             name: p.name,
@@ -78,10 +81,13 @@ export default function ReorderPage() {
             reorder_level: p.reorder_level,
             default_supplier: p.default_supplier,
             category: p.category,
+            qtyInPack,
             stock,
           });
-          const suggestedQty = Math.max((p.reorder_level || lowStockThreshold) - stock, 1);
-          defaultQtys[p.id] = suggestedQty;
+          // Order Qty is in packages, matching Receive Stock's convention —
+          // suppliers sell by the case, not the loose unit.
+          const unitsNeeded = Math.max((p.reorder_level || lowStockThreshold) - stock, 1);
+          defaultQtys[p.id] = qtyInPack > 1 ? Math.ceil(unitsNeeded / qtyInPack) : unitsNeeded;
         }
       }
 
@@ -150,6 +156,14 @@ export default function ReorderPage() {
     return locations.find((l) => l.id === currentLocationId) ?? null;
   }
 
+  // Order Qty is stored in packages (matching Receive Stock's convention).
+  // Suppliers order by the case — spell out the unit total alongside so
+  // "6" isn't misread as 6 loose units when it means 6 cases of 24.
+  function qtyLabel(p: LowStockProduct, qty: number): string {
+    if (p.qtyInPack <= 1) return `${qty}`;
+    return `${qty} pack${qty !== 1 ? "s" : ""} (${qty * p.qtyInPack} units)`;
+  }
+
   function buildOrderText(): string {
     if (selected.length === 0) return "";
     const ref = orderRef();
@@ -175,7 +189,7 @@ export default function ReorderPage() {
     for (let i = 0; i < selected.length; i++) {
       const p = selected[i];
       const qty = orderQtys[p.id] ?? 1;
-      lines.push(`${i + 1}. ${p.name} — Qty: ${qty}`);
+      lines.push(`${i + 1}. ${p.name} — Qty: ${qtyLabel(p, qty)}`);
     }
     lines.push("");
     lines.push(`Total line items: ${selected.length}`);
@@ -215,7 +229,7 @@ export default function ReorderPage() {
       return `<tr>
         <td class="cell">${i + 1}</td>
         <td class="cell">${p.name}</td>
-        <td class="cell r">${qty}</td>
+        <td class="cell r">${qtyLabel(p, qty)}</td>
       </tr>`;
     }).join("");
 
@@ -264,7 +278,7 @@ export default function ReorderPage() {
     <tr>
       <th style="width:40px">#</th>
       <th>Product Description</th>
-      <th class="r" style="width:80px">Qty</th>
+      <th class="r" style="width:160px">Qty</th>
     </tr>
   </thead>
   <tbody>${rows}</tbody>
@@ -403,7 +417,7 @@ export default function ReorderPage() {
                     <th className="px-4 py-3 text-left font-medium text-gray-600">Supplier</th>
                     <th className="px-4 py-3 text-right font-medium text-gray-600">Stock</th>
                     <th className="px-4 py-3 text-right font-medium text-gray-600">Reorder Lvl</th>
-                    <th className="px-4 py-3 text-right font-medium text-gray-600">Order Qty</th>
+                    <th className="px-4 py-3 text-right font-medium text-gray-600">Order Qty (packs)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -446,6 +460,11 @@ export default function ReorderPage() {
                           }}
                           className="w-20 border border-gray-300 rounded px-2 py-1 text-sm text-right focus:border-green-500 focus:ring-1 focus:ring-green-500"
                         />
+                        {p.qtyInPack > 1 && (
+                          <div className="text-xs text-gray-400 mt-1">
+                            ×{p.qtyInPack} = {(orderQtys[p.id] ?? 1) * p.qtyInPack} units
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}
