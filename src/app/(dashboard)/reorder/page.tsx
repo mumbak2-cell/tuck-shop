@@ -7,9 +7,11 @@ import { formatZAR } from "@/lib/format";
 import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search } from "lucide-react";
 import Link from "next/link";
 
-// Copyright footer stamped on every generated purchase order (WhatsApp
-// text, PDF, Copy) — not shown anywhere in the on-screen picker.
-const DOC_FOOTER = "© Tilify, mkglobal.co.za. All rights reserved. For support, please email support@tilify.mkglobal.co.za.";
+// Software-attribution credit stamped on every generated purchase order
+// (WhatsApp text, PDF, Copy) — not shown anywhere in the on-screen picker.
+// A plain credit line, not a copyright claim: the PO's content belongs to
+// the shop, not to Tilify.
+const DOC_FOOTER = "Generated with Tilify · tilify.mkglobal.co.za · support@tilify.mkglobal.co.za";
 
 interface LowStockProduct {
   id: string;
@@ -212,7 +214,7 @@ export default function ReorderPage() {
     lines.push(`Total line items: ${selected.length}`);
     lines.push(`*Estimated Subtotal: ${formatZAR(subtotal)}*${hasUnknownCost ? " (excl. items with no cost set)" : ""}`);
     lines.push("");
-    lines.push(DOC_FOOTER);
+    lines.push(`— ${DOC_FOOTER}`);
     return lines.join("\n");
   }
 
