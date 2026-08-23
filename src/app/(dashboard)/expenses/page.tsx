@@ -8,14 +8,15 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { formatZAR, formatDate } from "@/lib/format";
-import { Receipt, Plus, Trash2, Filter, CloudOff, Users, Paperclip } from "lucide-react";
-import { EXPENSE_CATEGORIES, INVENTORY_EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
+import { Receipt, Plus, Trash2, Filter, CloudOff, Users, Paperclip, Tag } from "lucide-react";
+import { INVENTORY_EXPENSE_CATEGORIES, type Expense, type ExpenseCategory } from "@/types/database";
 import { insertOrQueue } from "@/lib/offline-ops";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 import { deleteReceiptIfUnreferenced, discardUnsavedReceipt } from "@/lib/receipt-storage";
 import { localToday, localMonthStart } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
+import { ManageExpenseCategoriesModal } from "@/components/expenses/manage-expense-categories-modal";
 
 export default function ExpensesPage() {
   const { name } = useAuth();
@@ -26,6 +27,8 @@ export default function ExpensesPage() {
   const [loading, setLoading] = useState(true);
   const [queuedNote, setQueuedNote] = useState<string | null>(null);
   const [viewingReceipt, setViewingReceipt] = useState<string | null>(null);
+  const [categories, setCategories] = useState<string[]>([]);
+  const [showCategories, setShowCategories] = useState(false);
 
   // Owner-only: per-cashier expense breakdown for the selected dates/branch.
   interface CashierRow { userId: string | null; name: string; email: string | null; total: number; count: number }
@@ -39,7 +42,7 @@ export default function ExpensesPage() {
 
   // Form
   const [formDate, setFormDate] = useState(localToday);
-  const [formCategory, setFormCategory] = useState<ExpenseCategory>("Transport");
+  const [formCategory, setFormCategory] = useState<ExpenseCategory>("");
   const [formDescription, setFormDescription] = useState("");
   const [formAmount, setFormAmount] = useState("");
   const [formDirectorName, setFormDirectorName] = useState("");
@@ -54,6 +57,23 @@ export default function ExpensesPage() {
   useEffect(() => {
     loadCashierReport();
   }, [role, filterFrom, filterTo, currentLocationId]);
+
+  useEffect(() => {
+    loadCategories();
+  }, [orgId]);
+
+  async function loadCategories() {
+    const { data } = await db
+      .from("expense_categories")
+      .select("name")
+      .eq("active", true)
+      .order("sort_order");
+    const names = ((data as { name: string }[]) || []).map((c) => c.name);
+    setCategories(names);
+    // Default to the first active category rather than a name that might
+    // not exist (or exist yet) for this org.
+    setFormCategory((prev) => (names.includes(prev) ? prev : names[0] || ""));
+  }
 
   async function loadExpenses() {
     setLoading(true);
@@ -106,7 +126,7 @@ export default function ExpensesPage() {
   }
 
   async function handleSave() {
-    if (!formAmount || parseFloat(formAmount) <= 0) return;
+    if (!formAmount || parseFloat(formAmount) <= 0 || !formCategory) return;
     if (!orgId) {
       alert("Shop not loaded yet. Try again in a moment.");
       return;
@@ -168,7 +188,7 @@ export default function ExpensesPage() {
 
   function resetForm() {
     setFormDate(localToday());
-    setFormCategory("Transport");
+    setFormCategory(categories[0] || "");
     setFormDescription("");
     setFormAmount("");
     setFormDirectorName("");
@@ -209,9 +229,14 @@ export default function ExpensesPage() {
           </h1>
           <p className="text-sm text-gray-500 mt-1">Track daily outflows, expenses, and director withdrawals</p>
         </div>
-        <Button onClick={() => setShowAdd(true)}>
-          <Plus className="w-4 h-4 mr-2" /> Record Expense
-        </Button>
+        <div className="flex gap-2">
+          <Button variant="secondary" onClick={() => setShowCategories(true)}>
+            <Tag className="w-4 h-4 mr-2" /> Manage Categories
+          </Button>
+          <Button onClick={() => setShowAdd(true)}>
+            <Plus className="w-4 h-4 mr-2" /> Record Expense
+          </Button>
+        </div>
       </div>
 
       {/* Summary cards */}
@@ -258,7 +283,7 @@ export default function ExpensesPage() {
             className="border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
           >
             <option value="all">All Categories</option>
-            {EXPENSE_CATEGORIES.map((c) => (
+            {categories.map((c) => (
               <option key={c} value={c}>{c}</option>
             ))}
           </select>
@@ -375,7 +400,7 @@ export default function ExpensesPage() {
               onChange={(e) => setFormCategory(e.target.value as ExpenseCategory)}
               className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
             >
-              {EXPENSE_CATEGORIES.map((c) => (
+              {categories.map((c) => (
                 <option key={c} value={c}>{c}</option>
               ))}
             </select>
@@ -440,6 +465,12 @@ export default function ExpensesPage() {
       </Modal>
 
       <ReceiptViewer path={viewingReceipt} onClose={() => setViewingReceipt(null)} />
+
+      <ManageExpenseCategoriesModal
+        open={showCategories}
+        onClose={() => setShowCategories(false)}
+        onChanged={loadCategories}
+      />
     </div>
   );
 }

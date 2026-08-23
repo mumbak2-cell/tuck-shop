@@ -207,7 +207,20 @@ export interface Expense {
   created_at: string;
 }
 
-export const EXPENSE_CATEGORIES = [
+export interface ExpenseCategoryRow {
+  id: string;
+  org_id: string;
+  name: string;
+  sort_order: number;
+  active: boolean;
+  created_at: string;
+}
+
+// Expense categories are per-org (`expense_categories` table, migration 097)
+// so different shop types can drop what doesn't apply to them and add what
+// does. This list is only the seed set new orgs (and every pre-097 org) got
+// — read an org's actual list from the table, never from this constant.
+export const DEFAULT_EXPENSE_CATEGORIES = [
   "Transport",
   "Fuel",
   "Rent",
@@ -224,12 +237,16 @@ export const EXPENSE_CATEGORIES = [
 // and becomes a cost through COGS when the item sells. Profit & Loss holds
 // these out of operating expenses to avoid charging the same goods twice.
 // Cash-spent reporting deliberately does the opposite: the money did leave.
-export const INVENTORY_EXPENSE_CATEGORIES: readonly ExpenseCategory[] = [
+// These two names are system-referenced (Receive Stock writes "Stock
+// Purchases" directly) — hiding them from an org's category list stops them
+// appearing in the picker but does not stop this exclusion logic matching
+// them by name.
+export const INVENTORY_EXPENSE_CATEGORIES: readonly string[] = [
   "Stock Purchases",
   "Ingredient Purchases",
 ];
 
-export type ExpenseCategory = (typeof EXPENSE_CATEGORIES)[number];
+export type ExpenseCategory = string;
 
 export interface AppSetting {
   key: string;
