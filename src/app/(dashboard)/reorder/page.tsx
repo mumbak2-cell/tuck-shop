@@ -3,7 +3,7 @@ import { useEffect, useState, useMemo } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
-import { ArrowLeft, Send, Copy, Check, Package, FileDown } from "lucide-react";
+import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search } from "lucide-react";
 import Link from "next/link";
 
 interface LowStockProduct {
@@ -12,6 +12,7 @@ interface LowStockProduct {
   inventory_id: string;
   reorder_level: number;
   default_supplier: string | null;
+  category: string | null;
   stock: number;
 }
 
@@ -29,6 +30,8 @@ export default function ReorderPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [orderQtys, setOrderQtys] = useState<Record<string, number>>({});
   const [filterSupplier, setFilterSupplier] = useState<string>("__all__");
+  const [filterCategory, setFilterCategory] = useState<string>("__all__");
+  const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
@@ -40,10 +43,11 @@ export default function ReorderPage() {
           inventory_id: string;
           reorder_level: number;
           default_supplier: string | null;
+          category: string | null;
           discontinued: boolean;
         }>(() =>
           db.from("products")
-            .select("id, name, inventory_id, reorder_level, default_supplier, discontinued")
+            .select("id, name, inventory_id, reorder_level, default_supplier, category, discontinued")
             .eq("discontinued", false)
             .order("name")
         ),
@@ -73,6 +77,7 @@ export default function ReorderPage() {
             inventory_id: p.inventory_id,
             reorder_level: p.reorder_level,
             default_supplier: p.default_supplier,
+            category: p.category,
             stock,
           });
           const suggestedQty = Math.max((p.reorder_level || lowStockThreshold) - stock, 1);
@@ -89,13 +94,22 @@ export default function ReorderPage() {
   }, [lowStockThreshold]);
 
   const filtered = useMemo(() => {
-    if (filterSupplier === "__all__") return products;
-    if (filterSupplier === "__none__") return products.filter((p) => !p.default_supplier);
-    return products.filter((p) => p.default_supplier === filterSupplier);
-  }, [products, filterSupplier]);
+    let list = products;
+    if (filterSupplier === "__none__") list = list.filter((p) => !p.default_supplier);
+    else if (filterSupplier !== "__all__") list = list.filter((p) => p.default_supplier === filterSupplier);
+    if (filterCategory !== "__all__") list = list.filter((p) => p.category === filterCategory);
+    const q = search.trim().toLowerCase();
+    if (q) list = list.filter((p) => p.name.toLowerCase().includes(q) || p.inventory_id.toLowerCase().includes(q));
+    return list;
+  }, [products, filterSupplier, filterCategory, search]);
 
   const supplierNames = useMemo(() => {
     const names = new Set(products.map((p) => p.default_supplier).filter(Boolean) as string[]);
+    return [...names].sort();
+  }, [products]);
+
+  const categoryNames = useMemo(() => {
+    const names = new Set(products.map((p) => p.category).filter(Boolean) as string[]);
     return [...names].sort();
   }, [products]);
 
@@ -309,17 +323,39 @@ export default function ReorderPage() {
         <>
           {/* Filters and actions */}
           <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between">
-            <select
-              value={filterSupplier}
-              onChange={(e) => setFilterSupplier(e.target.value)}
-              className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
-            >
-              <option value="__all__">All suppliers</option>
-              <option value="__none__">No supplier assigned</option>
-              {supplierNames.map((s) => (
-                <option key={s} value={s}>{s}</option>
-              ))}
-            </select>
+            <div className="flex flex-col sm:flex-row gap-3 w-full sm:w-auto">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+                <input
+                  type="text"
+                  placeholder="Search products..."
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full sm:w-56 pl-10 pr-4 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                />
+              </div>
+              <select
+                value={filterSupplier}
+                onChange={(e) => setFilterSupplier(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="__all__">All suppliers</option>
+                <option value="__none__">No supplier assigned</option>
+                {supplierNames.map((s) => (
+                  <option key={s} value={s}>{s}</option>
+                ))}
+              </select>
+              <select
+                value={filterCategory}
+                onChange={(e) => setFilterCategory(e.target.value)}
+                className="border border-gray-300 rounded-lg px-3 py-2 text-sm bg-white"
+              >
+                <option value="__all__">All categories</option>
+                {categoryNames.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
+              </select>
+            </div>
 
             <div className="flex gap-2">
               <button
