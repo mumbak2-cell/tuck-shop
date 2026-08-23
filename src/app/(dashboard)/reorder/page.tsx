@@ -3,8 +3,13 @@ import { useEffect, useState, useMemo } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
+import { formatZAR } from "@/lib/format";
 import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search } from "lucide-react";
 import Link from "next/link";
+
+// Copyright footer stamped on every generated purchase order (WhatsApp
+// text, PDF, Copy) — not shown anywhere in the on-screen picker.
+const DOC_FOOTER = "© Tilify, mkglobal.co.za. All rights reserved. For support, please email support@tilify.mkglobal.co.za.";
 
 interface LowStockProduct {
   id: string;
@@ -14,6 +19,7 @@ interface LowStockProduct {
   default_supplier: string | null;
   category: string | null;
   qtyInPack: number;
+  packageCost: number | null;
   stock: number;
 }
 
@@ -46,10 +52,11 @@ export default function ReorderPage() {
           default_supplier: string | null;
           category: string | null;
           qty_in_pack: number | null;
+          package_price: number | null;
           discontinued: boolean;
         }>(() =>
           db.from("products")
-            .select("id, name, inventory_id, reorder_level, default_supplier, category, qty_in_pack, discontinued")
+            .select("id, name, inventory_id, reorder_level, default_supplier, category, qty_in_pack, package_price, discontinued")
             .eq("discontinued", false)
             .order("name")
         ),
@@ -82,6 +89,7 @@ export default function ReorderPage() {
             default_supplier: p.default_supplier,
             category: p.category,
             qtyInPack,
+            packageCost: p.package_price,
             stock,
           });
           // Order Qty is in packages, matching Receive Stock's convention —
@@ -186,13 +194,25 @@ export default function ReorderPage() {
     }
     lines.push("");
     lines.push("*Items:*");
+    let subtotal = 0;
+    let hasUnknownCost = false;
     for (let i = 0; i < selected.length; i++) {
       const p = selected[i];
       const qty = orderQtys[p.id] ?? 1;
-      lines.push(`${i + 1}. ${p.name} — Qty: ${qtyLabel(p, qty)}`);
+      if (p.packageCost != null) {
+        const lineCost = qty * p.packageCost;
+        subtotal += lineCost;
+        lines.push(`${i + 1}. ${p.name} — Qty: ${qtyLabel(p, qty)} — ${formatZAR(lineCost)}`);
+      } else {
+        hasUnknownCost = true;
+        lines.push(`${i + 1}. ${p.name} — Qty: ${qtyLabel(p, qty)}`);
+      }
     }
     lines.push("");
     lines.push(`Total line items: ${selected.length}`);
+    lines.push(`*Estimated Subtotal: ${formatZAR(subtotal)}*${hasUnknownCost ? " (excl. items with no cost set)" : ""}`);
+    lines.push("");
+    lines.push(DOC_FOOTER);
     return lines.join("\n");
   }
 
@@ -224,12 +244,19 @@ export default function ReorderPage() {
     const shopName = orgName || "Our Shop";
     const branchLabel = currentLocationName ? ` (${currentLocationName})` : "";
 
+    let subtotal = 0;
+    let hasUnknownCost = false;
     const rows = selected.map((p, i) => {
       const qty = orderQtys[p.id] ?? 1;
+      const lineCost = p.packageCost != null ? qty * p.packageCost : null;
+      if (lineCost != null) subtotal += lineCost;
+      else hasUnknownCost = true;
       return `<tr>
         <td class="cell">${i + 1}</td>
         <td class="cell">${p.name}</td>
         <td class="cell r">${qtyLabel(p, qty)}</td>
+        <td class="cell r">${p.packageCost != null ? formatZAR(p.packageCost) : "—"}</td>
+        <td class="cell r">${lineCost != null ? formatZAR(lineCost) : "—"}</td>
       </tr>`;
     }).join("");
 
@@ -251,6 +278,7 @@ export default function ReorderPage() {
   .foot{padding:10px 12px;font-weight:bold;border-top:2px solid #333}
   .sig{margin-top:60px;display:flex;gap:80px}
   .sig-line{border-top:1px solid #333;padding-top:6px;width:200px;font-size:12px;color:#555}
+  .footer{margin-top:40px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center}
   @media print{body{padding:20px}}
 </style></head><body>
 
@@ -278,7 +306,9 @@ export default function ReorderPage() {
     <tr>
       <th style="width:40px">#</th>
       <th>Product Description</th>
-      <th class="r" style="width:160px">Qty</th>
+      <th class="r" style="width:150px">Qty</th>
+      <th class="r" style="width:90px">Unit Cost</th>
+      <th class="r" style="width:100px">Line Total</th>
     </tr>
   </thead>
   <tbody>${rows}</tbody>
@@ -286,14 +316,19 @@ export default function ReorderPage() {
     <tr>
       <td class="foot" colspan="2">Total (${selected.length} item${selected.length !== 1 ? "s" : ""})</td>
       <td class="foot r">${totalQty}</td>
+      <td class="foot"></td>
+      <td class="foot r">${formatZAR(subtotal)}</td>
     </tr>
   </tfoot>
 </table>
+${hasUnknownCost ? `<p class="meta" style="font-style:italic">Subtotal excludes items with no cost set.</p>` : ""}
 
 <div class="sig">
   <div class="sig-line">Authorized by</div>
   <div class="sig-line">Date</div>
 </div>
+
+<p class="footer">${DOC_FOOTER}</p>
 
 </body></html>`;
     const w = window.open("", "_blank");
