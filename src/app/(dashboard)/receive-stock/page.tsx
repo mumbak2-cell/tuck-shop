@@ -7,12 +7,17 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
-import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat, ChevronDown, ChevronRight, Pencil, Check, X } from "lucide-react";
+import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat, ChevronDown, ChevronRight, Pencil, Check, X, Send, FileDown, Copy } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 import { localToday } from "@/lib/date-utils";
+import { receiptCode } from "@/lib/receipt-code";
+
+// Same software-attribution credit stamped on Reorder List documents —
+// a plain credit line, not a copyright claim.
+const DOC_FOOTER = "Generated with Tilify · tilify.mkglobal.co.za · support@tilify.mkglobal.co.za";
 
 interface ReceiptLine {
   id: string;
@@ -33,6 +38,13 @@ interface PastReceipt {
   recorded_by: string | null;
   receipt_path: string | null;
   created_at: string;
+  location_id: string | null;
+}
+
+interface SupplierInfo {
+  name: string;
+  phone: string | null;
+  email: string | null;
 }
 
 interface ReceiptItemRow {
@@ -48,7 +60,7 @@ interface ReceiptItemRow {
 
 export default function ReceiveStockPage() {
   const { name, role } = useAuth();
-  const { currentLocationId, currentLocationName, orgId } = useOrg();
+  const { currentLocationId, currentLocationName, orgId, orgName, locations } = useOrg();
   const [products, setProducts] = useState<Product[]>([]);
   const [ingredients, setIngredients] = useState<Ingredient[]>([]);
   const [lines, setLines] = useState<ReceiptLine[]>([]);
@@ -73,6 +85,8 @@ export default function ReceiveStockPage() {
   const [editDraft, setEditDraft] = useState<Record<string, { quantity: number; unit_cost: number }>>({});
   const [savingEdit, setSavingEdit] = useState(false);
   const [attachingReceipt, setAttachingReceipt] = useState<string | null>(null);
+  const [suppliersInfo, setSuppliersInfo] = useState<SupplierInfo[]>([]);
+  const [copiedReceiptId, setCopiedReceiptId] = useState<string | null>(null);
 
   useEffect(() => {
     loadData();
@@ -82,16 +96,18 @@ export default function ReceiveStockPage() {
     // Paginate products via .range() — Supabase max_rows (default 1000)
     // would otherwise truncate large catalogues. Ingredients tables stay
     // small so a plain query is fine there.
-    const [prods, { data: ings }, { data: hist }] = await Promise.all([
+    const [prods, { data: ings }, { data: hist }, { data: sups }] = await Promise.all([
       fetchAllPaged<Product>(() =>
         db.from("products").select("*").eq("discontinued", false).order("name")
       ),
       db.from("ingredients").select("*").order("name"),
       db.from("stock_receipts").select("*").order("created_at", { ascending: false }).limit(20),
+      db.from("suppliers").select("name, phone, email").eq("active", true).order("name"),
     ]);
     setProducts(prods);
     setIngredients(ings || []);
     setHistory(hist || []);
+    setSuppliersInfo((sups as SupplierInfo[]) || []);
   }
 
   function addLine(type: "product" | "ingredient", item: Product | Ingredient) {
@@ -341,6 +357,143 @@ export default function ReceiveStockPage() {
     await db.from("stock_receipts").update({ receipt_path: path }).eq("id", receiptId);
     setHistory((prev) => prev.map((r) => r.id === receiptId ? { ...r, receipt_path: path } : r));
     setAttachingReceipt(null);
+  }
+
+  function getSupplierInfo(supplierName: string | null): SupplierInfo | null {
+    if (!supplierName) return null;
+    return suppliersInfo.find((s) => s.name === supplierName) ?? null;
+  }
+
+  function getReceiptLocation(locationId: string | null) {
+    if (!locationId) return null;
+    return locations.find((l) => l.id === locationId) ?? null;
+  }
+
+  function buildReceiptText(r: PastReceipt, items: ReceiptItemRow[]): string {
+    const sup = getSupplierInfo(r.supplier);
+    const loc = getReceiptLocation(r.location_id);
+
+    const lines: string[] = [];
+    lines.push(`*GOODS RECEIVED NOTE*`);
+    lines.push(`GRN No: ${receiptCode(r.id)}`);
+    lines.push(`Date: ${formatDate(r.receipt_date)}`);
+    lines.push("");
+    lines.push(`*Received by:* ${orgName || "Our Shop"}${loc?.name ? ` (${loc.name})` : ""}`);
+    if (loc?.address) lines.push(loc.address);
+    if (loc?.phone) lines.push(`Tel: ${loc.phone}`);
+    lines.push("");
+    lines.push(`*From (Supplier):* ${r.supplier || "Not specified"}`);
+    if (sup?.phone) lines.push(`Tel: ${sup.phone}`);
+    if (sup?.email) lines.push(`Email: ${sup.email}`);
+    lines.push("");
+    lines.push("*Items:*");
+    items.forEach((it, i) => {
+      lines.push(`${i + 1}. ${it.item_name} — Qty: ${it.quantity} — ${formatZAR(it.line_total)}`);
+    });
+    lines.push("");
+    lines.push(`Total line items: ${items.length}`);
+    lines.push(`*Total: ${formatZAR(r.total_cost)}*`);
+    if (r.recorded_by) lines.push(`Recorded by: ${r.recorded_by}`);
+    lines.push("");
+    lines.push(`— ${DOC_FOOTER}`);
+    return lines.join("\n");
+  }
+
+  function shareReceiptWhatsApp(r: PastReceipt, items: ReceiptItemRow[]) {
+    const text = buildReceiptText(r, items);
+    const sup = getSupplierInfo(r.supplier);
+    const phone = sup?.phone?.replace(/[^0-9+]/g, "") || "";
+    const url = phone
+      ? `https://wa.me/${phone.replace(/^\+/, "")}?text=${encodeURIComponent(text)}`
+      : `https://wa.me/?text=${encodeURIComponent(text)}`;
+    window.open(url, "_blank");
+  }
+
+  async function copyReceiptText(r: PastReceipt, items: ReceiptItemRow[]) {
+    await navigator.clipboard.writeText(buildReceiptText(r, items));
+    setCopiedReceiptId(r.id);
+    setTimeout(() => setCopiedReceiptId(null), 2000);
+  }
+
+  function exportReceiptPDF(r: PastReceipt, items: ReceiptItemRow[]) {
+    const sup = getSupplierInfo(r.supplier);
+    const loc = getReceiptLocation(r.location_id);
+    const shopName = orgName || "Our Shop";
+    const branchLabel = loc?.name ? ` (${loc.name})` : "";
+
+    const rows = items.map((it, i) => `<tr>
+        <td class="cell">${i + 1}</td>
+        <td class="cell">${it.item_name}</td>
+        <td class="cell r">${it.quantity}</td>
+        <td class="cell r">${formatZAR(it.unit_cost)}</td>
+        <td class="cell r">${formatZAR(it.line_total)}</td>
+      </tr>`).join("");
+
+    const html = `<!DOCTYPE html><html><head><title>GRN ${receiptCode(r.id)}</title>
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;padding:40px;color:#111;font-size:13px;line-height:1.5}
+  h1{font-size:22px;margin:0 0 4px}
+  .meta{color:#555;margin:2px 0}
+  .grid{display:flex;justify-content:space-between;margin:24px 0 20px;gap:40px}
+  .block{flex:1}
+  .block h3{font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#888;margin:0 0 4px;border-bottom:1px solid #ddd;padding-bottom:4px}
+  .block p{margin:2px 0}
+  table{width:100%;border-collapse:collapse;margin-top:16px}
+  th{text-align:left;padding:8px 12px;border-bottom:2px solid #333;font-size:11px;text-transform:uppercase;letter-spacing:0.5px;color:#555}
+  .cell{padding:8px 12px;border-bottom:1px solid #e5e7eb}
+  .r{text-align:right}
+  .foot{padding:10px 12px;font-weight:bold;border-top:2px solid #333}
+  .footer{margin-top:40px;padding-top:12px;border-top:1px solid #e5e7eb;font-size:10px;color:#999;text-align:center}
+  @media print{body{padding:20px}}
+</style></head><body>
+
+<h1>GOODS RECEIVED NOTE</h1>
+<p class="meta"><strong>GRN No:</strong> ${receiptCode(r.id)}</p>
+<p class="meta"><strong>Date:</strong> ${formatDate(r.receipt_date)}</p>
+
+<div class="grid">
+  <div class="block">
+    <h3>Received By</h3>
+    <p><strong>${shopName}${branchLabel}</strong></p>
+    ${loc?.address ? `<p>${loc.address}</p>` : ""}
+    ${loc?.phone ? `<p>Tel: ${loc.phone}</p>` : ""}
+  </div>
+  <div class="block">
+    <h3>Supplier</h3>
+    <p><strong>${r.supplier || "Not specified"}</strong></p>
+    ${sup?.phone ? `<p>Tel: ${sup.phone}</p>` : ""}
+    ${sup?.email ? `<p>Email: ${sup.email}</p>` : ""}
+  </div>
+</div>
+
+<table>
+  <thead>
+    <tr>
+      <th style="width:40px">#</th>
+      <th>Item</th>
+      <th class="r" style="width:80px">Qty</th>
+      <th class="r" style="width:90px">Unit Cost</th>
+      <th class="r" style="width:100px">Line Total</th>
+    </tr>
+  </thead>
+  <tbody>${rows}</tbody>
+  <tfoot>
+    <tr>
+      <td class="foot" colspan="4">Total (${items.length} item${items.length !== 1 ? "s" : ""})</td>
+      <td class="foot r">${formatZAR(r.total_cost)}</td>
+    </tr>
+  </tfoot>
+</table>
+${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${r.recorded_by}</p>` : ""}
+
+<p class="footer">${DOC_FOOTER}</p>
+
+</body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) return;
+    w.document.write(html);
+    w.document.close();
+    w.setTimeout(() => { w.print(); }, 300);
   }
 
   // Filter items for picker — split products into purchased vs prepared
@@ -761,6 +914,28 @@ export default function ReceiveStockPage() {
                               ))}
                             </tbody>
                           </table>
+
+                          <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
+                            <button
+                              onClick={() => shareReceiptWhatsApp(r, items)}
+                              className="text-sm text-green-600 hover:text-green-700 flex items-center gap-1"
+                            >
+                              <Send className="w-3.5 h-3.5" /> WhatsApp
+                            </button>
+                            <button
+                              onClick={() => exportReceiptPDF(r, items)}
+                              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                            >
+                              <FileDown className="w-3.5 h-3.5" /> PDF
+                            </button>
+                            <button
+                              onClick={() => copyReceiptText(r, items)}
+                              className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1"
+                            >
+                              {copiedReceiptId === r.id ? <Check className="w-3.5 h-3.5 text-green-600" /> : <Copy className="w-3.5 h-3.5" />}
+                              {copiedReceiptId === r.id ? "Copied" : "Copy"}
+                            </button>
+                          </div>
 
                           {isAdmin && (
                             <div className="flex items-center gap-2 mt-3 pt-3 border-t border-gray-100">
