@@ -44,6 +44,7 @@ export default function ReorderPage() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    if (!currentLocationId) return;
     (async () => {
       const [productRows, stockRows, { data: supplierRows }] = await Promise.all([
         fetchAllPaged<{
@@ -63,7 +64,7 @@ export default function ReorderPage() {
             .order("name")
         ),
         fetchAllPaged<{ product_id: string; quantity: number }>(() =>
-          db.from("product_stock").select("product_id, quantity")
+          db.from("product_stock").select("product_id, quantity").eq("location_id", currentLocationId)
         ),
         db.from("suppliers")
           .select("name, phone, email")
@@ -107,7 +108,7 @@ export default function ReorderPage() {
       setSuppliers((supplierRows as SupplierInfo[]) || []);
       setLoading(false);
     })();
-  }, [lowStockThreshold]);
+  }, [lowStockThreshold, currentLocationId]);
 
   const filtered = useMemo(() => {
     let list = products;
