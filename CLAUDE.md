@@ -23,6 +23,14 @@ CDN), add it to the CSP `connect-src` or `script-src` directive there.
   directly (as above, and `node node_modules/supabase/dist/supabase.js …` for the CLI).
 - `next build` / `next dev` can be unreliable in constrained sandboxes (SIGBUS); rely on
   `tsc` + `eslint` locally and let Vercel build the PR.
+- **`tsconfig.tsbuildinfo` (incremental cache, gitignored) can mask a real type error.**
+  `tsc --noEmit` came back clean locally for a file that failed Vercel's build seconds
+  after push — an implicit-`any` on a `.map()` callback that `strict: true` should
+  have caught. The stale incremental cache from an earlier clean run was the reason.
+  This shipped two broken production deploys (300b2b8, 571ac52) before being caught by
+  checking deployment status, not by the local typecheck. `rm tsconfig.tsbuildinfo`
+  before trusting a clean `tsc --noEmit` result on a file touched earlier in the same
+  session — or just always delete it first, since it's gitignored and free to rebuild.
 
 ## Deployment
 

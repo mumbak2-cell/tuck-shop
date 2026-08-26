@@ -188,7 +188,14 @@ export default function ReceiveStockPage() {
         return;
       }
 
-      const newLines: ReceiptLine[] = items.map((it) => {
+      const newLines: ReceiptLine[] = items.map((it: {
+        product_id: string | null;
+        ingredient_id: string | null;
+        item_name: string;
+        quantity: number;
+        unit_cost: number;
+        qty_in_pack: number;
+      }) => {
         const type: "product" | "ingredient" = it.product_id ? "product" : "ingredient";
         const product = it.product_id ? products.find((p) => p.id === it.product_id) : undefined;
         return {
