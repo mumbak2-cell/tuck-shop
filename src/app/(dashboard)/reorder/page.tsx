@@ -24,6 +24,7 @@ interface LowStockProduct {
   category: string | null;
   qtyInPack: number;
   packageCost: number | null;
+  isPrepared: boolean;
   stock: number;
 }
 
@@ -47,6 +48,13 @@ export default function ReorderPage() {
   const [copied, setCopied] = useState(false);
   const [poNumber, setPoNumber] = useState<string | null>(null);
   const [creatingPO, setCreatingPO] = useState(false);
+  // Prepared-food finished goods (e.g. Chicken Mayo) aren't bought from a
+  // supplier — their package_price is only a recipe-cost fallback (see
+  // CLAUDE.md "Recipe costing"). Charging it again here would double-count
+  // against ingredient purchases already tracked separately. On by default;
+  // left as a real toggle rather than silently forced, in case a shop
+  // genuinely does buy a prepared item pre-made from a supplier.
+  const [excludePreparedCost, setExcludePreparedCost] = useState(true);
 
   useEffect(() => {
     if (!currentLocationId) return;
@@ -61,10 +69,11 @@ export default function ReorderPage() {
           category: string | null;
           qty_in_pack: number | null;
           package_price: number | null;
+          is_prepared: boolean;
           discontinued: boolean;
         }>(() =>
           db.from("products")
-            .select("id, name, inventory_id, reorder_level, default_supplier, category, qty_in_pack, package_price, discontinued")
+            .select("id, name, inventory_id, reorder_level, default_supplier, category, qty_in_pack, package_price, is_prepared, discontinued")
             .eq("discontinued", false)
             .order("name")
         ),
@@ -98,6 +107,7 @@ export default function ReorderPage() {
             category: p.category,
             qtyInPack,
             packageCost: p.package_price,
+            isPrepared: p.is_prepared,
             stock,
           });
           // Order Qty is in packages, matching Receive Stock's convention —
@@ -136,6 +146,15 @@ export default function ReorderPage() {
   }, [products]);
 
   const selected = filtered.filter((p) => selectedIds.has(p.id));
+
+  // The cost basis actually charged on the PO/GRN for this line — null for a
+  // prepared item while excludePreparedCost is on, same as its packageCost
+  // being unset. Centralised so every money calculation (WhatsApp/PDF text,
+  // Create PO subtotal, the persisted purchase_order_items row) agrees.
+  function effectiveCost(p: LowStockProduct): number | null {
+    if (excludePreparedCost && p.isPrepared) return null;
+    return p.packageCost;
+  }
 
   function toggleAll(checked: boolean) {
     setPoNumber(null);
@@ -178,7 +197,7 @@ export default function ReorderPage() {
       const number = `PO-${receiptCode(id)}`;
       const sup = getSupplierInfo();
       const subtotal = selected.reduce(
-        (s, p) => s + (orderQtys[p.id] ?? 1) * (p.packageCost ?? 0),
+        (s, p) => s + (orderQtys[p.id] ?? 1) * (effectiveCost(p) ?? 0),
         0
       );
 
@@ -197,7 +216,7 @@ export default function ReorderPage() {
         product_id: p.id,
         item_name: p.name,
         quantity: orderQtys[p.id] ?? 1,
-        unit_cost: p.packageCost ?? 0,
+        unit_cost: effectiveCost(p) ?? 0,
         qty_in_pack: p.qtyInPack,
       }));
       const { error: iErr } = await db.from("purchase_order_items").insert(items);
@@ -256,8 +275,9 @@ export default function ReorderPage() {
     for (let i = 0; i < selected.length; i++) {
       const p = selected[i];
       const qty = orderQtys[p.id] ?? 1;
-      if (p.packageCost != null) {
-        const lineCost = qty * p.packageCost;
+      const cost = effectiveCost(p);
+      if (cost != null) {
+        const lineCost = qty * cost;
         subtotal += lineCost;
         lines.push(`${i + 1}. ${p.name} — Qty: ${qtyLabel(p, qty)} — ${formatZAR(lineCost)}`);
       } else {
@@ -305,14 +325,15 @@ export default function ReorderPage() {
     let hasUnknownCost = false;
     const rows = selected.map((p, i) => {
       const qty = orderQtys[p.id] ?? 1;
-      const lineCost = p.packageCost != null ? qty * p.packageCost : null;
+      const cost = effectiveCost(p);
+      const lineCost = cost != null ? qty * cost : null;
       if (lineCost != null) subtotal += lineCost;
       else hasUnknownCost = true;
       return `<tr>
         <td class="cell">${i + 1}</td>
         <td class="cell">${p.name}</td>
         <td class="cell r">${qtyLabel(p, qty)}</td>
-        <td class="cell r">${p.packageCost != null ? formatZAR(p.packageCost) : "—"}</td>
+        <td class="cell r">${cost != null ? formatZAR(cost) : "—"}</td>
         <td class="cell r">${lineCost != null ? formatZAR(lineCost) : "—"}</td>
       </tr>`;
     }).join("");
@@ -464,6 +485,17 @@ ${hasUnknownCost ? `<p class="meta" style="font-style:italic">Subtotal excludes 
             </div>
 
             <div className="flex gap-2 items-center flex-wrap">
+              {products.some((p) => p.isPrepared) && (
+                <label className="flex items-center gap-1.5 text-xs text-gray-500 mr-1 select-none" title="Prepared items' real cost is ingredient-based and tracked separately — including it here would double-count it.">
+                  <input
+                    type="checkbox"
+                    checked={excludePreparedCost}
+                    onChange={(e) => { setExcludePreparedCost(e.target.checked); setPoNumber(null); }}
+                    className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                  />
+                  Exclude prepared food cost
+                </label>
+              )}
               {poNumber ? (
                 <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-700">
                   <ClipboardList className="w-4 h-4" />
