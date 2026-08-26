@@ -133,7 +133,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **096**.
+number, never reuse a prefix. Latest applied: **099**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)
@@ -342,6 +342,36 @@ Receive Stock has a **"Prepared food?"** toggle button. When active:
 
 This prevents double-counting: prepared items' costs flow through ingredient
 purchases and COGS via the recipe costing system (see Recipe costing above).
+
+## Purchase Orders (Reorder List → Receive Stock, migration 099)
+
+`purchase_orders` / `purchase_order_items` let a Reorder List selection be
+persisted and pulled back into Receive Stock instead of retyped. Deliberately
+a **separate system from WMS's `wms_purchase_orders`** (migration 030,
+085's state machine) — that one is keyed to `wms_catalog` and has a real
+partial-receive workflow (Draft → Sent → Partially Received → Received);
+this one is keyed to `products`/`ingredients` and is **full-receive-only**
+(Draft → Received or Cancelled, no partial state) on purpose — YAGNI until
+a shop actually needs partial receiving.
+
+- **Reorder List**: "Create PO" persists the current selection and shows the
+  resulting number. `po_number` is derived the same way GRN and sales
+  receipt numbers already are (`src/lib/receipt-code.ts`): `PO-` + last 6
+  hex digits of the row's UUID, generated client-side alongside an explicit
+  `id` on insert, not a separate round trip. Any change to the
+  selection/qty after creating (toggling a row, select-all) clears the
+  saved PO number, forcing a fresh "Create PO" rather than silently leaving
+  a stale number that no longer matches what's on screen.
+- **Receive Stock**: "Load from PO" (only shown when open POs exist) lists
+  `status = 'Draft'` POs, and loading one replaces the current lines,
+  supplier and (if blank) notes — confirmed first if the form already has
+  manual lines, so in-progress work isn't silently discarded.
+- **`stock_receipts.po_id`** links a logged delivery back to the PO it
+  closed. Saving marks the PO `Received` **best-effort** — if that update
+  fails, the receipt and stock increment (already committed) are not rolled
+  back; the PO is just left showing Draft. Same fail-open reasoning as the
+  `po_id` PGRST204 fallback on the insert itself: never let a PO-linkage
+  problem block recording that stock actually arrived.
 
 ## Stock can't go negative — three different mechanisms
 

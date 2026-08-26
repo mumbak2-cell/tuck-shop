@@ -1,10 +1,12 @@
 "use client";
 import { useEffect, useState, useMemo } from "react";
 import { db } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
-import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search } from "lucide-react";
+import { receiptCode } from "@/lib/receipt-code";
+import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search, ClipboardList } from "lucide-react";
 import Link from "next/link";
 
 // Software-attribution credit stamped on every generated purchase order
@@ -32,6 +34,7 @@ interface SupplierInfo {
 }
 
 export default function ReorderPage() {
+  const { name } = useAuth();
   const { lowStockThreshold, orgName, currentLocationName, locations, currentLocationId } = useOrg();
   const [products, setProducts] = useState<LowStockProduct[]>([]);
   const [suppliers, setSuppliers] = useState<SupplierInfo[]>([]);
@@ -42,6 +45,8 @@ export default function ReorderPage() {
   const [filterCategory, setFilterCategory] = useState<string>("__all__");
   const [search, setSearch] = useState("");
   const [copied, setCopied] = useState(false);
+  const [poNumber, setPoNumber] = useState<string | null>(null);
+  const [creatingPO, setCreatingPO] = useState(false);
 
   useEffect(() => {
     if (!currentLocationId) return;
@@ -133,6 +138,7 @@ export default function ReorderPage() {
   const selected = filtered.filter((p) => selectedIds.has(p.id));
 
   function toggleAll(checked: boolean) {
+    setPoNumber(null);
     setSelectedIds((prev) => {
       const next = new Set(prev);
       for (const p of filtered) {
@@ -144,6 +150,7 @@ export default function ReorderPage() {
   }
 
   function toggle(id: string) {
+    setPoNumber(null);
     setSelectedIds((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
@@ -153,9 +160,56 @@ export default function ReorderPage() {
   }
 
   function orderRef(): string {
+    if (poNumber) return poNumber;
     const d = new Date();
     const pad = (n: number) => n.toString().padStart(2, "0");
     return `PO-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}`;
+  }
+
+  // Persist the current selection as a real Purchase Order so Receive Stock
+  // can pull it back up by number instead of the operator retyping every
+  // line. Deliberately full-receive-only (see migration 099) — no partial
+  // receiving state machine here, that's what WMS purchase orders are for.
+  async function createPurchaseOrder() {
+    if (selected.length === 0) return;
+    setCreatingPO(true);
+    try {
+      const id = crypto.randomUUID();
+      const number = `PO-${receiptCode(id)}`;
+      const sup = getSupplierInfo();
+      const subtotal = selected.reduce(
+        (s, p) => s + (orderQtys[p.id] ?? 1) * (p.packageCost ?? 0),
+        0
+      );
+
+      const { error: hErr } = await db.from("purchase_orders").insert({
+        id,
+        po_number: number,
+        supplier: sup?.name ?? null,
+        location_id: currentLocationId,
+        total_cost: subtotal,
+        created_by: name,
+      });
+      if (hErr) throw hErr;
+
+      const items = selected.map((p) => ({
+        po_id: id,
+        product_id: p.id,
+        item_name: p.name,
+        quantity: orderQtys[p.id] ?? 1,
+        unit_cost: p.packageCost ?? 0,
+        qty_in_pack: p.qtyInPack,
+      }));
+      const { error: iErr } = await db.from("purchase_order_items").insert(items);
+      if (iErr) throw iErr;
+
+      setPoNumber(number);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || "Unknown error";
+      alert("Error creating purchase order: " + msg);
+    } finally {
+      setCreatingPO(false);
+    }
   }
 
   function getSupplierInfo() {
@@ -409,7 +463,28 @@ ${hasUnknownCost ? `<p class="meta" style="font-style:italic">Subtotal excludes 
               </select>
             </div>
 
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center flex-wrap">
+              {poNumber ? (
+                <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-700">
+                  <ClipboardList className="w-4 h-4" />
+                  <span className="font-medium">{poNumber} saved</span>
+                  <button
+                    onClick={() => setPoNumber(null)}
+                    className="text-indigo-400 hover:text-indigo-600 text-xs underline ml-1"
+                  >
+                    New PO
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={createPurchaseOrder}
+                  disabled={selected.length === 0 || creatingPO}
+                  className="flex items-center gap-2 px-4 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <ClipboardList className="w-4 h-4" />
+                  {creatingPO ? "Creating..." : "Create PO"}
+                </button>
+              )}
               <button
                 onClick={shareWhatsApp}
                 disabled={selected.length === 0}

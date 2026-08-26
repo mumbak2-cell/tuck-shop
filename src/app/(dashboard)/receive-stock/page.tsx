@@ -7,7 +7,7 @@ import { fetchAllPaged } from "@/lib/fetch-all";
 import { Button } from "@/components/ui/button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { formatZAR, formatDate } from "@/lib/format";
-import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat, ChevronDown, ChevronRight, Pencil, Check, X, Send, FileDown, Copy } from "lucide-react";
+import { PackagePlus, Plus, Trash2, Search, Save, History, Paperclip, ChefHat, ChevronDown, ChevronRight, Pencil, Check, X, Send, FileDown, Copy, ClipboardList } from "lucide-react";
 import type { Product, Ingredient } from "@/types/database";
 import { SupplierSelect } from "@/components/suppliers/supplier-select";
 import { ReceiptUpload } from "@/components/ui/receipt-upload";
@@ -58,6 +58,15 @@ interface ReceiptItemRow {
   item_type: "product" | "ingredient";
 }
 
+interface OpenPO {
+  id: string;
+  po_number: string;
+  supplier: string | null;
+  total_cost: number;
+  created_at: string;
+  created_by: string | null;
+}
+
 export default function ReceiveStockPage() {
   const { name, role } = useAuth();
   const { currentLocationId, currentLocationName, orgId, orgName, locations } = useOrg();
@@ -87,6 +96,11 @@ export default function ReceiveStockPage() {
   const [attachingReceipt, setAttachingReceipt] = useState<string | null>(null);
   const [suppliersInfo, setSuppliersInfo] = useState<SupplierInfo[]>([]);
   const [copiedReceiptId, setCopiedReceiptId] = useState<string | null>(null);
+  const [openPOs, setOpenPOs] = useState<OpenPO[]>([]);
+  const [showPOPicker, setShowPOPicker] = useState(false);
+  const [poSearch, setPoSearch] = useState("");
+  const [linkedPO, setLinkedPO] = useState<{ id: string; number: string } | null>(null);
+  const [loadingPO, setLoadingPO] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -96,18 +110,23 @@ export default function ReceiveStockPage() {
     // Paginate products via .range() — Supabase max_rows (default 1000)
     // would otherwise truncate large catalogues. Ingredients tables stay
     // small so a plain query is fine there.
-    const [prods, { data: ings }, { data: hist }, { data: sups }] = await Promise.all([
+    const [prods, { data: ings }, { data: hist }, { data: sups }, { data: pos }] = await Promise.all([
       fetchAllPaged<Product>(() =>
         db.from("products").select("*").eq("discontinued", false).order("name")
       ),
       db.from("ingredients").select("*").order("name"),
       db.from("stock_receipts").select("*").order("created_at", { ascending: false }).limit(20),
       db.from("suppliers").select("name, phone, email").eq("active", true).order("name"),
+      db.from("purchase_orders")
+        .select("id, po_number, supplier, total_cost, created_at, created_by")
+        .eq("status", "Draft")
+        .order("created_at", { ascending: false }),
     ]);
     setProducts(prods);
     setIngredients(ings || []);
     setHistory(hist || []);
     setSuppliersInfo((sups as SupplierInfo[]) || []);
+    setOpenPOs((pos as OpenPO[]) || []);
   }
 
   function addLine(type: "product" | "ingredient", item: Product | Ingredient) {
@@ -149,6 +168,55 @@ export default function ReceiveStockPage() {
     setLines(lines.filter((l) => l.id !== id));
   }
 
+  // Pull a PO's lines into the form so the operator doesn't retype a delivery
+  // that was already planned on Reorder List. Replaces whatever's on the form
+  // — confirmed first if there's manual work in progress, so it isn't lost
+  // silently.
+  async function loadPurchaseOrder(po: OpenPO) {
+    if (lines.length > 0 && !confirm(`Replace the ${lines.length} item(s) already on this form with ${po.po_number}'s items?`)) {
+      return;
+    }
+    setLoadingPO(true);
+    try {
+      const { data: items, error } = await db
+        .from("purchase_order_items")
+        .select("product_id, ingredient_id, item_name, quantity, unit_cost, qty_in_pack")
+        .eq("po_id", po.id);
+      if (error) throw error;
+      if (!items || items.length === 0) {
+        alert("This purchase order has no items.");
+        return;
+      }
+
+      const newLines: ReceiptLine[] = items.map((it) => {
+        const type: "product" | "ingredient" = it.product_id ? "product" : "ingredient";
+        const product = it.product_id ? products.find((p) => p.id === it.product_id) : undefined;
+        return {
+          id: crypto.randomUUID(),
+          type,
+          itemId: (it.product_id ?? it.ingredient_id) as string,
+          itemName: it.item_name,
+          inventoryId: product?.inventory_id,
+          quantity: it.quantity,
+          unitCost: it.unit_cost,
+          qtyInPack: it.qty_in_pack || 1,
+        };
+      });
+
+      setLines(newLines);
+      setSupplier(po.supplier || "");
+      if (!notes) setNotes(`From ${po.po_number}`);
+      setLinkedPO({ id: po.id, number: po.po_number });
+      setShowPOPicker(false);
+      setPoSearch("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : (err as { message?: string })?.message || "Unknown error";
+      alert("Error loading purchase order: " + msg);
+    } finally {
+      setLoadingPO(false);
+    }
+  }
+
   const totalCost = preparedFood
     ? 0
     : lines.reduce((sum, l) => sum + (typeof l.quantity === "number" ? l.quantity : 0) * l.unitCost, 0);
@@ -179,6 +247,7 @@ export default function ReceiveStockPage() {
         location_id: currentLocationId,
       };
       if (receiptPath) headerRow.receipt_path = receiptPath;
+      if (linkedPO) headerRow.po_id = linkedPO.id;
 
       let { data: receipt, error: hErr } = await db
         .from("stock_receipts")
@@ -186,11 +255,21 @@ export default function ReceiveStockPage() {
         .select()
         .single();
 
+      // Migration 099's po_id can arrive after this code deploys, same as
+      // location_id (059) below — PostgREST reports an unknown column as
+      // PGRST204, a plain object not an Error, so read .code off it directly.
+      // Degrade to an unlinked receipt rather than failing the delivery.
+      if (hErr && (hErr as { code?: string }).code === "PGRST204" && "po_id" in headerRow) {
+        delete headerRow.po_id;
+        ({ data: receipt, error: hErr } = await db
+          .from("stock_receipts")
+          .insert(headerRow)
+          .select()
+          .single());
+      }
+
       // Migration 059 is applied by hand while this code deploys on merge, so
-      // it can arrive first. PostgREST reports an unknown column as PGRST204 —
-      // a plain object, not an Error, so read .code off it directly. Degrade to
-      // an unattributed receipt (exactly the old behaviour) rather than failing
-      // the delivery; same shape as the add_product_stock fallback below.
+      // it can arrive first. Same PGRST204 degrade, for location_id instead.
       if (hErr && (hErr as { code?: string }).code === "PGRST204") {
         delete headerRow.location_id;
         ({ data: receipt, error: hErr } = await db
@@ -270,12 +349,23 @@ export default function ReceiveStockPage() {
         );
       }
 
+      // 5. Close out the PO this receipt was loaded from, if any. One receipt
+      // fully closes the whole PO (no partial-receive tracking, see migration
+      // 099) — best-effort: a failure here must not undo the delivery that
+      // was just recorded and stocked.
+      if (linkedPO) {
+        await db.from("purchase_orders")
+          .update({ status: "Received", received_at: new Date().toISOString() })
+          .eq("id", linkedPO.id);
+      }
+
       setSuccess(failedItems.length === 0);
       setLines([]);
       setSupplier("");
       setNotes("");
       setReceiptPath(null);
       setPreparedFood(false);
+      setLinkedPO(null);
       loadData();
       if (failedItems.length === 0) setTimeout(() => setSuccess(false), 3000);
     } catch (err) {
@@ -576,12 +666,75 @@ ${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${r.reco
             <ReceiptUpload orgId={orgId} value={receiptPath} onUploaded={setReceiptPath} />
           )}
 
-          {/* Add item button */}
-          <div>
+          {/* Linked PO badge */}
+          {linkedPO && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-indigo-50 border border-indigo-200 rounded-lg text-sm text-indigo-700 w-fit">
+              <ClipboardList className="w-4 h-4" />
+              <span>Loaded from <span className="font-medium">{linkedPO.number}</span> — saving will mark it received</span>
+              <button
+                onClick={() => setLinkedPO(null)}
+                className="text-indigo-400 hover:text-indigo-600 ml-1"
+                aria-label="Unlink purchase order"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
+
+          {/* Add item / Load from PO buttons */}
+          <div className="flex gap-2">
             <Button onClick={() => setShowPicker(true)} variant="secondary">
               <Plus className="w-4 h-4 mr-2" /> Add Item
             </Button>
+            {openPOs.length > 0 && (
+              <Button onClick={() => setShowPOPicker(true)} variant="secondary">
+                <ClipboardList className="w-4 h-4 mr-2" /> Load from PO
+              </Button>
+            )}
           </div>
+
+          {/* PO picker dropdown */}
+          {showPOPicker && (
+            <div className="bg-white border border-gray-200 rounded-xl shadow-lg p-4">
+              <div className="relative mb-3">
+                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+                <input
+                  type="text"
+                  value={poSearch}
+                  onChange={(e) => setPoSearch(e.target.value)}
+                  placeholder="Search PO number or supplier..."
+                  className="w-full pl-10 pr-3 py-2 border border-gray-300 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                  autoFocus
+                />
+              </div>
+              <div className="max-h-60 overflow-y-auto space-y-1">
+                {openPOs
+                  .filter((po) => {
+                    const q = poSearch.toLowerCase();
+                    return !q || po.po_number.toLowerCase().includes(q) || (po.supplier || "").toLowerCase().includes(q);
+                  })
+                  .map((po) => (
+                    <button
+                      key={po.id}
+                      onClick={() => loadPurchaseOrder(po)}
+                      disabled={loadingPO}
+                      className="w-full text-left px-3 py-2 rounded-lg hover:bg-indigo-50 text-sm flex items-center justify-between disabled:opacity-50"
+                    >
+                      <span>
+                        <span className="font-medium">{po.po_number}</span>
+                        {po.supplier && <span className="text-gray-500 ml-2">{po.supplier}</span>}
+                      </span>
+                      <span className="text-xs text-gray-400">{formatZAR(po.total_cost)}</span>
+                    </button>
+                  ))}
+              </div>
+              <div className="mt-3 pt-3 border-t">
+                <Button variant="ghost" size="sm" onClick={() => { setShowPOPicker(false); setPoSearch(""); }}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          )}
 
           {/* Item picker dropdown */}
           {showPicker && (
