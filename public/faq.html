@@ -305,6 +305,8 @@
       <a class="toc-link" href="#cashiers">Managing Cashiers</a>
       <a class="toc-link" href="#receipts">Receipts</a>
       <a class="toc-link" href="#stock-count">Stock Counts</a>
+      <a class="toc-link" href="#reorder">Purchase Orders</a>
+      <a class="toc-link" href="#combos">Discounts &amp; Combos</a>
       <a class="toc-link" href="#vat">VAT</a>
 
       <div class="toc-section-label">Security & Data</div>
@@ -613,10 +615,11 @@
               <li><strong>Name</strong> and <strong>category</strong> (e.g. Drinks, Snacks, Bread)</li>
               <li><strong>Selling price</strong> &mdash; what the customer pays</li>
               <li><strong>Cost price</strong> &mdash; what you pay (package price &divide; quantity in pack)</li>
-              <li><strong>Reorder level</strong> &mdash; get alerts when stock drops below this</li>
+              <li><strong>Reorder level</strong> &mdash; get alerts when stock drops below this, per branch</li>
               <li>Optional: per-branch price overrides, barcode/SKU</li>
             </ul>
             <p>Products appear in the POS grid immediately. Stock is managed per branch &mdash; add quantities via Receive Stock.</p>
+            <p>A product's <strong>Inventory ID doubles as its barcode</strong>: edit it on an existing product to match what's printed on the packaging, and a USB or Bluetooth scanner will find and add it directly from the POS search bar &mdash; no separate scan mode needed.</p>
           </div>
         </div>
 
@@ -633,7 +636,7 @@
               <li>Assign cashiers to a <strong>specific branch</strong> &mdash; they can only sell at that location.</li>
               <li>For managers, you can <strong>fine-tune permissions</strong> (e.g. allow reports but not voiding sales).</li>
             </ul>
-            <p>Each branch has a shared <strong>4-digit PIN</strong> for the till (separate admin and cashier PINs). Team members sign in with email/password first, then enter the branch PIN.</p>
+            <p>Each branch has a shared <strong>4-digit PIN</strong> for the till (separate admin and cashier PINs). Team members sign in with email/password first, then enter the branch PIN. Optionally, an owner can set a <strong>personal PIN</strong> for each team member in Settings &rarr; Team, so till actions are attributed to that person by name instead of just "admin" or "cashier".</p>
           </div>
         </div>
 
@@ -666,6 +669,37 @@
             </ul>
             <p>This prevents a cashier from silently adjusting stock to hide losses. The count is recorded but doesn't change anything until the owner approves it.</p>
             <p>Optionally, you can require a stock count before a shift can be closed (enable in Settings).</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="reorder">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            How do I reorder stock and raise a purchase order?
+          </button>
+          <div class="faq-answer">
+            <p>Go to <strong>Reorder List</strong> &mdash; it shows every product at or below its reorder level at your current branch. From there you can:</p>
+            <ul>
+              <li>Filter by supplier or category, tick the items to order, and adjust quantities (entered in packs)</li>
+              <li>Send the order via <strong>WhatsApp</strong>, <strong>PDF</strong>, or <strong>Copy</strong></li>
+              <li>Tap <strong>Create PO</strong> to save it as a Purchase Order with its own number</li>
+            </ul>
+            <p>When the delivery arrives, go to <strong>Receive Stock</strong> and tap <strong>Load from PO</strong> to pull in the supplier, items, and quantities automatically &mdash; no retyping. Saving the receipt marks the PO as received and generates a <strong>Goods Received Note</strong> you can also share via WhatsApp, PDF, or Copy from the receipt's History.</p>
+          </div>
+        </div>
+
+        <div class="faq-item" id="combos">
+          <button class="faq-question" onclick="this.parentElement.classList.toggle('open')">
+            <svg class="faq-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+            Can I run discounts and bundle deals?
+          </button>
+          <div class="faq-answer">
+            <p>Both are managed on the <strong>Promotions</strong> page:</p>
+            <ul>
+              <li><strong>Promotions</strong> &mdash; a percentage discount on one product that applies automatically whenever it's in the cart, for a chosen date range</li>
+              <li><strong>Combos</strong> &mdash; a fixed price for a specific pair of products, added to the cart as one deliberate tap at the till (e.g. "Bread & Butter" for a set price)</li>
+            </ul>
+            <p>A combo tile only appears at the POS when both products have stock at the current branch.</p>
           </div>
         </div>
 

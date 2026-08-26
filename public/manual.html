@@ -735,6 +735,7 @@
 
       <div class="toc-section-label">Inventory</div>
       <a class="toc-link" href="#products">Products</a>
+      <a class="toc-link" href="#reorder">Reorder List</a>
       <a class="toc-link" href="#receive">Receive Stock</a>
       <a class="toc-link" href="#stockcount">Stock Count</a>
       <a class="toc-link" href="#adjustments">Stock Adjustments</a>
@@ -946,6 +947,10 @@
           <span class="callout-icon">&#9888;</span>
           <div>Set your PINs in <strong>Settings &rarr; PINs</strong>. Each location has its own Admin and Cashier PIN. Change default PINs before going live.</div>
         </div>
+
+        <h3>Per-Person PINs (optional)</h3>
+        <p>The shared branch PIN tells the till <em>which role</em> is signed in, but not <em>which person</em>. In <strong>Settings &rarr; Team</strong>, an owner can set a private 4&ndash;6 digit PIN for each team member — that person then uses their own PIN instead of the shared one, and actions at the till are attributed to them by name.</p>
+        <p>A member with no personal PIN set falls back to the shared branch PIN as before — this is entirely optional and nothing breaks if you never touch it. Owners can clear a member's PIN at any time to send them back to the shared PIN.</p>
       </div>
 
       <!-- ═══════════════════════════════════════════ -->
@@ -1124,6 +1129,10 @@
             <div class="step-body"><strong>Receipt</strong> &mdash; Print, or share via WhatsApp. A 6-character receipt code is shown for lookup later.</div>
           </div>
         </div>
+
+        <h3>Barcode Scanning</h3>
+        <p>A USB or Bluetooth barcode scanner works directly in the <strong>search box</strong> &mdash; no separate scan mode needed. Scanning a barcode that exactly matches a product's <strong>Inventory ID</strong> adds it to the cart automatically and clears the search for the next scan.</p>
+        <p>A scanned barcode that matches a real product with <strong>no stock at this branch</strong> shows a clear on-screen notice instead of silently doing nothing &mdash; useful for telling "this product doesn't exist here" apart from "this product is out of stock here". See Products &rarr; Adding a Product for how to set a product's Inventory ID to match its printed barcode.</p>
 
         <h3>Credit Sales</h3>
         <p>When a customer wants to buy on credit, select <strong>Credit Account</strong> as the payment method. Pick the customer from your list. Tilify checks their credit limit before allowing the sale.</p>
@@ -1384,7 +1393,7 @@
           </div>
           <div class="step">
             <div class="step-num">3</div>
-            <div class="step-body">An <strong>Inventory ID</strong> is auto-generated using your prefix (e.g. TSK001).</div>
+            <div class="step-body">An <strong>Inventory ID</strong> is auto-generated using your prefix (e.g. TSK001). This also doubles as the barcode field — edit an existing product and change it to match a printed barcode so a scanner can find it at the POS.</div>
           </div>
           <div class="step">
             <div class="step-num">4</div>
@@ -1406,17 +1415,50 @@
       </div>
 
       <!-- ═══════════════════════════════════════════ -->
+      <!-- SECTION: REORDER LIST                       -->
+      <!-- ═══════════════════════════════════════════ -->
+      <div class="section" id="reorder">
+        <div class="section-number">09</div>
+        <h2>Reorder List</h2>
+        <p>Shows every product at or below its reorder level <strong>at your current branch</strong> — a product well-stocked at one branch but out at another still shows up when that branch is active. Use it to build an order for your supplier.</p>
+
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">Go to <strong>Reorder List</strong>. Filter by supplier or category, or search by name, to narrow down the list.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Tick the products to order (all are ticked by default) and adjust <strong>Order Qty</strong> for each — entered in <strong>packs</strong>, same as Receive Stock.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">Send the order with <strong>WhatsApp</strong>, <strong>PDF</strong>, or <strong>Copy</strong> — filter to one supplier first so their phone number and email are included.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div class="step-body">Tap <strong>Create PO</strong> to save the order as a Purchase Order. It gets a PO number (e.g. <code>PO-3F9A2C</code>) you can pull back up later in <strong>Receive Stock</strong> instead of retyping every line.</div>
+          </div>
+        </div>
+
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div><strong>Create PO vs. WhatsApp/PDF/Copy:</strong> these are independent. Sending via WhatsApp or PDF does not save anything — it's just a message. Create PO is the only action that saves the order so it can be loaded into Receive Stock. Changing your tick selections after creating a PO clears the saved number, so you'll need to tap Create PO again.</div>
+        </div>
+      </div>
+
+      <!-- ═══════════════════════════════════════════ -->
       <!-- SECTION: RECEIVE STOCK                      -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="receive">
-        <div class="section-number">09</div>
+        <div class="section-number">10</div>
         <h2>Receive Stock</h2>
         <p>Record deliveries from suppliers. Stock levels are updated immediately. Attach a photo of the supplier invoice for your records.</p>
 
         <div class="steps">
           <div class="step">
             <div class="step-num">1</div>
-            <div class="step-body">Go to <strong>Receive Stock</strong> and select the <strong>Supplier</strong>. You can add new suppliers inline.</div>
+            <div class="step-body">Go to <strong>Receive Stock</strong> and select the <strong>Supplier</strong>. You can add new suppliers inline. If you already raised a Purchase Order for this delivery on Reorder List, tap <strong>Load from PO</strong> instead of steps 1&ndash;2 &mdash; it fills in the supplier and every line for you.</div>
           </div>
           <div class="step">
             <div class="step-num">2</div>
@@ -1428,7 +1470,7 @@
           </div>
           <div class="step">
             <div class="step-num">4</div>
-            <div class="step-body">Tap <strong>Save</strong>. Stock is added to your current branch. An expense entry is optionally created.</div>
+            <div class="step-body">Tap <strong>Save</strong>. Stock is added to your current branch. An expense entry is optionally created. If this receipt was loaded from a PO, that PO is marked <strong>Received</strong>.</div>
           </div>
         </div>
 
@@ -1436,13 +1478,25 @@
           <span class="callout-icon">&#9432;</span>
           <div><strong>Prepared food toggle:</strong> When receiving ingredients for prepared items, switch on "Prepared food?" to skip creating an expense entry (ingredient costs flow through recipes instead).</div>
         </div>
+
+        <h3>Load from PO</h3>
+        <p>If a Purchase Order is open (created from Reorder List and not yet received), a <strong>Load from PO</strong> button appears above Add Item. Tap it, search by PO number or supplier, and pick one &mdash; its items, quantities, and costs fill the form instantly. If you've already added lines by hand, you'll be asked to confirm before they're replaced.</p>
+
+        <h3>History &amp; Goods Received Notes</h3>
+        <p>Switch to the <strong>History</strong> tab to see every past delivery. Tap a receipt to expand its line items. Each receipt can be shared as a <strong>Goods Received Note (GRN)</strong>:</p>
+        <ul class="feature-list">
+          <li><strong>WhatsApp</strong> &mdash; sends the GRN to the supplier's number on file (or opens WhatsApp to choose a contact if none is saved).</li>
+          <li><strong>PDF</strong> &mdash; opens a printable GRN with the shop and supplier details, line items, and total.</li>
+          <li><strong>Copy</strong> &mdash; copies the GRN as plain text.</li>
+        </ul>
+        <p>Owners and managers can also <strong>edit</strong> quantities/costs on a past receipt, or <strong>attach a receipt photo</strong> after the fact if one wasn't added at the time.</p>
       </div>
 
       <!-- ═══════════════════════════════════════════ -->
       <!-- SECTION: STOCK COUNT                        -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="stockcount">
-        <div class="section-number">10</div>
+        <div class="section-number">11</div>
         <h2>Stock Count</h2>
         <p>Count physical stock on your shelves. A cashier submits a count; the owner reviews and applies it to update stock levels.</p>
 
@@ -1475,7 +1529,7 @@
       <!-- SECTION: STOCK ADJUSTMENTS                  -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="adjustments">
-        <div class="section-number">11</div>
+        <div class="section-number">12</div>
         <h2>Stock Adjustments</h2>
         <p>Record non-sale stock changes: breakage, expired items, theft, damage, samples, or corrections.</p>
 
@@ -1503,7 +1557,7 @@
       <!-- SECTION: STOCK TRANSFERS                    -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="transfers">
-        <div class="section-number">12</div>
+        <div class="section-number">13</div>
         <h2>Stock Transfers</h2>
         <p>Move stock between branches. Requires two or more locations.</p>
 
@@ -1531,7 +1585,7 @@
       <!-- SECTION: CUSTOMERS & CREDIT                 -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="customers">
-        <div class="section-number">13</div>
+        <div class="section-number">14</div>
         <h2>Customers &amp; Credit</h2>
         <p>Track customer accounts and credit balances. Customers who buy on credit have their balance tracked automatically.</p>
 
@@ -1597,7 +1651,7 @@
       <!-- SECTION: EXPENSES                           -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="expenses">
-        <div class="section-number">14</div>
+        <div class="section-number">15</div>
         <h2>Expenses</h2>
         <p>Track business spending. Categorize expenses to see where your money goes. Attach receipts to keep records.</p>
 
@@ -1608,7 +1662,7 @@
           </div>
           <div class="step">
             <div class="step-num">2</div>
-            <div class="step-body">Pick a <strong>category</strong>: Transport, Fuel, Rent, Electricity, Consumables, Wages, Stock Purchases, Ingredient Purchases, Director Withdrawal, or Other.</div>
+            <div class="step-body">Pick a <strong>category</strong> from your shop's list (Transport, Rent, Wages, Stock Purchases, and so on — see below to customize it).</div>
           </div>
           <div class="step">
             <div class="step-num">3</div>
@@ -1624,13 +1678,20 @@
           <span class="callout-icon">&#9432;</span>
           <div>Expenses work offline. They sync when your connection returns.</div>
         </div>
+
+        <h3>Custom Categories</h3>
+        <p>Every shop starts with the same default category list, but it's yours to change — a pharmacy has no use for "Fuel" but needs "Security Guard" instead. Tap <strong>Manage Categories</strong> on the Expenses page to rename, add, or remove categories.</p>
+        <div class="callout callout-tip">
+          <span class="callout-icon">&#9432;</span>
+          <div>Removing <strong>Stock Purchases</strong> or <strong>Ingredient Purchases</strong> from the list only hides them from the picker &mdash; Receive Stock still uses "Stock Purchases" automatically, and Profit &amp; Loss still excludes both by name from operating expenses (their cost reaches the books through COGS instead). Removing them from the list is not recommended.</div>
+        </div>
       </div>
 
       <!-- ═══════════════════════════════════════════ -->
       <!-- SECTION: PROMOTIONS                         -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="promotions">
-        <div class="section-number">15</div>
+        <div class="section-number">16</div>
         <h2>Promotions</h2>
         <p>Create time-limited discounts that apply automatically at the POS.</p>
 
@@ -1652,13 +1713,30 @@
             <div class="step-body">Save. During the promotion period, the POS shows the discounted price and applies it automatically.</div>
           </div>
         </div>
+
+        <h3>Combos</h3>
+        <p>A combo is different from a promotion: it's a fixed price for a <strong>specific pair of products</strong>, added as one deliberate tap at the till — not a percentage discount that applies automatically whenever a product is in the cart.</p>
+        <div class="steps">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div class="step-body">On the <strong>Promotions</strong> page, switch to the <strong>Combos</strong> tab and tap <strong>Add Combo</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div class="step-body">Give it a <strong>name</strong> (e.g. "Bread & Butter"), pick the <strong>two products</strong>, and set the <strong>combo price</strong>.</div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div class="step-body">At the POS, a combo tile appears whenever both products have stock at the current branch. Tapping it adds both to the cart at the combo price.</div>
+          </div>
+        </div>
       </div>
 
       <!-- ═══════════════════════════════════════════ -->
       <!-- SECTION: REPORTS                            -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="reports">
-        <div class="section-number">16</div>
+        <div class="section-number">17</div>
         <h2>Sales Reports</h2>
         <p>Analyze your sales by period. See revenue totals, payment breakdown, top sellers, and slow movers.</p>
 
@@ -1743,7 +1821,7 @@
       <!-- SECTION: PROFIT & LOSS                      -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="pnl">
-        <div class="section-number">17</div>
+        <div class="section-number">18</div>
         <h2>Profit &amp; Loss</h2>
         <p>See your real profitability. Revenue minus cost of goods, shrinkage, and operating expenses.</p>
 
@@ -1810,7 +1888,7 @@
       <!-- SECTION: REVENUE ASSURANCE                  -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="revenue-assurance">
-        <div class="section-number">18</div>
+        <div class="section-number">19</div>
         <h2>Revenue Assurance</h2>
         <p>Reconcile stock movement against recorded sales. Identify unrecorded shrinkage (items left the shelf without a sale) and oversells (more rung up than stock explains).</p>
 
@@ -1843,7 +1921,7 @@
       <!-- SECTION: SETTINGS                           -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="settings">
-        <div class="section-number">19</div>
+        <div class="section-number">20</div>
         <h2>Settings</h2>
         <p>Configure your shop's behavior. Owner-only access.</p>
 
@@ -1905,7 +1983,7 @@
       <!-- SECTION: TEAM                               -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="team">
-        <div class="section-number">20</div>
+        <div class="section-number">21</div>
         <h2>Team &amp; Permissions</h2>
         <p>Add staff, assign them to branches, and control what each person can access.</p>
 
@@ -1954,7 +2032,7 @@
       <!-- SECTION: LOCATIONS                          -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="locations">
-        <div class="section-number">21</div>
+        <div class="section-number">22</div>
         <h2>Locations</h2>
         <p>Manage multiple branches. Each location has its own stock levels, PINs, and shift history.</p>
 
@@ -1974,7 +2052,7 @@
       <!-- SECTION: BILLING                            -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="billing">
-        <div class="section-number">22</div>
+        <div class="section-number">23</div>
         <h2>Plan &amp; Billing</h2>
         <p>Manage your subscription from <strong>Settings &rarr; Plan &amp; Billing</strong>.</p>
 
@@ -2030,7 +2108,7 @@
       <!-- SECTION: WAREHOUSE                          -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="wms">
-        <div class="section-number">23</div>
+        <div class="section-number">24</div>
         <h2>Warehouse Management (WMS)</h2>
         <p>For shops with a separate warehouse or storage facility. Enable in <strong>Settings &rarr; Warehouse</strong>. Available on the Pro plan.</p>
 
@@ -2044,7 +2122,7 @@
           <li><strong>Transfers</strong> &mdash; Move stock between warehouses.</li>
           <li><strong>Adjustments</strong> &mdash; Warehouse-level stock adjustments.</li>
           <li><strong>Stock Count</strong> &mdash; Warehouse-level physical counts.</li>
-          <li><strong>Purchase Orders</strong> &mdash; Create and track orders to suppliers.</li>
+          <li><strong>Purchase Orders</strong> &mdash; Create and track orders to suppliers, with partial receiving. Separate from the shop-level Purchase Orders created on <a href="#reorder">Reorder List</a>.</li>
           <li><strong>Bin Locations</strong> &mdash; Manage storage locations within the warehouse.</li>
         </ul>
 
@@ -2058,7 +2136,7 @@
       <!-- SECTION: OFFLINE MODE                       -->
       <!-- ═══════════════════════════════════════════ -->
       <div class="section" id="offline">
-        <div class="section-number">24</div>
+        <div class="section-number">25</div>
         <h2>Offline Mode</h2>
         <p>Tilify is a Progressive Web App (PWA). Core features work without an internet connection.</p>
 
@@ -2082,6 +2160,11 @@
         <div class="callout callout-tip">
           <span class="callout-icon">&#9432;</span>
           <div>An offline indicator appears in the header when you lose connection. Queued actions sync automatically when your connection returns &mdash; no action needed from you.</div>
+        </div>
+
+        <div class="callout callout-warn">
+          <span class="callout-icon">&#9888;</span>
+          <div>If a queued sale repeatedly fails to sync (e.g. a stock conflict), the POS shows a red banner with the number of <strong>parked</strong> sales instead of retrying forever. This needs manual attention &mdash; check with support if you see it.</div>
         </div>
       </div>
 
