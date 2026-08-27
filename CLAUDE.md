@@ -414,6 +414,55 @@ quantity is 0 there is no telling "landed on zero" from "went four under".
 - **No write policy on the table** — only the SECURITY DEFINER function inserts, so a
   client can neither fabricate an oversell nor delete an inconvenient one.
 
+## "I received stock and it shows zero" — the Scones investigation (2026-08-27)
+
+A client (Destiny) reported prepared-food items reading 0 stock right after being
+received, "previously flagged, still persisting." Worth recording the full diagnosis
+because the obvious-looking cause (a live receiving bug) was wrong, and re-deriving
+this from scratch is expensive — `scripts/audit-stock-reconciliation.mjs` exists
+because of this investigation, use it first next time.
+
+**Two separate things were going on, and conflating them wasted the first hour:**
+
+1. **A real historical bug, already fixed.** Before commit `9f9a72d` (2026-08-21),
+   tapping "Complete Sale" twice while it was loading created two real sales for one
+   real purchase — `React.useState`'s `processing` flag doesn't commit synchronously,
+   so a fast second tap could slip through before the button actually disabled. Every
+   duplicate silently deducted stock a second time. No error, no oversell log entry:
+   `deduct_stock_at_location` only logs to `stock_oversells` when a single deduction
+   exceeds *available* stock at that instant, and there was usually enough buffer for
+   the phantom second deduction to clear cleanly. The debt only surfaced later as
+   "why did we run out early" — which is why it looked like *stock disappearing*
+   rather than a duplicate-sale bug, and why grep-ing for oversells found nothing.
+   Fixed by a `useRef` reentrancy guard (refs update synchronously, no render gap
+   for a second tap to exploit) — see the commit message for the full mechanism.
+
+2. **A misread of normal, working behaviour.** Once (1) was fixed, the client still
+   saw fresh-received stock read 0 within the hour. This is `deduct_stock_at_location`'s
+   documented clamp (see above) doing exactly its job: receive 20, six *genuine,
+   distinct* sales (own `transaction_id`s, one tied to a named credit customer,
+   verified individually) total 21 within 30 minutes, stock clamps to 0. Nothing
+   missing — receipts and sales fully explain it. The daily Stock Count *was* already
+   correcting each day's residual drift (confirmed sessions, `product_stock` upsert on
+   confirm all checked and correct) — the "still persisting" feeling was the normal gap
+   between a fast-moving item selling through and the next count catching up, not a
+   sign the fix hadn't landed.
+
+**The diagnostic method that actually worked**, after wasted time hand-querying
+individual products: reconcile received − sold + adjustments against actual stock
+**since each product's last CONFIRMED count**, not all-time. All-time reconciliation
+re-surfaces debt a count has already corrected and makes a healthy shop look broken —
+exactly what happened here, and exactly what `audit-stock-reconciliation.mjs`
+automates. A **MISSING** result (expected > actual, nothing explains the gap) is a
+live bug. A **SURPLUS** result (actual > expected) is almost always an item that's
+never been counted (the script has to assume opening stock was 0, understating it) —
+not a bug, a data gap. Check `--org "<shop>"` before assuming either.
+
+**Also found and fixed while investigating**: `stock/page.tsx`'s Stock Count input
+accepted negative closing counts with no validation — one shipped to production on
+2026-08-18 (`closing_units: -10`, confirmed as-is). A physical count can never be
+negative; `updateCount()` now rejects any non-digit keystroke at entry.
+
 ## Revenue Assurance reports BOTH directions
 
 `unrecordedUnits` was `Math.max(unitsSold - recordedSales, 0)`, which reported only
@@ -753,4 +802,12 @@ by default; add `--apply` to execute.
 - **`seed-branch-stock.mjs`** — set flat stock qty at a branch (new location bootstrap).
 - **`record-opening-count.mjs`** — write stock count rows for a branch.
 - **`cleanup-orphaned-receipts.mjs`** — remove storage objects with no DB reference.
+- **`audit-stock-reconciliation.mjs`** — read-only, no `--apply`. Per product+branch,
+  sums everything that's moved stock since the last *confirmed* stock count (receipts,
+  non-voided sales, adjustments) and compares to current `product_stock.quantity`.
+  Reports only real discrepancies — a "MISSING" result (stock gone with nothing to
+  explain it) is a live bug; "SURPLUS" usually just means an item has never been
+  counted (baseline assumed 0) or moved through an event type the script doesn't
+  track (transfers, WMS credits). Run this before concluding "the stock is wrong"
+  is a new bug — see the Scones investigation below for why.
 - **`add-cashiers.mjs`**, **`rename-inventory-prefix.mjs`** — one-off data migrations.

@@ -178,6 +178,10 @@ export default function StockCountPage() {
   }, [fetchProducts]);
 
   function updateCount(productId: string, value: string) {
+    // A physical count can never be negative — reject the keystroke rather
+    // than let it through and rely on catching it later. (A negative closing
+    // count reached production once: -10, confirmed as-is on 2026-08-18.)
+    if (value !== "" && !/^\d+$/.test(value)) return;
     setRows((prev) =>
       prev.map((r) =>
         r.product.id === productId
@@ -603,6 +607,7 @@ export default function StockCountPage() {
                   <input
                     type="number"
                     inputMode="numeric"
+                    min="0"
                     placeholder="—"
                     value={row.closingCount}
                     onChange={(e) => updateCount(row.product.id, e.target.value)}
