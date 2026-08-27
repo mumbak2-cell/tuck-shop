@@ -130,7 +130,7 @@ export default function CustomersPage() {
     let salesQuery = db
       .from("sales")
       .select("sale_date, quantity, unit_price, total_amount, products(name)")
-      .eq("payment_method", "credit")
+      .ilike("payment_method", "%credit%")
       .eq("voided", false)
       .eq("customer_id", customer.id)
       .order("sale_date", { ascending: true })
