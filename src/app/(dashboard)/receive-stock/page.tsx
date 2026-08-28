@@ -14,6 +14,7 @@ import { ReceiptUpload } from "@/components/ui/receipt-upload";
 import { ReceiptViewer } from "@/components/ui/receipt-viewer";
 import { localToday } from "@/lib/date-utils";
 import { receiptCode } from "@/lib/receipt-code";
+import { escapeHtml } from "@/lib/print-utils";
 
 // Same software-attribution credit stamped on Reorder List documents —
 // a plain credit line, not a copyright claim.
@@ -520,7 +521,7 @@ export default function ReceiveStockPage() {
 
     const rows = items.map((it, i) => `<tr>
         <td class="cell">${i + 1}</td>
-        <td class="cell">${it.item_name}</td>
+        <td class="cell">${escapeHtml(it.item_name)}</td>
         <td class="cell r">${it.quantity}</td>
         <td class="cell r">${formatZAR(it.unit_cost)}</td>
         <td class="cell r">${formatZAR(it.line_total)}</td>
@@ -551,15 +552,15 @@ export default function ReceiveStockPage() {
 <div class="grid">
   <div class="block">
     <h3>Received By</h3>
-    <p><strong>${shopName}${branchLabel}</strong></p>
-    ${loc?.address ? `<p>${loc.address}</p>` : ""}
-    ${loc?.phone ? `<p>Tel: ${loc.phone}</p>` : ""}
+    <p><strong>${escapeHtml(shopName)}${escapeHtml(branchLabel)}</strong></p>
+    ${loc?.address ? `<p>${escapeHtml(loc.address)}</p>` : ""}
+    ${loc?.phone ? `<p>Tel: ${escapeHtml(loc.phone)}</p>` : ""}
   </div>
   <div class="block">
     <h3>Supplier</h3>
-    <p><strong>${r.supplier || "Not specified"}</strong></p>
-    ${sup?.phone ? `<p>Tel: ${sup.phone}</p>` : ""}
-    ${sup?.email ? `<p>Email: ${sup.email}</p>` : ""}
+    <p><strong>${escapeHtml(r.supplier || "Not specified")}</strong></p>
+    ${sup?.phone ? `<p>Tel: ${escapeHtml(sup.phone)}</p>` : ""}
+    ${sup?.email ? `<p>Email: ${escapeHtml(sup.email)}</p>` : ""}
   </div>
 </div>
 
@@ -581,7 +582,7 @@ export default function ReceiveStockPage() {
     </tr>
   </tfoot>
 </table>
-${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${r.recorded_by}</p>` : ""}
+${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${escapeHtml(r.recorded_by)}</p>` : ""}
 
 <p class="footer">${DOC_FOOTER}</p>
 

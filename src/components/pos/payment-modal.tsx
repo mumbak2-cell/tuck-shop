@@ -10,6 +10,7 @@ import { readCache } from "@/lib/offline-store";
 import { submitSaleBatch } from "@/lib/offline-ops";
 import { toInternationalPhone } from "@/lib/currency";
 import { localToday } from "@/lib/date-utils";
+import { printElement } from "@/lib/print-utils";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
 import {
@@ -354,18 +355,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   function handlePrintReceipt() {
     const el = receiptRef.current;
     if (!el) return;
-    const printWindow = window.open("", "_blank", "width=350,height=600");
-    if (!printWindow) return;
-    printWindow.document.write(
-      "<!DOCTYPE html><html><head><title>Receipt</title>" +
-      "<style>body{margin:0;padding:0}@page{size:80mm auto;margin:0}</style>" +
-      "</head><body>" + el.innerHTML + "</body></html>"
-    );
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 300);
+    printElement(el, "Receipt");
   }
 
   async function handlePay() {

@@ -93,6 +93,13 @@ hung, with `localhost:3000` timing out entirely.
   **once, on the first line only**, and summed — writing it per line would multiply it
   by basket size. `sales.transaction_id` (074) groups a basket, generated inside
   `submit_sale_batch`. Count baskets, not rows, when reporting "transactions".
+- **`submit_sale_batch` has two-phase idempotency (migration 101).** "Sale exists" and
+  "stock was deducted" are tracked separately via `sales.stock_deducted_at`. On replay:
+  (1) all rows exist + all deducted → return early; (2) all rows exist + some not
+  deducted → deduct only, set flag; (3) new sale → insert + deduct + set flag. This
+  closes the gap where a stock count overwrite could absorb a deduction with no audit
+  trail. Returns and voided rows have NULL `stock_deducted_at` by design (returns
+  restock, voids reverse).
 - **Widening `submit_sale_batch` needs the old signature DROPPED first.** Adding an
   argument otherwise leaves two overloads and PostgREST cannot choose between them:
   *"Could not choose the best candidate function"*, and **every till stops selling**.
@@ -141,7 +148,7 @@ hung, with `localhost:3000` timing out entirely.
 Applied by hand (SQL Editor or the Management API query endpoint), **then** recorded:
 `node node_modules/supabase/dist/supabase.js migration repair --status applied <NNN>`.
 History is baselined, so never `db push` without repairing first. One migration per
-number, never reuse a prefix. Latest applied: **099**.
+number, never reuse a prefix. Latest applied: **101**.
 
 **`default_user_org_id()` returns NULL under the service role**, so any table
 whose `org_id` defaults to it (e.g. `stock_counts`, `product_location_prices`)

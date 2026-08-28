@@ -6,6 +6,7 @@ import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
 import { receiptCode } from "@/lib/receipt-code";
+import { escapeHtml } from "@/lib/print-utils";
 import { ArrowLeft, Send, Copy, Check, Package, FileDown, Search, ClipboardList } from "lucide-react";
 import Link from "next/link";
 
@@ -331,8 +332,8 @@ export default function ReorderPage() {
       else hasUnknownCost = true;
       return `<tr>
         <td class="cell">${i + 1}</td>
-        <td class="cell">${p.name}</td>
-        <td class="cell r">${qtyLabel(p, qty)}</td>
+        <td class="cell">${escapeHtml(p.name)}</td>
+        <td class="cell r">${escapeHtml(qtyLabel(p, qty))}</td>
         <td class="cell r">${cost != null ? formatZAR(cost) : "—"}</td>
         <td class="cell r">${lineCost != null ? formatZAR(lineCost) : "—"}</td>
       </tr>`;
@@ -367,15 +368,15 @@ export default function ReorderPage() {
 <div class="grid">
   <div class="block">
     <h3>From (Buyer)</h3>
-    <p><strong>${shopName}${branchLabel}</strong></p>
-    ${loc?.address ? `<p>${loc.address}</p>` : ""}
-    ${loc?.phone ? `<p>Tel: ${loc.phone}</p>` : ""}
+    <p><strong>${escapeHtml(shopName)}${escapeHtml(branchLabel)}</strong></p>
+    ${loc?.address ? `<p>${escapeHtml(loc.address)}</p>` : ""}
+    ${loc?.phone ? `<p>Tel: ${escapeHtml(loc.phone)}</p>` : ""}
   </div>
   ${sup ? `<div class="block">
     <h3>To (Supplier)</h3>
-    <p><strong>${sup.name}</strong></p>
-    ${sup.phone ? `<p>Tel: ${sup.phone}</p>` : ""}
-    ${sup.email ? `<p>Email: ${sup.email}</p>` : ""}
+    <p><strong>${escapeHtml(sup.name)}</strong></p>
+    ${sup.phone ? `<p>Tel: ${escapeHtml(sup.phone)}</p>` : ""}
+    ${sup.email ? `<p>Email: ${escapeHtml(sup.email)}</p>` : ""}
   </div>` : ""}
 </div>
 

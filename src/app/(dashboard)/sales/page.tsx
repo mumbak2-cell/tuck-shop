@@ -14,6 +14,7 @@ import { paymentBucket, type PaymentBucket } from "@/lib/payment-buckets";
 import { CreditNote, generateCreditNoteNumber, type CreditNoteData } from "@/components/pos/credit-note";
 import { localToday } from "@/lib/date-utils";
 import { usePeriodLock } from "@/lib/use-period-lock";
+import { printElement } from "@/lib/print-utils";
 import { receiptCode, normaliseReceiptCode } from "@/lib/receipt-code";
 import { Receipt, type ReceiptData, buildReceiptLines, LINE_WIDTH } from "@/components/pos/receipt";
 import type { CartItem } from "@/components/pos/cart";
@@ -501,15 +502,7 @@ export default function SalesPage() {
   function printCreditNote() {
     const el = creditNoteRef.current;
     if (!el) return;
-    const w = window.open("", "_blank", "width=350,height=600");
-    if (!w) return;
-    w.document.write(
-      "<!DOCTYPE html><html><head><title>Credit Note</title>" +
-      "<style>body{margin:0;padding:0}@page{size:80mm auto;margin:0}</style>" +
-      "</head><body>" + el.innerHTML + "</body></html>"
-    );
-    w.document.close();
-    setTimeout(() => w.print(), 200);
+    printElement(el, "Credit Note");
   }
 
   /** Rebuilds a ReceiptData from a stored SaleGroup so it can be reprinted. */
@@ -552,18 +545,7 @@ export default function SalesPage() {
   function handleReprintPrint() {
     const el = reprintRef.current;
     if (!el) return;
-    const printWindow = window.open("", "_blank", "width=350,height=600");
-    if (!printWindow) return;
-    printWindow.document.write(
-      "<!DOCTYPE html><html><head><title>Receipt</title>" +
-      "<style>body{margin:0;padding:0}@page{size:80mm auto;margin:0}</style>" +
-      "</head><body>" + el.innerHTML + "</body></html>"
-    );
-    printWindow.document.close();
-    setTimeout(() => {
-      printWindow.print();
-      printWindow.close();
-    }, 300);
+    printElement(el, "Receipt");
   }
 
   function generateReprintImage(): Promise<Blob | null> {

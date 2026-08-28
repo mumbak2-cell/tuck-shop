@@ -16,6 +16,7 @@ import { ItemPickerModal, type WmsCatalogPickerItem } from "@/components/wms/ite
 import { LocationPicker, type WmsLocationOption } from "@/components/wms/location-picker";
 import { useToast } from "@/components/ui/toast";
 import { BarcodeScanInput } from "@/components/wms/barcode-scan-input";
+import { escapeHtml } from "@/lib/print-utils";
 import {
   Truck,
   Plus,
@@ -258,11 +259,6 @@ export default function WmsDispatchPage() {
       : null;
   }
 
-  function escapeHtml(s: string): string {
-    return s.replace(/[&<>"']/g, (c) =>
-      ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c] as string)
-    );
-  }
 
   async function handleSendToPicking(dispatch: PastDispatch, items: DispatchDetailItem[]) {
     setPanelSaving(true);
