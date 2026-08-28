@@ -598,7 +598,7 @@ export default function StockCountPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {row.product.category} · Expected: {row.expected} · {formatZAR(row.product.selling_price)}
+                    {row.product.category}{role !== "member" && ` · Expected: ${row.expected}`} · {formatZAR(row.product.selling_price)}
                   </p>
                 </div>
 
@@ -618,7 +618,7 @@ export default function StockCountPage() {
                     } focus:border-green-500 focus:ring-1 focus:ring-green-500`}
                   />
 
-                  {variance !== null && (
+                  {variance !== null && role !== "member" && (
                     <span
                       className={`text-xs font-medium w-12 text-right ${
                         variance === 0
