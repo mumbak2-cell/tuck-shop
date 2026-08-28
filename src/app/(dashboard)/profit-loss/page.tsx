@@ -42,6 +42,7 @@ export default function ProfitLossPage() {
   const [inventoryValue, setInventoryValue] = useState(0);
   const [inventoryUncosted, setInventoryUncosted] = useState(0);
   const [inventoryUnits, setInventoryUnits] = useState(0);
+  const [inventoryRetail, setInventoryRetail] = useState(0);
 
   useEffect(() => {
     loadPnL();
@@ -154,17 +155,22 @@ export default function ProfitLossPage() {
     // 5. Inventory on hand (point-in-time, not period-dependent)
     let stockQ = db
       .from("product_stock")
-      .select("quantity, product_id, products(cost_per_unit)")
+      .select("quantity, product_id, products(cost_per_unit, selling_price)")
       .gt("quantity", 0);
     if (isFiltered) stockQ = stockQ.eq("location_id", effectiveLoc);
     const { data: stockRows } = await stockQ;
 
     let invValue = 0;
+    let invRetail = 0;
     let invUncosted = 0;
     let invUnits = 0;
-    ((stockRows || []) as { quantity: number; product_id: string; products: { cost_per_unit: number | null } | null }[]).forEach((r) => {
+    ((stockRows || []) as { quantity: number; product_id: string; products: { cost_per_unit: number | null; selling_price: number | null } | null }[]).forEach((r) => {
       const cost = r.products?.cost_per_unit;
+      const sell = r.products?.selling_price;
       invUnits += r.quantity;
+      if (sell != null && sell > 0) {
+        invRetail += sell * r.quantity;
+      }
       if (cost != null && cost > 0) {
         invValue += cost * r.quantity;
       } else {
@@ -172,6 +178,7 @@ export default function ProfitLossPage() {
       }
     });
     setInventoryValue(invValue);
+    setInventoryRetail(invRetail);
     setInventoryUncosted(invUncosted);
     setInventoryUnits(invUnits);
 
@@ -390,10 +397,24 @@ export default function ProfitLossPage() {
               </div>
               <div className="divide-y divide-gray-100">
                 <PnLRow label="Stock Value (at cost)" amount={inventoryValue} />
+                {inventoryRetail > 0 && (
+                  <PnLRow label="Stock Value (at selling price)" amount={inventoryRetail} />
+                )}
+                {inventoryRetail > 0 && inventoryValue > 0 && (
+                  <PnLRow label="Profit in Stock" amount={inventoryRetail - inventoryValue} bold highlight={inventoryRetail - inventoryValue >= 0 ? "green" : "red"} />
+                )}
                 <div className="px-5 py-3 flex items-center justify-between">
                   <span className="text-sm text-gray-700">Total Units</span>
                   <span className="text-sm font-medium text-gray-900">{inventoryUnits.toLocaleString()}</span>
                 </div>
+                {inventoryRetail > 0 && inventoryValue > 0 && (
+                  <div className="px-5 py-3 flex items-center justify-between">
+                    <span className="text-sm text-gray-700">Average Markup</span>
+                    <span className="text-sm font-medium text-gray-900">
+                      {((inventoryRetail / inventoryValue - 1) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                )}
                 {inventoryUncosted > 0 && (
                   <div className="px-5 py-2 text-xs text-amber-700 bg-amber-50">
                     {inventoryUncosted.toLocaleString()} unit{inventoryUncosted > 1 ? "s" : ""} have no cost price —
@@ -401,8 +422,9 @@ export default function ProfitLossPage() {
                   </div>
                 )}
                 <div className="px-5 py-3 text-xs text-gray-500">
-                  Current stock × cost price. A snapshot, not a period figure — it always
+                  Current stock × price. A snapshot, not a period figure — it always
                   reflects stock levels right now{isFiltered ? ` at ${filteredLocName}` : ""}.
+                  Profit in Stock is what you&apos;d earn if everything sold at its selling price.
                 </div>
               </div>
             </div>
@@ -427,6 +449,41 @@ export default function ProfitLossPage() {
               </div>
             </div>
           </div>
+
+          {/* Shop Value — stock + profit combined */}
+          {inventoryUnits > 0 && (
+            <div className="rounded-xl overflow-hidden border-2 border-indigo-300 bg-indigo-50">
+              <div className="px-5 py-3 border-b border-indigo-200">
+                <h2 className="font-semibold text-indigo-800">What&apos;s In Your Shop</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Stock value + profit earned this period</p>
+              </div>
+              <div className="divide-y divide-indigo-100">
+                <div className="px-5 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-700">Stock (at cost)</span>
+                  <span className="text-sm font-medium text-gray-900">{formatZAR(inventoryValue)}</span>
+                </div>
+                {inventoryRetail > 0 && (
+                  <div className="px-5 py-3 flex items-center justify-between">
+                    <span className="text-sm text-gray-700">Profit in Stock (unsold markup)</span>
+                    <span className="text-sm font-medium text-green-700">{formatZAR(inventoryRetail - inventoryValue)}</span>
+                  </div>
+                )}
+                <div className="px-5 py-3 flex items-center justify-between">
+                  <span className="text-sm text-gray-700">Net Profit (earned this period)</span>
+                  <span className={`text-sm font-medium ${netProfit >= 0 ? "text-green-700" : "text-red-700"}`}>{formatZAR(netProfit)}</span>
+                </div>
+                <div className="px-5 py-4 flex items-center justify-between bg-indigo-100/50">
+                  <span className="text-sm font-semibold text-indigo-900">Total Shop Value</span>
+                  <span className="text-2xl font-bold text-indigo-800">
+                    {formatZAR(inventoryValue + (inventoryRetail > inventoryValue ? inventoryRetail - inventoryValue : 0) + netProfit)}
+                  </span>
+                </div>
+                <div className="px-5 py-2 text-xs text-gray-500">
+                  Stock at cost + profit sitting on shelves + profit earned. Shows how much value is in your business right now.
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>
