@@ -67,6 +67,7 @@ export default function StockCountPage() {
   const [confirming, setConfirming] = useState(false);
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
+  const [showCountedOnly, setShowCountedOnly] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
   const [sessionId, setSessionId] = useState<string>("");
   const [sessionLabel, setSessionLabel] = useState("Stock Count");
@@ -370,7 +371,8 @@ export default function StockCountPage() {
       .includes(search.toLowerCase());
     const matchesCat =
       filterCategory === "All" || r.product.category === filterCategory;
-    return matchesSearch && matchesCat;
+    const matchesCounted = !showCountedOnly || r.closingCount !== "";
+    return matchesSearch && matchesCat && matchesCounted;
   });
 
   const unsavedCount = rows.filter(
@@ -555,6 +557,16 @@ export default function StockCountPage() {
             className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-lg text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
           />
         </div>
+        <button
+          onClick={() => setShowCountedOnly(!showCountedOnly)}
+          className={`px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap ${
+            showCountedOnly
+              ? "bg-green-50 border-green-300 text-green-700"
+              : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+          }`}
+        >
+          Counted only
+        </button>
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}

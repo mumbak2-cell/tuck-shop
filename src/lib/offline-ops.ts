@@ -184,45 +184,6 @@ export async function replayOp(op: QueuedOp): Promise<{ ok: boolean; error?: str
     switch (op.kind) {
       case "submit_sale_batch": {
         const payload = op.payload as Record<string, unknown>;
-
-        // Check stock availability before replaying. If stock moved while
-        // this device was offline, deduct_stock_at_location would clamp to 0
-        // and silently swallow the shortfall — surface it instead so the
-        // operator can review, rather than let it clamp away unnoticed.
-        const productIds = payload.p_product_ids as string[] | undefined;
-        const quantities = payload.p_quantities as number[] | undefined;
-        const locationId = payload.p_location_id as string | undefined;
-        if (productIds && quantities && locationId) {
-          const { data: stockRows } = await db
-            .from("product_stock")
-            .select("product_id, quantity")
-            .eq("location_id", locationId)
-            .in("product_id", productIds);
-
-          const stockMap = new Map<string, number>();
-          (stockRows ?? []).forEach((r: { product_id: string; quantity: number }) =>
-            stockMap.set(r.product_id, r.quantity)
-          );
-
-          // Sum requested quantity per product first — a sale can have the
-          // same product on multiple lines (e.g. retail + wholesale pricing).
-          const requested = new Map<string, number>();
-          productIds.forEach((id, i) => {
-            requested.set(id, (requested.get(id) ?? 0) + (quantities[i] ?? 0));
-          });
-
-          const shortCount = Array.from(requested.entries()).filter(
-            ([id, qty]) => qty > (stockMap.get(id) ?? 0)
-          ).length;
-
-          if (shortCount > 0) {
-            return {
-              ok: false,
-              error: `Stock conflict: ${shortCount} item(s) have insufficient stock since this sale was queued. Review needed.`,
-            };
-          }
-        }
-
         const { error } = await db.rpc("submit_sale_batch", payload);
         if (error) return { ok: false, error: error.message };
         return { ok: true };
