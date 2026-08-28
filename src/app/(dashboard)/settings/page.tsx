@@ -1,6 +1,8 @@
 "use client";
 import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/supabase";
+import { useAuth } from "@/lib/auth-context";
 import { Button } from "@/components/ui/button";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
 import { Settings, Save, Key, Link, Building2, Coins, Warehouse, Boxes, CreditCard, Sparkles, Printer, ChefHat, ExternalLink, Clock, ShoppingCart, Calculator, EyeOff, HandCoins, Gift, AlertTriangle, ClipboardCheck, Users } from "lucide-react";
@@ -67,7 +69,16 @@ export default function SettingsPage() {
     currentPeriodEnd,
     refresh: refreshOrg,
     can,
+    role,
   } = useOrg();
+  const { role: tillRole } = useAuth();
+  const router = useRouter();
+  // Settings is owner/manager only. A cashier — whether a member-role account
+  // or any account that unlocked with the branch cashier PIN — must never reach
+  // this page: it exposes the Access PINs (including the admin PIN in cleartext),
+  // billing and period-lock controls. The sidebar hides the link, but that
+  // doesn't stop a direct URL hit; there is no middleware, so guard here.
+  const settingsAllowed = role !== "member" && tillRole !== "cashier";
   // PINs are per-location (location_settings). `pinLocationId` is the branch the
   // owner has explicitly picked to edit; until then we fall back to the active
   // location. Deriving (rather than syncing via an effect) avoids a cascading
@@ -79,6 +90,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [success, setSuccess] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!settingsAllowed) router.replace("/pos");
+  }, [settingsAllowed, router]);
 
   useEffect(() => {
     loadSettings();
@@ -516,6 +531,8 @@ export default function SettingsPage() {
     // Refresh OrgContext so stockMode/etc are immediately visible to other tabs.
     refreshOrg();
   }
+
+  if (!settingsAllowed) return null;
 
   if (loading) {
     return <div className="text-center py-12 text-gray-400">Loading...</div>;

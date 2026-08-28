@@ -55,6 +55,12 @@ export default function StockCountPage() {
   // PIN, so a cashier PIN at the till can never trigger the write even if the
   // owner is the underlying account.
   const canConfirm = role === "owner" && tillRole === "admin";
+  // Blind count: a cashier must not see the expected figure or the variance
+  // while counting, so a wrong count can't be nudged to match. Gated on BOTH
+  // signals for the same reason canConfirm is — the account may be an org
+  // member, OR an owner/admin account on a shared till unlocked with the
+  // cashier PIN. Either way the person at the screen is counting as a cashier.
+  const isCashierView = role === "member" || tillRole === "cashier";
   const [rows, setRows] = useState<StockRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -598,7 +604,7 @@ export default function StockCountPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {row.product.category}{role !== "member" && ` · Expected: ${row.expected}`} · {formatZAR(row.product.selling_price)}
+                    {row.product.category}{!isCashierView && ` · Expected: ${row.expected}`} · {formatZAR(row.product.selling_price)}
                   </p>
                 </div>
 
@@ -618,7 +624,7 @@ export default function StockCountPage() {
                     } focus:border-green-500 focus:ring-1 focus:ring-green-500`}
                   />
 
-                  {variance !== null && role !== "member" && (
+                  {variance !== null && !isCashierView && (
                     <span
                       className={`text-xs font-medium w-12 text-right ${
                         variance === 0

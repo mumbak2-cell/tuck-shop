@@ -4,26 +4,23 @@ import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
 import type { UserRole } from "@/types/database";
 
-/** Load the admin/cashier PINs for one location from location_settings.
- *  PINs are per-location (migration 0230): each branch has its own admin and
- *  cashier PIN. A role with no PIN row set returns null for that role, so
- *  login refuses it rather than falling back to a guessable default. Returns
- *  null only when there is no location to scope to. */
-async function fetchPinsForLocation(
-  locationId: string | null
-): Promise<{ admin: string | null; cashier: string | null } | null> {
+/** Compare a typed PIN against a branch's shared admin/cashier PINs.
+ *  Goes through the match_location_pin() SECURITY DEFINER RPC rather than a
+ *  direct table query — the admin_pin / cashier_pin rows in location_settings
+ *  are not readable by a cashier-role account (migration 100), precisely so a
+ *  signed-in cashier can't read the branch admin PIN straight off the table.
+ *  The RPC re-checks org membership and never returns the stored value, only
+ *  which role matched ('admin' | 'cashier'), or null. */
+async function matchLocationPin(
+  locationId: string | null,
+  pin: string
+): Promise<"admin" | "cashier" | null> {
   if (!locationId) return null;
-  const { data } = await db
-    .from("location_settings")
-    .select("key, value")
-    .eq("location_id", locationId)
-    .in("key", ["admin_pin", "cashier_pin"]);
-  const map: Record<string, string> = {};
-  ((data || []) as { key: string; value: string }[]).forEach((row) => (map[row.key] = row.value));
-  return {
-    admin: map.admin_pin || null,
-    cashier: map.cashier_pin || null,
-  };
+  const { data } = await db.rpc("match_location_pin", {
+    p_location_id: locationId,
+    p_pin: pin,
+  });
+  return data === "admin" || data === "cashier" ? data : null;
 }
 
 /** Per-user PIN lookup, scoped to one org. Goes through the
@@ -72,22 +69,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [name, setName] = useState("");
   const [memberId, setMemberId] = useState<string | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
-  const [pins, setPins] = useState<{ admin: string | null; cashier: string | null }>({
-    admin: null,
-    cashier: null,
-  });
-
-  // Load PINs for the active location. PINs live in location_settings, keyed
-  // per branch, so they reload whenever the operator switches location.
-  useEffect(() => {
-    let cancelled = false;
-    fetchPinsForLocation(currentLocationId).then((p) => {
-      if (p && !cancelled) setPins(p);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [currentLocationId]);
 
   // Check session storage for existing login
   useEffect(() => {
@@ -124,13 +105,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return true;
     }
 
-    // Priority 2: shared location PINs (backward compat).
-    // Refresh the active location's PINs from the DB in case they changed.
-    const fresh = await fetchPinsForLocation(currentLocationId);
-    const currentPins = fresh ?? pins;
-    if (fresh) setPins(fresh);
-
-    if (pin === currentPins.admin) {
+    // Priority 2: shared location PINs (backward compat). The compare runs
+    // server-side (match_location_pin) so the PIN values never reach a
+    // not-yet-authenticated client.
+    const matched = await matchLocationPin(currentLocationId, pin);
+    if (matched === "admin") {
       setRole("admin");
       setName("Admin");
       setMemberId(null);
@@ -138,7 +117,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.setItem("tilify_auth", JSON.stringify({ role: "admin", name: "Admin" }));
       return true;
     }
-    if (pin === currentPins.cashier) {
+    if (matched === "cashier") {
       setRole("cashier");
       setName("Cashier");
       setMemberId(null);
