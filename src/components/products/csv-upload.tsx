@@ -201,7 +201,7 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
 
         // Stock change → write to product_stock at current location
         if (ok && m.csvRow.opening_stock !== undefined && m.csvRow.opening_stock !== "") {
-          const qty = parseInt(m.csvRow.opening_stock) || 0;
+          const qty = Math.max(0, parseInt(m.csvRow.opening_stock) || 0);
           const { error: stockErr } = await db.from("product_stock").upsert(
             {
               product_id: m.productId,
@@ -224,7 +224,7 @@ export function CsvUploadModal({ open, onClose, onComplete }: Props) {
         const inventoryId = m.csvRow.inventory_id || `${prefix}${String(nextNum).padStart(4, "0")}`;
         if (!m.csvRow.inventory_id) nextNum += 1;
 
-        const openingStockQty = parseInt(m.csvRow.opening_stock ?? "0") || 0;
+        const openingStockQty = Math.max(0, parseInt(m.csvRow.opening_stock ?? "0") || 0);
 
         const newRow: Record<string, unknown> = {
           inventory_id: inventoryId,
