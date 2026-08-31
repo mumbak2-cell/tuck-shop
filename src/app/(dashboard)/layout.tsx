@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Sidebar } from "@/components/layout/sidebar";
 import { PinPad } from "@/components/auth/pin-pad";
 import { ForcePasswordChange } from "@/components/auth/force-password-change";
+import { CompleteOrgSetup } from "@/components/auth/complete-org-setup";
 import { TrialBanner } from "@/components/layout/trial-banner";
 import { useAuth } from "@/lib/auth-context";
 import { useOrg, hasEverHadOrg } from "@/lib/org-context";
@@ -69,7 +70,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   //      before — keep rendering the page (the user is just temporarily
   //      offline / between refreshes, no point bouncing them to a fallback).
   //   2. Genuinely no org and offline — first-time offline before initial load.
-  //   3. Genuinely no org and online — sign-up edge case.
+  //   3. Genuinely no org and online — an incomplete signup (the
+  //      create_organization_for_user RPC never ran, e.g. a session hiccup
+  //      right after signUp). Previously a dead end; now self-heals by
+  //      re-running that same RPC instead of just telling them to contact
+  //      support.
   if (!org.orgId) {
     if (hasEverHadOrg()) {
       // Render the page as normal. Individual pages will show empty data when
@@ -105,21 +110,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       );
     }
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
-        <div className="max-w-md text-center bg-white rounded-2xl shadow p-6">
-          <h2 className="text-lg font-semibold text-gray-900">No shop linked to this account</h2>
-          <p className="text-sm text-gray-500 mt-2">
-            Your account is signed in but not yet linked to a shop. Please contact MK Global support
-            at mumbak2@gmail.com, or sign out and create a new shop.
-          </p>
-          <button
-            onClick={() => void signOutSafely(org, () => router.replace("/login"))}
-            className="mt-4 text-sm text-green-700 font-medium hover:underline"
-          >
-            Sign out
-          </button>
-        </div>
-      </div>
+      <CompleteOrgSetup
+        onDone={() => org.refresh()}
+        onSignOut={() => void signOutSafely(org, () => router.replace("/login"))}
+      />
     );
   }
 
