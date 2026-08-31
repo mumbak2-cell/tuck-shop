@@ -11,8 +11,19 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
   ShieldCheck, Plus, AlertCircle, Users, TrendingUp, DollarSign, Clock,
-  ChevronRight,
+  ChevronRight, Inbox, Check, X,
 } from "lucide-react";
+
+interface ApplicationRow {
+  id: string;
+  name: string;
+  email: string;
+  phone: string | null;
+  requested_code: string | null;
+  pitch: string | null;
+  status: "pending" | "approved" | "rejected";
+  created_at: string;
+}
 
 interface PartnerRow {
   id: string;
@@ -51,19 +62,32 @@ export default function AdminPartnersPage() {
   const [creating, setCreating] = useState(false);
   const [createMsg, setCreateMsg] = useState<string | null>(null);
 
+  // Applications review queue
+  const [applications, setApplications] = useState<ApplicationRow[]>([]);
+  const [appBusyId, setAppBusyId] = useState<string | null>(null);
+  const [approveId, setApproveId] = useState<string | null>(null);
+  const [approveCode, setApproveCode] = useState("");
+  const [approvePct, setApprovePct] = useState("20");
+
   useEffect(() => {
     load();
+    loadApplications();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function authToken(): Promise<string> {
+    const { data: sess } = await supabase.auth.getSession();
+    const t = sess.session?.access_token;
+    if (!t) throw new Error("Not signed in");
+    return t;
+  }
 
   async function load() {
     setLoading(true);
     setError(null);
     try {
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess.session?.access_token;
-      if (!token) throw new Error("Not signed in");
       const res = await fetch("/api/admin/partners", {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${await authToken()}` },
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || `HTTP ${res.status}`);
@@ -72,6 +96,45 @@ export default function AdminPartnersPage() {
       setError(e instanceof Error ? e.message : "Failed");
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function loadApplications() {
+    try {
+      const res = await fetch("/api/admin/partner-applications?status=pending", {
+        headers: { Authorization: `Bearer ${await authToken()}` },
+      });
+      const json = await res.json();
+      if (res.ok) setApplications(json.applications || []);
+    } catch {
+      // non-fatal — the queue just won't show
+    }
+  }
+
+  async function decideApplication(
+    id: string,
+    decision: "approve" | "reject",
+    extra?: { code?: string; commission_pct?: number; review_notes?: string }
+  ) {
+    setAppBusyId(id);
+    setCreateMsg(null);
+    try {
+      const res = await fetch(`/api/admin/partner-applications/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${await authToken()}` },
+        body: JSON.stringify({ decision, ...extra }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || "Failed");
+      setCreateMsg(decision === "approve" ? `Approved — partner "${json.partner?.code}" created.` : "Application rejected.");
+      setApproveId(null);
+      setApproveCode("");
+      setApprovePct("20");
+      await Promise.all([load(), loadApplications()]);
+    } catch (e) {
+      setCreateMsg(e instanceof Error ? e.message : "Failed");
+    } finally {
+      setAppBusyId(null);
     }
   }
 
@@ -135,6 +198,87 @@ export default function AdminPartnersPage() {
       {createMsg && (
         <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm mb-4">
           {createMsg}
+        </div>
+      )}
+
+      {/* Applications review queue */}
+      {applications.length > 0 && (
+        <div className="bg-white border border-amber-200 rounded-2xl overflow-hidden mb-6">
+          <div className="px-5 py-4 border-b border-amber-200 bg-amber-50 flex items-center gap-2">
+            <Inbox className="w-4 h-4 text-amber-700" />
+            <h2 className="font-semibold text-amber-900">Applications awaiting review</h2>
+            <span className="text-sm text-amber-700">{applications.length}</span>
+          </div>
+          <div className="divide-y divide-gray-100">
+            {applications.map((a) => (
+              <div key={a.id} className="px-5 py-4">
+                <div className="flex items-start justify-between flex-wrap gap-3">
+                  <div className="min-w-0">
+                    <p className="font-medium text-gray-900">
+                      {a.name}
+                      {a.requested_code && (
+                        <span className="ml-2 font-mono text-xs text-gray-500">wants {a.requested_code}</span>
+                      )}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {a.email}{a.phone ? ` · ${a.phone}` : ""} · {new Date(a.created_at).toLocaleDateString("en-ZA")}
+                    </p>
+                    {a.pitch && <p className="text-sm text-gray-600 mt-1 max-w-2xl">{a.pitch}</p>}
+                  </div>
+                  {approveId === a.id ? (
+                    <div className="flex flex-col gap-2 items-end">
+                      <input
+                        type="text"
+                        value={approveCode}
+                        onChange={(e) => setApproveCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, "").slice(0, 32))}
+                        placeholder="Referral code"
+                        className="w-40 border border-gray-300 rounded px-2 py-1 text-xs font-mono"
+                      />
+                      <input
+                        type="number" min="0" max="100" step="0.5"
+                        value={approvePct}
+                        onChange={(e) => setApprovePct(e.target.value)}
+                        placeholder="Commission %"
+                        className="w-40 border border-gray-300 rounded px-2 py-1 text-xs"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          disabled={appBusyId === a.id}
+                          onClick={() => decideApplication(a.id, "approve", { code: approveCode || a.requested_code || "", commission_pct: parseFloat(approvePct) || 20 })}
+                          className="text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                        >
+                          Confirm approve
+                        </button>
+                        <button onClick={() => setApproveId(null)} className="text-xs text-gray-500 hover:text-gray-900">
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2 shrink-0">
+                      <button
+                        disabled={appBusyId === a.id}
+                        onClick={() => { setApproveId(a.id); setApproveCode(a.requested_code || ""); setApprovePct("20"); }}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                      >
+                        <Check className="w-3 h-3" /> Approve
+                      </button>
+                      <button
+                        disabled={appBusyId === a.id}
+                        onClick={() => {
+                          const notes = window.prompt("Reason for rejecting (optional, not emailed):") ?? undefined;
+                          decideApplication(a.id, "reject", { review_notes: notes });
+                        }}
+                        className="inline-flex items-center gap-1 text-xs px-2 py-1 border border-gray-300 text-gray-600 rounded hover:bg-gray-50"
+                      >
+                        <X className="w-3 h-3" /> Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

@@ -135,6 +135,10 @@ export default function PartnerDashboard() {
         <Link href="/login">
           <Button className="w-full">Sign in</Button>
         </Link>
+        <p className="text-xs text-gray-400 mt-4">
+          Not a partner yet?{" "}
+          <Link href="/partner/apply" className="text-green-700 hover:underline">Apply here</Link>
+        </p>
       </div>
     );
   }
@@ -157,12 +161,17 @@ export default function PartnerDashboard() {
         <Handshake className="w-10 h-10 text-gray-400 mx-auto mb-3" />
         <h1 className="text-xl font-bold text-gray-900 mb-2">Not a partner yet</h1>
         <p className="text-sm text-gray-500 mb-6">
-          This account isn&apos;t registered as a Tilify partner. To become one, contact MK Global at{" "}
-          <a href="mailto:partners@mkglobal.co.za" className="text-green-700 underline">partners@mkglobal.co.za</a>.
+          This account isn&apos;t registered as a Tilify partner yet.
         </p>
-        <Link href="/dashboard">
-          <Button variant="secondary" className="w-full">Back to shop dashboard</Button>
+        <Link href="/partner/apply">
+          <Button className="w-full">Apply to become a partner</Button>
         </Link>
+        <Link href="/dashboard">
+          <Button variant="secondary" className="w-full mt-2">Back to shop dashboard</Button>
+        </Link>
+        <p className="text-xs text-gray-400 mt-4">
+          Questions? <a href="mailto:partners@mkglobal.co.za" className="text-green-700 underline">partners@mkglobal.co.za</a>
+        </p>
       </div>
     );
   }
