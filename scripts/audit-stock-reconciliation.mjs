@@ -55,13 +55,14 @@ runMain(async () => {
   );
   const productIsPrepared = new Map(products.map((p) => [p.id, p.is_prepared]));
 
-  const [receiptItems, receipts, sales, adjustments, counts, stockRows] = await Promise.all([
+  const [receiptItems, receipts, sales, adjustments, counts, stockRows, transfers] = await Promise.all([
     fetchAll(() => supabase.from("stock_receipt_items").select("product_id, receipt_id, quantity").not("product_id", "is", null)),
     fetchAll(() => supabase.from("stock_receipts").select("id, location_id, created_at").eq("org_id", org.id)),
     fetchAll(() => supabase.from("sales").select("product_id, location_id, quantity, created_at, voided_at").eq("org_id", org.id)),
     fetchAll(() => supabase.from("stock_adjustments").select("product_id, location_id, quantity, direction, created_at").eq("org_id", org.id)),
     fetchAll(() => supabase.from("stock_counts").select("product_id, location_id, closing_units, confirmed_at").eq("org_id", org.id).not("confirmed_at", "is", null)),
     fetchAll(() => supabase.from("product_stock").select("product_id, location_id, quantity").eq("org_id", org.id)),
+    fetchAll(() => supabase.from("stock_transfers").select("product_id, from_location_id, to_location_id, quantity, transferred_at").eq("org_id", org.id)),
   ]);
 
   const receiptLocation = new Map(receipts.map((r) => [r.id, { location_id: r.location_id, created_at: r.created_at }]));
@@ -110,7 +111,16 @@ runMain(async () => {
         adjusted += a.direction === "increase" ? Number(a.quantity) : -Number(a.quantity);
       }
 
-      const expected = base.qty + received - sold + adjusted;
+      let transferredIn = 0;
+      let transferredOut = 0;
+      for (const t of transfers) {
+        if (t.product_id !== p.id) continue;
+        if (t.transferred_at <= since) continue;
+        if (t.to_location_id === loc.id) transferredIn += Number(t.quantity);
+        if (t.from_location_id === loc.id) transferredOut += Number(t.quantity);
+      }
+
+      const expected = base.qty + received - sold + adjusted + transferredIn - transferredOut;
       const actual = actualMap.get(key) ?? 0;
       const gap = expected - actual;
 
@@ -123,6 +133,8 @@ runMain(async () => {
           received,
           sold,
           adjusted,
+          transferredIn,
+          transferredOut,
           expected,
           actual,
           gap,
@@ -144,14 +156,14 @@ runMain(async () => {
       `${f.gap > 0 ? "MISSING" : "SURPLUS"} ${Math.abs(f.gap)}  ${f.product}${f.prepared ? " (prepared)" : ""} @ ${f.location}`
     );
     console.log(
-      `  baseline: ${f.baseline}  received: +${f.received}  sold: -${f.sold}  adjusted: ${f.adjusted >= 0 ? "+" : ""}${f.adjusted}  => expected ${f.expected}, actual ${f.actual}`
+      `  baseline: ${f.baseline}  received: +${f.received}  sold: -${f.sold}  adjusted: ${f.adjusted >= 0 ? "+" : ""}${f.adjusted}  transferred: +${f.transferredIn}/-${f.transferredOut}  => expected ${f.expected}, actual ${f.actual}`
     );
   }
 
   console.log(
-    `\nA "MISSING" gap means stock disappeared without a receipt, sale, void, or adjustment to explain it —` +
+    `\nA "MISSING" gap means stock disappeared without a receipt, sale, void, adjustment, or transfer to explain it —` +
     `\nthat's the signature of an active bug, not normal sell-through (normal sell-through clamps at 0, it doesn't go missing while receipts/sales still balance).` +
     `\nA "SURPLUS" gap (actual higher than expected) usually means an event type this script doesn't track yet` +
-    `\n(a stock transfer, a WMS dispatch credit) rather than a bug — check those before assuming it's wrong.`
+    `\n(a WMS dispatch credit) rather than a bug — check those before assuming it's wrong.`
   );
 });
