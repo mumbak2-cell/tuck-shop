@@ -64,10 +64,10 @@ export const PLANS: Plan[] = [
     limits: { maxLocations: 1, maxUsers: 2 },
     prices: {
       ZAR: {
-        monthlyMinor: 29900,
+        monthlyMinor: 1000,
         quarterlyMinor: 84900,
         annualMinor: 299000,
-        monthlyDisplay: "R299",
+        monthlyDisplay: "R10",
         quarterlyDisplay: "R849",
         annualDisplay: "R2,990",
       },
