@@ -171,6 +171,17 @@ export interface CustomerPayment {
   created_at: string;
 }
 
+// Signed reconciliation entry: + increases what the customer owes, - decreases it.
+// Explains a gap between customers.balance and sum(sales) - sum(customer_payments)
+// left behind by a manual balance edit that had no corresponding ledger row.
+export interface BalanceAdjustment {
+  id: string;
+  customer_id: string;
+  amount: number;
+  note: string | null;
+  created_at: string;
+}
+
 export interface DailyReconciliation {
   id: string;
   recon_date: string;

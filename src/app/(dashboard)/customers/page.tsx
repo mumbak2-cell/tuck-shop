@@ -2,7 +2,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { useOrg } from "@/lib/org-context";
-import { Customer, CustomerPayment, Sale } from "@/types/database";
+import { Customer, CustomerPayment, Sale, BalanceAdjustment } from "@/types/database";
 import { formatZAR, formatDate } from "@/lib/format";
 import { toInternationalPhone } from "@/lib/currency";
 import { Button } from "@/components/ui/button";
@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { insertOrQueue } from "@/lib/offline-ops";
 import { localToday } from "@/lib/date-utils";
+import { fetchAllPaged } from "@/lib/fetch-all";
 
 const PAGE_SIZE = 50;
 
@@ -467,8 +468,6 @@ function CustomerFormModal({
     let dbError: { message: string } | null = null;
     let queued = false;
     if (customer) {
-      // Include balance when editing (allows setting carried-forward amount)
-      payload.balance = parseFloat(balance) || 0;
       const res = await db
         .from("customers")
         .update(payload)
@@ -537,17 +536,24 @@ function CustomerFormModal({
           onChange={(e) => setCreditLimit(e.target.value)}
         />
         <div>
-          <Input
-            label={customer ? "Balance Owed (R) — Carried Forward" : "Opening Balance (R)"}
-            type="number"
-            step="0.01"
-            value={balance}
-            onChange={(e) => setBalance(e.target.value)}
-          />
-          {customer && (
-            <p className="text-xs text-gray-500 mt-1">
-              Set this to carry forward a balance from a previous month. Current system balance: {formatZAR(customer.balance)}
-            </p>
+          {customer ? (
+            <>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Balance Owed (R)</label>
+              <div className="px-3 py-2 rounded-lg border border-gray-200 bg-gray-50 text-gray-700 text-sm">
+                {formatZAR(customer.balance)}
+              </div>
+              <p className="text-xs text-gray-500 mt-1">
+                Balance updates automatically from sales and payments. Use &quot;Record Payment&quot; to record money received, or the statement download to reconcile.
+              </p>
+            </>
+          ) : (
+            <Input
+              label="Opening Balance (R)"
+              type="number"
+              step="0.01"
+              value={balance}
+              onChange={(e) => setBalance(e.target.value)}
+            />
           )}
         </div>
         {error && (
@@ -717,6 +723,7 @@ function HistoryModal({
 }) {
   const [payments, setPayments] = useState<CustomerPayment[]>([]);
   const [sales, setSales] = useState<(Sale & { product_name?: string })[]>([]);
+  const [adjustments, setAdjustments] = useState<BalanceAdjustment[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"sales" | "payments">("sales");
 
@@ -724,38 +731,144 @@ function HistoryModal({
     if (open) {
       setLoading(true);
       Promise.all([
-        db
-          .from("customer_payments")
-          .select("*")
-          .eq("customer_id", customer.id)
-          .order("payment_date", { ascending: false })
-          .limit(50),
-        db
-          .from("sales")
-          .select("*, products(name)")
-          .eq("customer_id", customer.id)
-          .order("created_at", { ascending: false })
-          .limit(50),
-      ]).then(([payRes, saleRes]: [any, any]) => {
-        setPayments(payRes.data || []);
-        const salesData = (saleRes.data || []).map((s: Record<string, unknown>) => ({
+        fetchAllPaged<CustomerPayment>(() =>
+          db
+            .from("customer_payments")
+            .select("*")
+            .eq("customer_id", customer.id)
+            .order("payment_date", { ascending: false })
+        ),
+        fetchAllPaged<Record<string, unknown>>(() =>
+          db
+            .from("sales")
+            .select("*, products(name)")
+            .eq("customer_id", customer.id)
+            .eq("voided", false)
+            .order("created_at", { ascending: false })
+        ),
+        fetchAllPaged<BalanceAdjustment>(() =>
+          db
+            .from("balance_adjustments")
+            .select("*")
+            .eq("customer_id", customer.id)
+            .order("created_at", { ascending: false })
+        ),
+      ]).then(([payData, saleData, adjustmentData]) => {
+        setPayments(payData);
+        const salesData = saleData.map((s) => ({
           ...s,
           product_name: (s.products as { name: string } | null)?.name || "Unknown",
         })) as (Sale & { product_name?: string })[];
         setSales(salesData);
+        setAdjustments(adjustmentData);
         setLoading(false);
       });
     }
   }, [open, customer.id]);
 
+  function downloadStatement() {
+    const lines: string[] = [];
+    const today = new Date().toLocaleDateString("en-ZA");
+
+    lines.push(`STATEMENT OF ACCOUNT`);
+    lines.push(`Customer: ${customer.name}`);
+    if (customer.phone) lines.push(`Phone: ${customer.phone}`);
+    lines.push(`Generated: ${today}`);
+    lines.push(`${"=".repeat(60)}`);
+    lines.push(``);
+
+    type StatementLine = { date: string; description: string; amount: number; isAdjustment?: boolean };
+    const combined: StatementLine[] = [
+      ...sales.map((s) => ({
+        date: s.sale_date || s.created_at,
+        description: `Credit purchase — ${s.quantity}x ${s.product_name}`,
+        amount: s.total_amount,
+      })),
+      ...payments.map((p) => ({
+        date: p.payment_date,
+        description: `Payment received`,
+        amount: -p.amount,
+      })),
+      ...adjustments.map((a) => ({
+        date: a.created_at,
+        description: `Balance adjustment${a.note ? ` — ${a.note}` : ""}`,
+        amount: a.amount,
+        isAdjustment: true,
+      })),
+    ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+
+    let running = 0;
+    let currentMonth = "";
+    let monthPurchases = 0;
+    let monthPayments = 0;
+    let monthAdjustments = 0;
+
+    const flushMonthSubtotal = () => {
+      if (!currentMonth) return;
+      lines.push(`${"-".repeat(60)}`);
+      const adjustmentPart = monthAdjustments !== 0 ? `  Adjustments: ${formatZAR(monthAdjustments)}` : "";
+      lines.push(
+        `${currentMonth} subtotal — Purchases: ${formatZAR(monthPurchases)}  Payments: ${formatZAR(monthPayments)}${adjustmentPart}  Net: ${formatZAR(monthPurchases - monthPayments + monthAdjustments)}  Bal: ${formatZAR(running)}`
+      );
+      lines.push(``);
+    };
+
+    for (const line of combined) {
+      const lineMonth = new Date(line.date).toLocaleDateString("en-ZA", { month: "long", year: "numeric" });
+      if (lineMonth !== currentMonth) {
+        flushMonthSubtotal();
+        currentMonth = lineMonth;
+        monthPurchases = 0;
+        monthPayments = 0;
+        monthAdjustments = 0;
+        lines.push(`${currentMonth}`);
+      }
+
+      running += line.amount;
+      if (line.isAdjustment) monthAdjustments += line.amount;
+      else if (line.amount >= 0) monthPurchases += line.amount;
+      else monthPayments += -line.amount;
+
+      const sign = line.amount >= 0 ? "+" : "-";
+      lines.push(
+        `${formatDate(line.date).padEnd(12)} ${line.description.padEnd(38)} ${sign}${formatZAR(Math.abs(line.amount)).padStart(12)}  Bal: ${formatZAR(running)}`
+      );
+    }
+    flushMonthSubtotal();
+
+    lines.push(`${"=".repeat(60)}`);
+    lines.push(`Ledger total (sum of transactions above): ${formatZAR(running)}`);
+    lines.push(`System balance (customer record): ${formatZAR(customer.balance)}`);
+    const unreconciled = customer.balance - running;
+    if (Math.abs(unreconciled) > 0.01) {
+      lines.push(
+        `*** UNRECONCILED DIFFERENCE: ${formatZAR(unreconciled)} — not covered by any transaction listed. Check for a manual balance adjustment or an unrecorded payment. ***`
+      );
+    }
+    lines.push(`Total transactions: ${combined.length}`);
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `statement_${customer.name.replace(/\s+/g, "_")}_${today.replace(/\//g, "-")}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
   return (
     <Modal open={open} onClose={onClose} title={`History — ${customer.name}`} wide>
       <div className="space-y-4">
-        <div className="bg-gray-50 rounded-lg px-4 py-3 flex justify-between text-sm">
+        <div className="bg-gray-50 rounded-lg px-4 py-3 flex justify-between items-center text-sm">
           <span className="text-gray-600">Current balance</span>
-          <span className={`font-semibold ${customer.balance > 0 ? "text-red-600" : "text-green-600"}`}>
-            {formatZAR(customer.balance)}
-          </span>
+          <div className="flex items-center gap-3">
+            <span className={`font-semibold ${customer.balance > 0 ? "text-red-600" : "text-green-600"}`}>
+              {formatZAR(customer.balance)}
+            </span>
+            <Button variant="secondary" size="sm" onClick={downloadStatement} disabled={loading}>
+              Download statement
+            </Button>
+          </div>
         </div>
 
         {/* Tab switcher */}
