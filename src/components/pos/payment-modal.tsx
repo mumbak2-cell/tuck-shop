@@ -13,6 +13,8 @@ import { localToday } from "@/lib/date-utils";
 import { printElement } from "@/lib/print-utils";
 import { CartItem } from "./cart";
 import { Customer } from "@/types/database";
+import { computeAgedOverdue } from "@/lib/customer-ledger";
+import { matchLocationPin } from "@/lib/auth-context";
 import {
   Banknote,
   CreditCard,
@@ -98,6 +100,11 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const [selectedMethodId, setSelectedMethodId] = useState<string | null>(null);
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [selectedCustomer, setSelectedCustomer] = useState<string>("");
+  const [overdueAmount, setOverdueAmount] = useState(0);
+  const [overridePin, setOverridePin] = useState("");
+  const [overrideVerified, setOverrideVerified] = useState(false);
+  const [overrideError, setOverrideError] = useState(false);
+  const [overrideChecking, setOverrideChecking] = useState(false);
   const [cashTendered, setCashTendered] = useState<string>("");
   const [cashBack, setCashBack] = useState<string>("");
   const [paymentReference, setPaymentReference] = useState<string>("");
@@ -155,6 +162,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       setWhatsAppPhone("");
       setZraFiscal(null);
       setReceiptNo("");
+      setOverdueAmount(0);
+      setOverridePin("");
+      setOverrideVerified(false);
+      setOverrideError(false);
 
       // Per-branch till settings. Receipts default ON when no row exists,
       // cash back defaults OFF — it is opt-in per shop, not a default till
@@ -275,6 +286,50 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   const paysElectronically =
     selectedKind === "card" || selectedKind === "eft" || selectedKind === "mobile_money";
 
+  // Overdue check only applies to credit sales — recomputed whenever the
+  // cashier picks a different customer. Resets the override each time so a
+  // PIN entered for one customer can't silently carry over to the next.
+  useEffect(() => {
+    setOverridePin("");
+    setOverrideVerified(false);
+    setOverrideError(false);
+    if (selectedKind !== "credit" || !selectedCustomer) {
+      setOverdueAmount(0);
+      return;
+    }
+    let cancelled = false;
+    computeAgedOverdue(selectedCustomer).then((amount) => {
+      if (!cancelled) setOverdueAmount(amount);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedKind, selectedCustomer]);
+
+  const selectedCreditCustomer =
+    selectedKind === "credit" ? customers.find((c) => c.id === selectedCustomer) ?? null : null;
+
+  const blockedByOverdue = selectedKind === "credit" && overdueAmount > 0 && !overrideVerified;
+
+  const overLimit = !!(
+    selectedCreditCustomer &&
+    (selectedCreditCustomer.balance > selectedCreditCustomer.credit_limit ||
+      selectedCreditCustomer.balance + total > selectedCreditCustomer.credit_limit)
+  );
+
+  async function verifyOverride() {
+    if (!overridePin) return;
+    setOverrideChecking(true);
+    const role = await matchLocationPin(currentLocationId, overridePin);
+    setOverrideChecking(false);
+    if (role === "admin") {
+      setOverrideVerified(true);
+      setOverrideError(false);
+    } else {
+      setOverrideError(true);
+    }
+  }
+
   // The nominated freebie. Cache first so the incentive survives a till going
   // offline, but fall back to a lookup — the cache is only written once the
   // background sync has run, and without this the panel silently never shows.
@@ -371,6 +426,10 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
     }
     if (selectedKind === "credit" && !selectedCustomer) {
       setError("Please select a customer for credit sale.");
+      return;
+    }
+    if (blockedByOverdue) {
+      setError("This customer has a balance overdue by more than 60 days. Admin PIN required to continue.");
       return;
     }
     if (!orgId || !currentLocationId) {
@@ -882,6 +941,37 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           </div>
         )}
 
+        {selectedKind === "credit" && overLimit && (
+          <div className="bg-amber-50 border border-amber-200 text-amber-900 px-4 py-3 rounded-lg text-sm">
+            This sale will put {selectedCreditCustomer?.name} over their {formatMoney(selectedCreditCustomer?.credit_limit ?? 0)} credit limit.
+          </div>
+        )}
+
+        {blockedByOverdue && (
+          <div className="bg-red-50 border border-red-200 text-red-800 px-4 py-3 rounded-lg text-sm space-y-2">
+            <p>
+              {selectedCreditCustomer?.name} has {formatMoney(overdueAmount)} that's been unpaid for more than 60 days. An admin PIN is required to continue.
+            </p>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                inputMode="numeric"
+                value={overridePin}
+                onChange={(e) => {
+                  setOverridePin(e.target.value);
+                  setOverrideError(false);
+                }}
+                placeholder="Admin PIN"
+                className={`flex-1 border rounded-lg px-3 py-2 text-sm ${overrideError ? "border-red-500" : "border-gray-300"}`}
+              />
+              <Button variant="secondary" size="sm" onClick={verifyOverride} loading={overrideChecking} disabled={!overridePin}>
+                Override
+              </Button>
+            </div>
+            {overrideError && <p className="text-red-600">PIN incorrect or not an admin PIN.</p>}
+          </div>
+        )}
+
         {error && (
           <div className="bg-red-50 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
         )}
@@ -891,6 +981,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
           disabled={
             !selectedMethod ||
             processing ||
+            blockedByOverdue ||
             (selectedKind === "cash" && (!cashTendered || parseFloat(cashTendered) < total))
           }
           loading={processing}

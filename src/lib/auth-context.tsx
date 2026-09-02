@@ -11,7 +11,7 @@ import type { UserRole } from "@/types/database";
  *  signed-in cashier can't read the branch admin PIN straight off the table.
  *  The RPC re-checks org membership and never returns the stored value, only
  *  which role matched ('admin' | 'cashier'), or null. */
-async function matchLocationPin(
+export async function matchLocationPin(
   locationId: string | null,
   pin: string
 ): Promise<"admin" | "cashier" | null> {

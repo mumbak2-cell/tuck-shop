@@ -24,6 +24,7 @@ import {
 import { insertOrQueue } from "@/lib/offline-ops";
 import { localToday } from "@/lib/date-utils";
 import { fetchAllPaged } from "@/lib/fetch-all";
+import { computeOverdueForCustomers } from "@/lib/customer-ledger";
 
 const PAGE_SIZE = 50;
 
@@ -33,6 +34,7 @@ export default function CustomersPage() {
   const [search, setSearch] = useState("");
   const [hasMore, setHasMore] = useState(true);
   const [page, setPage] = useState(0);
+  const [overdueMap, setOverdueMap] = useState<Record<string, number>>({});
 
   // Modals
   const [showForm, setShowForm] = useState(false);
@@ -67,6 +69,14 @@ export default function CustomersPage() {
     setPage(0);
     fetchCustomers(0, true);
   }, [currentLocationId, fetchCustomers]);
+
+  useEffect(() => {
+    const idsWithBalance = customers.filter((c) => c.balance > 0).map((c) => c.id);
+    if (idsWithBalance.length === 0) return;
+    computeOverdueForCustomers(idsWithBalance).then((result) => {
+      setOverdueMap((prev) => ({ ...prev, ...result }));
+    });
+  }, [customers]);
 
   function loadMore() {
     const next = page + 1;
@@ -291,6 +301,9 @@ export default function CustomersPage() {
                     )}
                     {customer.balance === 0 && (
                       <Badge color="green">Paid up</Badge>
+                    )}
+                    {(overdueMap[customer.id] ?? 0) > 0 && (
+                      <Badge color="amber">Overdue: {formatZAR(overdueMap[customer.id])}</Badge>
                     )}
                   </div>
                   <div className="flex items-center gap-4 mt-1 text-sm text-gray-500">
@@ -726,6 +739,7 @@ function HistoryModal({
   const [adjustments, setAdjustments] = useState<BalanceAdjustment[]>([]);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<"sales" | "payments">("sales");
+  const [selectedMonth, setSelectedMonth] = useState("");
 
   useEffect(() => {
     if (open) {
@@ -766,19 +780,10 @@ function HistoryModal({
     }
   }, [open, customer.id]);
 
-  function downloadStatement() {
-    const lines: string[] = [];
-    const today = new Date().toLocaleDateString("en-ZA");
+  type StatementLine = { date: string; description: string; amount: number; isAdjustment?: boolean };
 
-    lines.push(`STATEMENT OF ACCOUNT`);
-    lines.push(`Customer: ${customer.name}`);
-    if (customer.phone) lines.push(`Phone: ${customer.phone}`);
-    lines.push(`Generated: ${today}`);
-    lines.push(`${"=".repeat(60)}`);
-    lines.push(``);
-
-    type StatementLine = { date: string; description: string; amount: number; isAdjustment?: boolean };
-    const combined: StatementLine[] = [
+  function buildCombinedLines(): StatementLine[] {
+    return [
       ...sales.map((s) => ({
         date: s.sale_date || s.created_at,
         description: `Credit purchase — ${s.quantity}x ${s.product_name}`,
@@ -796,6 +801,20 @@ function HistoryModal({
         isAdjustment: true,
       })),
     ].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+  }
+
+  function downloadStatement() {
+    const lines: string[] = [];
+    const today = new Date().toLocaleDateString("en-ZA");
+
+    lines.push(`STATEMENT OF ACCOUNT`);
+    lines.push(`Customer: ${customer.name}`);
+    if (customer.phone) lines.push(`Phone: ${customer.phone}`);
+    lines.push(`Generated: ${today}`);
+    lines.push(`${"=".repeat(60)}`);
+    lines.push(``);
+
+    const combined = buildCombinedLines();
 
     let running = 0;
     let currentMonth = "";
@@ -856,6 +875,77 @@ function HistoryModal({
     URL.revokeObjectURL(url);
   }
 
+  function downloadMonthStatement(monthKey: string) {
+    const [year, month] = monthKey.split("-").map(Number);
+    const monthStart = new Date(year, month - 1, 1);
+    const monthEnd = new Date(year, month, 1);
+    const monthLabel = monthStart.toLocaleDateString("en-ZA", { month: "long", year: "numeric" });
+    const today = new Date().toLocaleDateString("en-ZA");
+
+    const combined = buildCombinedLines();
+    const before = combined.filter((l) => new Date(l.date) < monthStart);
+    const inMonth = combined.filter((l) => {
+      const d = new Date(l.date);
+      return d >= monthStart && d < monthEnd;
+    });
+    const broughtForward = before.reduce((sum, l) => sum + l.amount, 0);
+
+    const lines: string[] = [];
+    lines.push(`STATEMENT OF ACCOUNT — ${monthLabel}`);
+    lines.push(`Customer: ${customer.name}`);
+    if (customer.phone) lines.push(`Phone: ${customer.phone}`);
+    lines.push(`Generated: ${today}`);
+    lines.push(`${"=".repeat(60)}`);
+    lines.push(``);
+    lines.push(`Brought forward: ${formatZAR(broughtForward)}`);
+    lines.push(``);
+
+    let running = broughtForward;
+    let monthPurchases = 0;
+    let monthPayments = 0;
+    let monthAdjustments = 0;
+
+    for (const line of inMonth) {
+      running += line.amount;
+      if (line.isAdjustment) monthAdjustments += line.amount;
+      else if (line.amount >= 0) monthPurchases += line.amount;
+      else monthPayments += -line.amount;
+
+      const sign = line.amount >= 0 ? "+" : "-";
+      lines.push(
+        `${formatDate(line.date).padEnd(12)} ${line.description.padEnd(38)} ${sign}${formatZAR(Math.abs(line.amount)).padStart(12)}  Bal: ${formatZAR(running)}`
+      );
+    }
+
+    lines.push(``);
+    lines.push(`${"=".repeat(60)}`);
+    const adjustmentPart = monthAdjustments !== 0 ? `  Adjustments: ${formatZAR(monthAdjustments)}` : "";
+    lines.push(
+      `Purchases: ${formatZAR(monthPurchases)}  Payments: ${formatZAR(monthPayments)}${adjustmentPart}  Net: ${formatZAR(monthPurchases - monthPayments + monthAdjustments)}`
+    );
+    lines.push(`Closing balance: ${formatZAR(running)}`);
+    lines.push(`Total transactions: ${inMonth.length}`);
+
+    const blob = new Blob([lines.join("\n")], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `statement_${customer.name.replace(/\s+/g, "_")}_${monthKey}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  const monthOptions = (() => {
+    const set = new Set<string>();
+    for (const line of buildCombinedLines()) {
+      const d = new Date(line.date);
+      set.add(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`);
+    }
+    return Array.from(set).sort().reverse();
+  })();
+
+  const activeMonth = selectedMonth || monthOptions[0] || "";
+
   return (
     <Modal open={open} onClose={onClose} title={`History — ${customer.name}`} wide>
       <div className="space-y-4">
@@ -870,6 +960,34 @@ function HistoryModal({
             </Button>
           </div>
         </div>
+
+        {monthOptions.length > 0 && (
+          <div className="flex items-center gap-2">
+            <select
+              value={activeMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm"
+            >
+              {monthOptions.map((key) => {
+                const [y, m] = key.split("-").map(Number);
+                const label = new Date(y, m - 1, 1).toLocaleDateString("en-ZA", { month: "long", year: "numeric" });
+                return (
+                  <option key={key} value={key}>
+                    {label}
+                  </option>
+                );
+              })}
+            </select>
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => downloadMonthStatement(activeMonth)}
+              disabled={loading || !activeMonth}
+            >
+              Download month
+            </Button>
+          </div>
+        )}
 
         {/* Tab switcher */}
         <div className="flex gap-1 bg-gray-100 rounded-lg p-1">
