@@ -15,6 +15,9 @@ export interface CartItem {
   /** Wholesale fields */
   wholesaleEnabled?: boolean;
   wholesaleMinQty?: number;
+  /** Fixed wholesale price set on the product, if any. Used to seed the
+   *  discount % below when the cashier ticks Wholesale on. */
+  wholesalePrice?: number | null;
   isWholesale?: boolean;
   /** Discount the cashier negotiated on this line, as a percentage. */
   wholesaleDiscountPct?: string;

@@ -317,6 +317,7 @@ export default function POSPage() {
           availableStock: product.opening_stock ?? undefined,
           wholesaleEnabled: product.wholesale_enabled,
           wholesaleMinQty: product.wholesale_min_qty,
+          wholesalePrice: product.wholesale_price,
           isWholesale: false,
           retailPrice: effectivePrice,
         },
@@ -445,17 +446,23 @@ export default function POSPage() {
 
   // Toggling wholesale off clears the negotiated discount, so re-ticking the
   // box never silently re-applies a rate the cashier can no longer see.
+  // If the product has a fixed wholesale price, re-ticking seeds the discount
+  // % from that price instead of leaving it blank for the cashier to type.
   function toggleWholesale(productId: string) {
     setCart((prev) =>
       prev.map((item) => {
         if (item.productId !== productId) return item;
         const retailPrice = item.retailPrice ?? item.unitPrice;
         const isWholesale = !item.isWholesale;
+        const seededPct =
+          isWholesale && item.wholesalePrice != null && retailPrice > 0
+            ? String(Math.round((1 - item.wholesalePrice / retailPrice) * 10000) / 100)
+            : undefined;
         return {
           ...item,
           isWholesale,
-          wholesaleDiscountPct: isWholesale ? item.wholesaleDiscountPct : undefined,
-          unitPrice: isWholesale ? wholesalePrice(retailPrice, item.wholesaleDiscountPct) : retailPrice,
+          wholesaleDiscountPct: isWholesale ? seededPct : undefined,
+          unitPrice: isWholesale ? wholesalePrice(retailPrice, seededPct) : retailPrice,
         };
       })
     );

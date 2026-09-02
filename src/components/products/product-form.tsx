@@ -46,6 +46,7 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
     units_per_batch: product?.units_per_batch?.toString() || "",
     wholesale_enabled: product?.wholesale_enabled || false,
     wholesale_min_qty: product?.wholesale_min_qty?.toString() || "1",
+    wholesale_price: product?.wholesale_price?.toString() || "",
     default_supplier: product?.default_supplier || "",
   });
 
@@ -141,6 +142,8 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
       reorder_level: parseInt(form.reorder_level) || 0,
       wholesale_enabled: form.wholesale_enabled,
       wholesale_min_qty: form.wholesale_enabled ? parseInt(form.wholesale_min_qty) || 1 : 1,
+      wholesale_price:
+        form.wholesale_enabled && form.wholesale_price ? parseFloat(form.wholesale_price) : null,
       default_supplier: form.default_supplier.trim() || null,
     };
 
@@ -497,13 +500,24 @@ export function ProductForm({ product, onSaved, onCancel }: Props) {
           <span className="text-sm font-medium text-gray-700">Enable wholesale pricing</span>
         </label>
         {form.wholesale_enabled && (
-          <Input
-            label="Minimum Qty for Wholesale"
-            type="number"
-            min={1}
-            value={form.wholesale_min_qty}
-            onChange={(e) => update("wholesale_min_qty", e.target.value)}
-          />
+          <>
+            <Input
+              label="Minimum Qty for Wholesale"
+              type="number"
+              min={1}
+              value={form.wholesale_min_qty}
+              onChange={(e) => update("wholesale_min_qty", e.target.value)}
+            />
+            <Input
+              label="Wholesale Price"
+              type="number"
+              min={0}
+              step="0.01"
+              placeholder="Leave blank to set discount at the till instead"
+              value={form.wholesale_price}
+              onChange={(e) => update("wholesale_price", e.target.value)}
+            />
+          </>
         )}
       </div>
 

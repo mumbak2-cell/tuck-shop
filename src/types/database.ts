@@ -96,6 +96,7 @@ export interface Product {
   created_at: string;
   wholesale_enabled: boolean;
   wholesale_min_qty: number;
+  wholesale_price: number | null;
   default_supplier: string | null;
 }
 
