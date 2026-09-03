@@ -131,6 +131,10 @@ export default function ReceiveStockPage() {
   }
 
   function addLine(type: "product" | "ingredient", item: Product | Ingredient) {
+    if (preparedFood && !(type === "product" && (item as Product).is_prepared)) {
+      alert("Prepared food receipt: only prepared items can be added.");
+      return;
+    }
     const existing = lines.find(
       (l) => l.type === type && l.itemId === item.id
     );
@@ -189,6 +193,17 @@ export default function ReceiveStockPage() {
         return;
       }
 
+      if (
+        preparedFood &&
+        items.some((it: { product_id: string | null }) => {
+          const p = it.product_id ? products.find((pp) => pp.id === it.product_id) : undefined;
+          return !p?.is_prepared;
+        })
+      ) {
+        alert("Prepared food receipt: this purchase order has non-prepared items and can't be loaded here.");
+        return;
+      }
+
       const newLines: ReceiptLine[] = items.map((it: {
         product_id: string | null;
         ingredient_id: string | null;
@@ -228,6 +243,12 @@ export default function ReceiveStockPage() {
   const totalCost = preparedFood
     ? 0
     : lines.reduce((sum, l) => sum + (typeof l.quantity === "number" ? l.quantity : 0) * l.unitCost, 0);
+
+  // A line counts as prepared only if it's a product flagged is_prepared.
+  // Ingredient lines and regular products are never prepared, so a prepared-food
+  // receipt rejects them.
+  const lineIsPrepared = (l: ReceiptLine) =>
+    l.type === "product" && !!products.find((p) => p.id === l.itemId)?.is_prepared;
 
   async function handleSave() {
     if (lines.length === 0) return;
@@ -601,11 +622,13 @@ ${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${escape
       p.name.toLowerCase().includes(searchLower) ||
       p.inventory_id.toLowerCase().includes(searchLower)
   );
-  const filteredProducts = allFilteredProducts.filter((p) => !p.is_prepared);
+  // A prepared food receipt can only take prepared items, so hide the other
+  // two groups from the picker entirely rather than let them be clicked.
+  const filteredProducts = preparedFood ? [] : allFilteredProducts.filter((p) => !p.is_prepared);
   const filteredPrepared = allFilteredProducts.filter((p) => p.is_prepared);
-  const filteredIngredients = ingredients.filter((i) =>
-    i.name.toLowerCase().includes(searchLower)
-  );
+  const filteredIngredients = preparedFood
+    ? []
+    : ingredients.filter((i) => i.name.toLowerCase().includes(searchLower));
 
   return (
     <div>
@@ -658,7 +681,13 @@ ${r.recorded_by ? `<p class="meta" style="margin-top:16px">Recorded by: ${escape
           {/* Prepared food toggle */}
           <button
             type="button"
-            onClick={() => setPreparedFood(!preparedFood)}
+            onClick={() => {
+              if (!preparedFood && lines.some((l) => !lineIsPrepared(l))) {
+                alert("Remove non-prepared items first, then switch to a prepared food receipt.");
+                return;
+              }
+              setPreparedFood(!preparedFood);
+            }}
             className={`flex items-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium border transition-colors w-fit ${
               preparedFood
                 ? "border-amber-500 bg-amber-50 text-amber-700"
