@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuth } from "@/lib/auth-context";
 import { Delete } from "lucide-react";
 
@@ -44,6 +44,29 @@ export function PinPad() {
     setPin((p) => p.slice(0, -1));
     setError(false);
   }
+
+  // Hardware-keyboard entry. The on-screen pad stays for touch devices, but
+  // typing lets a cashier enter their PIN without the digits being visible to
+  // anyone watching the screen. Re-binds on pin/loading so handleDigit's
+  // auto-submit-at-4 sees the current value.
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if (loading) return;
+      if (/^[0-9]$/.test(e.key)) {
+        e.preventDefault();
+        handleDigit(e.key);
+      } else if (e.key === "Backspace") {
+        e.preventDefault();
+        handleBackspace();
+      } else if (e.key === "Enter") {
+        e.preventDefault();
+        handleSubmit();
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pin, loading]);
 
   const digits = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"];
 
