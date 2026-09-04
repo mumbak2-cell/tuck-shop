@@ -54,13 +54,10 @@ export async function PATCH(req: Request) {
     return NextResponse.json({ error: "You are not a member of any shop" }, { status: 404 });
   }
 
-  const { error } = await admin
-    .from("org_members")
-    .update({ pin: newPin })
-    .eq("id", member.id);
+  const { error } = await admin.rpc("set_member_pin", { p_member_id: member.id, p_pin: newPin });
 
   if (error) {
-    if (error.code === "23505" && error.message?.includes("idx_org_members_org_pin")) {
+    if (error.code === "P0409") {
       return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
     }
     return NextResponse.json({ error: error.message }, { status: 500 });

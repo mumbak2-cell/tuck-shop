@@ -68,7 +68,6 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     assigned_location_id?: string | null;
     permissions?: Record<string, boolean>;
     role?: "admin" | "member";
-    pin?: string | null;
     display_name?: string | null;
   } = {};
 
@@ -103,18 +102,22 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     update.permissions = body.permissions;
   }
 
+  // Format-validated here, same as before; the actual write goes through
+  // set_member_pin() (migration 108) further down, alongside the other
+  // field updates.
+  let newPin: string | null | undefined;
   if (editingPin) {
     if (member.role === "owner") {
       return NextResponse.json({ error: "The owner's PIN is managed in account settings" }, { status: 409 });
     }
     if (body.pin === null || body.pin === "") {
-      update.pin = null;
+      newPin = null;
     } else {
       const pinVal = (body.pin || "").trim();
       if (!/^\d{4,6}$/.test(pinVal)) {
         return NextResponse.json({ error: "PIN must be 4–6 digits" }, { status: 400 });
       }
-      update.pin = pinVal;
+      newPin = pinVal;
     }
   }
 
@@ -145,16 +148,29 @@ export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }>
     update.assigned_location_id = locationId;
   }
 
-  if (Object.keys(update).length === 0) {
+  if (Object.keys(update).length === 0 && !editingPin) {
     return NextResponse.json({ error: "Nothing to update" }, { status: 400 });
   }
 
-  const { error } = await admin.from("org_members").update(update).eq("id", id);
-  if (error) {
-    if (error.code === "23505" && error.message?.includes("idx_org_members_org_pin")) {
-      return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+  // PIN writes go through set_member_pin() (migration 108) instead of a
+  // plain column update — it hashes the PIN and does the duplicate check
+  // that idx_org_members_org_pin used to do (that index is gone; bcrypt
+  // digests of the same PIN don't collide, so it can't enforce anything).
+  if (editingPin) {
+    const { error: pinError } = await admin.rpc("set_member_pin", { p_member_id: id, p_pin: newPin });
+    if (pinError) {
+      if (pinError.code === "P0409") {
+        return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+      }
+      return NextResponse.json({ error: pinError.message }, { status: 500 });
     }
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
+
+  if (Object.keys(update).length > 0) {
+    const { error } = await admin.from("org_members").update(update).eq("id", id);
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 500 });
+    }
   }
 
   return NextResponse.json({ updated: true });

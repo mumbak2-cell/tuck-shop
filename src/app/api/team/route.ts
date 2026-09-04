@@ -304,28 +304,40 @@ export async function POST(req: Request) {
     }
 
     // Unattached existing login — safe to make this org their only membership.
-    const { error: linkErr } = await admin
+    // pin is set afterward via set_member_pin (migration 108) — the row must
+    // exist first, since that function looks up the member's org by id.
+    const { data: linked, error: linkErr } = await admin
       .from("org_members")
       .insert({
         org_id: auth.orgId!,
         user_id: existingId,
         role: desiredRole,
         assigned_location_id: assignedLocationId,
-        ...(initialPin ? { pin: initialPin } : {}),
         ...(displayName ? { display_name: displayName } : {}),
-      });
+      })
+      .select("id")
+      .single();
     if (linkErr) {
-      // 23505 = unique_violation — either (org_id, user_id) (a concurrent add
-      // of the same person raced us here) or the partial PIN index (someone
-      // else on this org already has that PIN).
+      // 23505 = unique_violation on (org_id, user_id) — a concurrent add of
+      // the same person raced us here.
       if (linkErr.code === "23505") {
-        const msg = linkErr.message?.includes("idx_org_members_org_pin")
-          ? "That PIN is already used by another team member"
-          : `${email} is already on your team`;
-        return NextResponse.json({ error: msg }, { status: 409 });
+        return NextResponse.json({ error: `${email} is already on your team` }, { status: 409 });
       }
       return NextResponse.json({ error: linkErr.message }, { status: 500 });
     }
+
+    if (initialPin) {
+      const { error: pinErr } = await admin.rpc("set_member_pin", { p_member_id: linked.id, p_pin: initialPin });
+      if (pinErr) {
+        // Roll back the membership so a retry isn't blocked by "already on your team".
+        await admin.from("org_members").delete().eq("id", linked.id);
+        if (pinErr.code === "P0409") {
+          return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+        }
+        return NextResponse.json({ error: pinErr.message }, { status: 500 });
+      }
+    }
+
     return NextResponse.json({
       linked: true,
       email,
@@ -347,23 +359,36 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: createErr?.message || "Could not create login" }, { status: 500 });
   }
 
-  const { error: memberErr } = await admin
+  // pin is set afterward via set_member_pin (migration 108) — the row must
+  // exist first, since that function looks up the member's org by id.
+  const { data: newMember, error: memberErr } = await admin
     .from("org_members")
     .insert({
       org_id: auth.orgId!,
       user_id: created.user.id,
       role: desiredRole,
       assigned_location_id: assignedLocationId,
-      ...(initialPin ? { pin: initialPin } : {}),
       ...(displayName ? { display_name: displayName } : {}),
-    });
+    })
+    .select("id")
+    .single();
   if (memberErr) {
     // Roll back the orphaned auth user so a retry isn't blocked by "email exists".
     await admin.auth.admin.deleteUser(created.user.id);
-    if (memberErr.code === "23505" && memberErr.message?.includes("idx_org_members_org_pin")) {
-      return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
-    }
     return NextResponse.json({ error: memberErr.message }, { status: 500 });
+  }
+
+  if (initialPin) {
+    const { error: pinErr } = await admin.rpc("set_member_pin", { p_member_id: newMember.id, p_pin: initialPin });
+    if (pinErr) {
+      // Roll back both the membership and the orphaned auth user.
+      await admin.from("org_members").delete().eq("id", newMember.id);
+      await admin.auth.admin.deleteUser(created.user.id);
+      if (pinErr.code === "P0409") {
+        return NextResponse.json({ error: "That PIN is already used by another team member" }, { status: 409 });
+      }
+      return NextResponse.json({ error: pinErr.message }, { status: 500 });
+    }
   }
 
   // Send the login credentials by email — the caller never sees the password.
