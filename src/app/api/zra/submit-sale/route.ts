@@ -105,6 +105,16 @@ export async function POST(req: Request) {
   const rl = rateLimit(`zra:${orgId}`, { max: 30 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
+  const { data: sale } = await admin
+    .from("sales")
+    .select("org_id")
+    .eq("id", body.saleId)
+    .maybeSingle();
+
+  if (!sale || sale.org_id !== orgId) {
+    return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
   const { data: config } = await admin
     .from("zra_config")
     .select("*")
