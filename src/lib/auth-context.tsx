@@ -48,7 +48,7 @@ export function useAuth() {
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const { currentLocationId, orgId } = useOrg();
+  const { currentLocationId, orgId, loading: orgLoading } = useOrg();
   const [role, setRole] = useState<UserRole | null>(null);
   const [name, setName] = useState("");
   const [memberId, setMemberId] = useState<string | null>(null);
@@ -60,7 +60,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // devtools; see migration 109 / .agents/briefs/till-session-token.md).
   // `loading` stays true for the duration of this round-trip so consumers
   // can avoid flashing the PIN pad while it's in flight.
+  //
+  // Gated on org.loading: supabase-js restores the persisted Supabase
+  // session from localStorage asynchronously. If resume_till_session went
+  // out before that lands, it would carry the anon key, auth.uid() would
+  // be NULL server-side, and the function's own membership check would
+  // correctly return no rows for a perfectly valid token — indistinguishable,
+  // from here, from an actually-bad token. Waiting for org.loading to
+  // clear means the RPC always carries a hydrated session when one exists.
   useEffect(() => {
+    if (orgLoading) return;
     let cancelled = false;
 
     async function resume() {
@@ -69,8 +78,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setLoading(false);
         return;
       }
-      const { data } = await db.rpc("resume_till_session", { p_token: token });
+      const { data, error } = await db.rpc("resume_till_session", { p_token: token });
       if (cancelled) return;
+      if (error) {
+        // Inconclusive, not "invalid" — leave the token and auth state
+        // alone rather than treat a transient/auth error as a bad token.
+        // The next mount (or effect re-run) gets a clean retry.
+        setLoading(false);
+        return;
+      }
       const row = (data as { role: string; display_name: string | null; member_id: string | null }[] | null)?.[0];
       if (row) {
         setRole(row.role as UserRole);
@@ -78,6 +94,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         setMemberId(row.member_id);
         setAuthenticated(true);
       } else {
+        // A real, definitive "no such session" from the server — only
+        // now is it safe to drop the token.
         sessionStorage.removeItem("tilify_auth");
         setAuthenticated(false);
       }
@@ -88,7 +106,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [orgLoading]);
 
   async function login(pin: string): Promise<boolean> {
     if (!orgId) return false;

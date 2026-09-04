@@ -7,12 +7,18 @@
 -- cache the resolved role in sessionStorage as plain JSON:
 --   sessionStorage.setItem("tilify_auth", JSON.stringify({role:"admin",name:"Admin"}))
 -- and trust it verbatim on every reload — one devtools line forged
--- admin access to every admin-gated screen (sidebar.tsx:64-81), and
--- on a till signed in under the owner's Supabase account (the shared
--- branch-PIN backward-compat path), RLS permitted everything that
--- forged UI exposed. This migration stops storing the role client-
--- side at all: the client now holds only an opaque token, and every
--- restore resolves it here, server-side.
+-- admin access to every admin-gated screen (sidebar.tsx:64-81). This
+-- was a real privilege escalation, not just a UI hardening gap: the
+-- baseline RLS policies (017_multitenant_foundation.sql) are org-
+-- scoped only, with no role predicate, across ~18 tables including
+-- sales, customers, customer_payments, purchases, expenses,
+-- daily_reconciliation, stock_adjustments, and products. So even on
+-- a cashier's own real Supabase login, the till PIN role was the only
+-- thing standing between "cashier" and "admin" on those tables and
+-- on every admin-gated screen — RLS did not step in. This migration
+-- stops storing the role client-side at all: the client now holds
+-- only an opaque token, and every restore resolves it here,
+-- server-side.
 --
 -- Purely additive — one new table, three new functions, nothing
 -- existing is altered. Safe to apply well ahead of the client
