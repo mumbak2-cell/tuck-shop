@@ -12,7 +12,7 @@ import { signOutSafely } from "@/lib/sign-out";
 
 export default function WmsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { authenticated } = useAuth();
+  const { authenticated, loading: authLoading } = useAuth();
   const org = useOrg();
 
   useEffect(() => {
@@ -23,7 +23,7 @@ export default function WmsLayout({ children }: { children: React.ReactNode }) {
     }
   }, [org.loading, org.session, org.orgId, org.setupCompleted, router]);
 
-  if (org.loading) {
+  if (org.loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400">
         Loading...

@@ -23,29 +23,12 @@ export async function matchLocationPin(
   return data === "admin" || data === "cashier" ? data : null;
 }
 
-/** Per-user PIN lookup, scoped to one org. Goes through the
- *  match_member_pin() SECURITY DEFINER RPC rather than a direct table
- *  query — org_members.pin is not readable by the authenticated role
- *  at the column level (migration 097), precisely so a signed-in
- *  cashier can't read teammates' PINs straight off the table. The RPC
- *  re-checks that the caller actually belongs to orgId before it will
- *  match anything. */
-async function fetchMemberByPin(
-  orgId: string | null,
-  pin: string
-): Promise<{ id: string; role: string; displayName: string | null } | null> {
-  if (!orgId) return null;
-  const { data } = await db.rpc("match_member_pin", { p_org_id: orgId, p_pin: pin });
-  const row = (data as { id: string; role: string; display_name: string | null }[] | null)?.[0];
-  if (!row) return null;
-  return { id: row.id, role: row.role, displayName: row.display_name };
-}
-
 interface AuthState {
   role: UserRole | null;
   name: string;
   memberId: string | null;
   authenticated: boolean;
+  loading: boolean;
   login: (pin: string) => Promise<boolean>;
   logout: () => void;
 }
@@ -55,6 +38,7 @@ const AuthContext = createContext<AuthState>({
   name: "",
   memberId: null,
   authenticated: false,
+  loading: true,
   login: async () => false,
   logout: () => {},
 });
@@ -69,76 +53,77 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [name, setName] = useState("");
   const [memberId, setMemberId] = useState<string | null>(null);
   const [authenticated, setAuthenticated] = useState(false);
+  const [loading, setLoading] = useState(true);
 
-  // Check session storage for existing login
+  // Resolve any stored token against the server on mount — the client no
+  // longer trusts a cached {role,name} blob (that was forgeable via
+  // devtools; see migration 109 / .agents/briefs/till-session-token.md).
+  // `loading` stays true for the duration of this round-trip so consumers
+  // can avoid flashing the PIN pad while it's in flight.
   useEffect(() => {
-    const saved = sessionStorage.getItem("tilify_auth") || sessionStorage.getItem("tuckshop_auth");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        if (parsed.role && parsed.name) {
-          setRole(parsed.role);
-          setName(parsed.name);
-          setMemberId(parsed.memberId || null);
-          setAuthenticated(true);
-        }
-      } catch {
-        // ignore
+    let cancelled = false;
+
+    async function resume() {
+      const token = sessionStorage.getItem("tilify_auth");
+      if (!token) {
+        setLoading(false);
+        return;
       }
+      const { data } = await db.rpc("resume_till_session", { p_token: token });
+      if (cancelled) return;
+      const row = (data as { role: string; display_name: string | null; member_id: string | null }[] | null)?.[0];
+      if (row) {
+        setRole(row.role as UserRole);
+        setName(row.display_name || (row.role === "admin" ? "Admin" : "Cashier"));
+        setMemberId(row.member_id);
+        setAuthenticated(true);
+      } else {
+        sessionStorage.removeItem("tilify_auth");
+        setAuthenticated(false);
+      }
+      setLoading(false);
     }
+
+    void resume();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   async function login(pin: string): Promise<boolean> {
-    // Priority 1: per-user PIN match against org_members.
-    const member = await fetchMemberByPin(orgId, pin);
-    if (member) {
-      const authRole: UserRole = member.role === "member" ? "cashier" : "admin";
-      const displayName = member.displayName || (member.role === "member" ? "Cashier" : "Admin");
-      setRole(authRole);
-      setName(displayName);
-      setMemberId(member.id);
-      setAuthenticated(true);
-      sessionStorage.setItem(
-        "tilify_auth",
-        JSON.stringify({ role: authRole, name: displayName, memberId: member.id })
-      );
-      return true;
-    }
-
-    // Priority 2: shared location PINs (backward compat). The compare runs
-    // server-side (match_location_pin) so the PIN values never reach a
-    // not-yet-authenticated client.
-    const matched = await matchLocationPin(currentLocationId, pin);
-    if (matched === "admin") {
-      setRole("admin");
-      setName("Admin");
-      setMemberId(null);
-      setAuthenticated(true);
-      sessionStorage.setItem("tilify_auth", JSON.stringify({ role: "admin", name: "Admin" }));
-      return true;
-    }
-    if (matched === "cashier") {
-      setRole("cashier");
-      setName("Cashier");
-      setMemberId(null);
-      setAuthenticated(true);
-      sessionStorage.setItem("tilify_auth", JSON.stringify({ role: "cashier", name: "Cashier" }));
-      return true;
-    }
-    return false;
+    if (!orgId) return false;
+    const { data } = await db.rpc("create_till_session", {
+      p_org_id: orgId,
+      p_location_id: currentLocationId,
+      p_pin: pin,
+    });
+    const row = (data as
+      | { token: string; role: string; display_name: string | null; member_id: string | null }[]
+      | null)?.[0];
+    if (!row) return false;
+    setRole(row.role as UserRole);
+    setName(row.display_name || (row.role === "admin" ? "Admin" : "Cashier"));
+    setMemberId(row.member_id);
+    setAuthenticated(true);
+    sessionStorage.setItem("tilify_auth", row.token);
+    return true;
   }
 
   function logout() {
+    const token = sessionStorage.getItem("tilify_auth");
     setRole(null);
     setName("");
     setMemberId(null);
     setAuthenticated(false);
     sessionStorage.removeItem("tilify_auth");
     sessionStorage.removeItem("tuckshop_auth");
+    if (token) {
+      void db.rpc("end_till_session", { p_token: token });
+    }
   }
 
   return (
-    <AuthContext.Provider value={{ role, name, memberId, authenticated, login, logout }}>
+    <AuthContext.Provider value={{ role, name, memberId, authenticated, loading, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

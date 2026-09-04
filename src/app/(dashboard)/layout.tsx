@@ -16,7 +16,7 @@ import { WifiOff } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const { authenticated } = useAuth();
+  const { authenticated, loading: authLoading } = useAuth();
   const org = useOrg();
   const online = useOnline();
 
@@ -39,7 +39,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [online]);
 
-  if (org.loading) {
+  if (org.loading || authLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center text-gray-400">
         Loading...
