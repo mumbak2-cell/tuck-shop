@@ -11,10 +11,22 @@
 -- Owner-approved: converted in place on live data, after a verified
 -- backup taken outside this migration (see the deploy note below).
 -- There is no rollback path other than restoring that backup — the
--- conversion (statement 4) is one-way and irreversible by design.
+-- conversion (statement 7) is one-way and irreversible by design.
+--
+-- BEFORE APPLYING — run this and note the result:
+--   SELECT e.extname, n.nspname AS schema
+--     FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+--    WHERE e.extname = 'pgcrypto';
+-- If it returns a row, pgcrypto already exists in whatever schema is
+-- shown (commonly `extensions` on Supabase, sometimes `public`) and
+-- statement 1 below will be a no-op. If it returns zero rows,
+-- statement 1 creates it in `public`. Either is fine — statements 4-7
+-- resolve crypt()/gen_salt() via `SET search_path = public, extensions`
+-- rather than assuming a schema, precisely so this doesn't matter.
 --
 -- Statement order matters and must not be reordered:
---   1. enable pgcrypto              — crypt()/gen_salt() need it
+--   1. enable pgcrypto              — crypt()/gen_salt() need it,
+--                                      wherever it ends up living
 --   2. widen pin to TEXT            — VARCHAR(6) cannot hold a 60-char
 --                                      bcrypt digest; running the
 --                                      conversion against the old
@@ -31,12 +43,39 @@
 --                                      row up to this moment — no two
 --                                      members in the same org can
 --                                      already share a PIN
---   4. convert existing PINs        — idempotency-guarded (see below)
---   5. set_member_pin()             — new duplicate check + writer
---   6. match_member_pin() rewrite   — login compare against the hash
---   7. column comment               — correct the now-false comment
+--   4. set_member_pin()             — new duplicate check + writer,
+--                                      created BEFORE the conversion
+--                                      runs, not after — there is no
+--                                      reason for the destructive
+--                                      statement to run before the
+--                                      code that depends on pgcrypto
+--                                      being resolvable actually exists
+--   5. match_member_pin() rewrite   — login compare against the hash,
+--                                      same reasoning as statement 4
+--   6. pre-flight check             — proves crypt()/gen_salt() are
+--                                      resolvable on the exact
+--                                      search_path the conversion is
+--                                      about to use, and refuses to
+--                                      proceed otherwise (see below)
+--   7. convert existing PINs        — idempotency-guarded (see below)
+--   8. column comment               — correct the now-false comment
 --
--- Idempotency: statement 4's `pin NOT LIKE '$2%'` guard is mandatory.
+-- Why the pre-flight (statement 6) exists: pgcrypto is commonly
+-- enabled in Supabase's `extensions` schema, not `public`. If that is
+-- the case here, `CREATE EXTENSION IF NOT EXISTS pgcrypto` (statement
+-- 1) is a silent no-op against an extension that already lives
+-- elsewhere. The SQL Editor's session-level search_path typically
+-- includes `extensions`, so a bare UPDATE using crypt()/gen_salt()
+-- could still succeed there and irreversibly hash every PIN — but
+-- set_member_pin/match_member_pin run with an explicit
+-- `SET search_path = public, extensions` (statement 4/5), and if that
+-- combination somehow can't resolve crypt() either, they would fail
+-- at call time, AFTER the data is already unrecoverably converted.
+-- The pre-flight proves resolvability on that same search_path BEFORE
+-- statement 7 runs, so a misconfigured/unexpected environment fails
+-- loudly here instead of hashing PINs it then can't compare.
+--
+-- Idempotency: statement 7's `pin NOT LIKE '$2%'` guard is mandatory.
 -- Re-running this migration (e.g. a repair replay) must not re-hash
 -- an already-hashed value — bcrypt('$2a$10$alreadyHashed...') would
 -- produce a new digest that no longer matches the original PIN,
@@ -48,6 +87,14 @@
 -- superuser step required — Supabase grants the owning role enough
 -- privilege to enable it via plain SQL). Documented at
 -- supabase.com/docs/guides/database/extensions/pgcrypto.
+--
+-- search_path: both functions and statement 7 use
+-- `SET search_path = public, extensions` rather than schema-qualifying
+-- crypt()/gen_salt() as `extensions.crypt(...)`. A schema named in
+-- search_path that doesn't exist is silently ignored, so this
+-- resolves correctly whether pgcrypto lives in `public` or
+-- `extensions` — schema-qualifying to `extensions.` explicitly would
+-- break the opposite case (pgcrypto actually in `public`).
 --
 -- Custom SQLSTATE: set_member_pin raises SQLSTATE 'P0409' on a PIN
 -- collision (a custom subclass of the P0 "PL/pgSQL Error" class,
@@ -75,8 +122,9 @@
 -- No BEGIN/COMMIT — see migration 096 for why (Supabase SQL Editor
 -- does not guarantee a pasted multi-statement script shares one
 -- connection/transaction). Each statement is independently idempotent
--- and safe to re-run, EXCEPT that statement 4 must never run without
--- its NOT LIKE '$2%' guard intact (see Idempotency above).
+-- and safe to re-run, EXCEPT that statement 7 must never run without
+-- its NOT LIKE '$2%' guard intact (see Idempotency above), and must
+-- never run if statement 6's pre-flight failed.
 --
 -- Depends on: 097 (org_members.pin, idx_org_members_org_pin,
 -- match_member_pin — everything this migration replaces or builds on).
@@ -89,6 +137,11 @@
 
 -- ============================================================
 -- STATEMENT 1: Enable pgcrypto (crypt(), gen_salt())
+--
+-- No-op if it already exists in another schema (commonly `extensions`
+-- on Supabase) — see the "BEFORE APPLYING" note above. That's fine:
+-- statements 4/5/7 resolve it via search_path, not by assuming it
+-- landed here.
 -- ============================================================
 
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
@@ -97,7 +150,7 @@ CREATE EXTENSION IF NOT EXISTS pgcrypto;
 -- ============================================================
 -- STATEMENT 2: Widen pin to TEXT before hashing
 --
--- Must run before statement 4. A bcrypt digest is 60 characters;
+-- Must run before statement 7. A bcrypt digest is 60 characters;
 -- VARCHAR(6) cannot hold one.
 -- ============================================================
 
@@ -109,52 +162,42 @@ ALTER TABLE org_members ALTER COLUMN pin TYPE TEXT;
 --
 -- idx_org_members_org_pin (097) enforced (org_id, pin) uniqueness on
 -- every plaintext PIN up to this point, so no two members in the same
--- org can already share a PIN — the conversion in statement 4 cannot
+-- org can already share a PIN — the conversion in statement 7 cannot
 -- create ambiguity in existing data. After conversion, salted hashes
 -- of the same PIN differ, so this index would enforce nothing anyway.
--- Duplicate-prevention moves to set_member_pin (statement 5).
+-- Duplicate-prevention moves to set_member_pin (statement 4).
 -- ============================================================
 
 DROP INDEX IF EXISTS idx_org_members_org_pin;
 
 
 -- ============================================================
--- STATEMENT 4: Convert existing PINs to bcrypt — idempotency-guarded
+-- STATEMENT 4: set_member_pin — SECURITY DEFINER writer + dup check
 --
--- The `pin NOT LIKE '$2%'` guard is mandatory. Without it, re-running
--- this statement would hash an already-hashed value and every PIN in
--- the system would become permanently unrecoverable, with no error.
--- Cost 10 explicit — pgcrypto's gen_salt('bf') default is cost 6,
--- too weak to rely on implicitly.
--- ============================================================
-
-UPDATE org_members
-   SET pin = crypt(pin, gen_salt('bf', 10))
- WHERE pin IS NOT NULL
-   AND pin NOT LIKE '$2%';
-
-
--- ============================================================
--- STATEMENT 5: set_member_pin — SECURITY DEFINER writer + dup check
---
--- Replaces the duplicate-PIN rejection idx_org_members_org_pin used
--- to provide (SQLSTATE 23505). That index is gone (statement 3), so
--- the check happens here instead, scoped to the target member's org.
--- Re-validates the PIN format server-side — never trusts the caller,
--- even though every current caller already validates the same regex
--- in TypeScript first. Accepts NULL to clear a PIN.
+-- Created before the conversion (statement 7) runs — see the
+-- statement-order note in the header. Replaces the duplicate-PIN
+-- rejection idx_org_members_org_pin used to provide (SQLSTATE 23505).
+-- That index is gone (statement 3), so the check happens here instead,
+-- scoped to the target member's org. Re-validates the PIN format
+-- server-side — never trusts the caller, even though every current
+-- caller already validates the same regex in TypeScript first.
+-- Accepts NULL to clear a PIN.
 --
 -- Caller authorization (who may change whose PIN) is NOT this
 -- function's job — it lives in the TS route handlers, same as before
 -- this migration. See the grant note in the migration header for why
 -- that means this function must stay service_role-only.
+--
+-- search_path includes `extensions` alongside `public` so crypt()/
+-- gen_salt() resolve regardless of which schema pgcrypto lives in —
+-- see the search_path note in the migration header.
 -- ============================================================
 
 CREATE OR REPLACE FUNCTION set_member_pin(p_member_id UUID, p_pin TEXT)
 RETURNS VOID
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 DECLARE
   v_org_id UUID;
@@ -199,11 +242,14 @@ GRANT  EXECUTE ON FUNCTION set_member_pin(UUID, TEXT) TO service_role;
 
 
 -- ============================================================
--- STATEMENT 6: Rewrite match_member_pin for bcrypt
+-- STATEMENT 5: Rewrite match_member_pin for bcrypt
 --
--- Everything unchanged from 097 except the comparison itself: the
--- membership guard, the empty-set-on-no-match behaviour, SECURITY
--- DEFINER, SET search_path = public, and the authenticated grant.
+-- Created before the conversion (statement 7) runs — see the
+-- statement-order note in the header. Everything unchanged from 097
+-- except the comparison itself: the membership guard, the
+-- empty-set-on-no-match behaviour, SECURITY DEFINER, and the
+-- authenticated grant. search_path now also includes `extensions` —
+-- see the search_path note in the migration header.
 --
 -- This now costs one bcrypt comparison per member in the org per
 -- login attempt (crypt() must run once per candidate row, since each
@@ -216,7 +262,7 @@ CREATE OR REPLACE FUNCTION match_member_pin(p_org_id UUID, p_pin TEXT)
 RETURNS TABLE(id UUID, role TEXT, display_name TEXT)
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
+SET search_path = public, extensions
 AS $$
 BEGIN
   -- Only someone already signed into THIS org's own dashboard session
@@ -243,7 +289,47 @@ GRANT  EXECUTE ON FUNCTION match_member_pin(UUID, TEXT) TO authenticated;
 
 
 -- ============================================================
--- STATEMENT 7: Correct the column comment
+-- STATEMENT 6: Pre-flight — refuse to proceed unless crypt() resolves
+--
+-- Proves crypt()/gen_salt() are resolvable BEFORE statement 7 touches
+-- any live PIN. See the "Why the pre-flight exists" note in the
+-- migration header. Must run after statements 4/5 (so it's checking
+-- the real functions' dependency) and immediately before statement 7.
+-- ============================================================
+
+DO $$
+BEGIN
+  PERFORM crypt('0000', gen_salt('bf', 10));
+EXCEPTION WHEN undefined_function THEN
+  RAISE EXCEPTION 'pgcrypto not resolvable on this search_path — STOP, do not run the conversion';
+END $$;
+
+
+-- ============================================================
+-- STATEMENT 7: Convert existing PINs to bcrypt — idempotency-guarded
+--
+-- The `pin NOT LIKE '$2%'` guard is mandatory. Without it, re-running
+-- this statement would hash an already-hashed value and every PIN in
+-- the system would become permanently unrecoverable, with no error.
+-- Cost 10 explicit — pgcrypto's gen_salt('bf') default is cost 6,
+-- too weak to rely on implicitly.
+--
+-- The explicit SET search_path immediately below is deliberate — do
+-- not rely on the SQL Editor's ambient session search_path, which may
+-- differ from what set_member_pin/match_member_pin use. See the
+-- search_path note in the migration header.
+-- ============================================================
+
+SET search_path = public, extensions;
+
+UPDATE org_members
+   SET pin = crypt(pin, gen_salt('bf', 10))
+ WHERE pin IS NOT NULL
+   AND pin NOT LIKE '$2%';
+
+
+-- ============================================================
+-- STATEMENT 8: Correct the column comment
 --
 -- 097 said "stored as entered" — that is now false.
 -- ============================================================
@@ -255,8 +341,10 @@ COMMENT ON COLUMN org_members.pin IS
 -- ============================================================
 -- VERIFY:
 --
--- 1. pgcrypto enabled:
---   SELECT extname FROM pg_extension WHERE extname = 'pgcrypto';
+-- 1. pgcrypto enabled (and note which schema, for the record):
+--   SELECT e.extname, n.nspname AS schema
+--     FROM pg_extension e JOIN pg_namespace n ON n.oid = e.extnamespace
+--    WHERE e.extname = 'pgcrypto';
 --
 -- 2. pin widened to TEXT:
 --   SELECT column_name, data_type
