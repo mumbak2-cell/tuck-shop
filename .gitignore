@@ -49,3 +49,8 @@ next-env.d.ts
 # local scratch — briefs, review notes, unrelated prompts
 /Review/
 /# Agent Implementation Brief*.txt
+
+# Security audit docs — contain live key material, never commit
+tilify-security-audit.md
+Security Audit.pdf
+security-fix-brief.md
