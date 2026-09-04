@@ -10,6 +10,7 @@
 //   curl -H "Authorization: Bearer $CRON_SECRET" http://localhost:3000/api/cron/daily-reports
 
 import { NextResponse } from "next/server";
+import { timingSafeEqual } from "node:crypto";
 import { getSupabaseAdmin } from "@/lib/supabase-admin";
 import { buildDailySummary, renderDailyEmail, buildDailyItemsCsv } from "@/lib/daily-report";
 
@@ -72,7 +73,9 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: "CRON_SECRET not configured" }, { status: 503 });
   }
   const headerToken = authHeader.startsWith("Bearer ") ? authHeader.slice(7) : "";
-  if (headerToken !== cronSecret) {
+  const a = Buffer.from(headerToken);
+  const b = Buffer.from(cronSecret);
+  if (a.length !== b.length || !timingSafeEqual(a, b)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
