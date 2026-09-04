@@ -15,6 +15,26 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export const runtime = "nodejs";
 
+async function sendViaResend(toEmail: string, subject: string, html: string, text: string): Promise<{ ok: boolean; error?: string }> {
+  const apiKey = process.env.RESEND_API_KEY;
+  const fromAddress = process.env.RESEND_FROM_ADDRESS || "Tilify <reports@mkglobal.co.za>";
+  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not configured on the server" };
+
+  const res = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ from: fromAddress, to: [toEmail], subject, html, text }),
+  });
+  if (!res.ok) {
+    const err = await res.text();
+    return { ok: false, error: `Resend ${res.status}: ${err.slice(0, 240)}` };
+  }
+  return { ok: true };
+}
+
 // Seat limit for an org whose plan is not in the catalogue (trial, past_due,
 // cancelled). Trial shops get the entry-tier allowance; once they pay, their
 // real plan's limit applies. Never invent headroom above Starter here.
@@ -346,5 +366,30 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: memberErr.message }, { status: 500 });
   }
 
-  return NextResponse.json({ created: true, email, name, tempPassword: password });
+  // Send the login credentials by email — the caller never sees the password.
+  const loginUrl = "https://tilify.mkglobal.co.za/login";
+  const greeting = name ? `Hi ${name},` : "Hi,";
+  const emailText = `${greeting}
+
+You've been added to the Tilify team. Here are your login details:
+
+Email: ${email}
+Temporary password: ${password}
+
+Sign in here: ${loginUrl}
+
+You'll be asked to set a new password on your first sign-in.
+
+— Tilify`;
+  const emailHtml = `<p>${greeting}</p><p>You've been added to the Tilify team. Here are your login details:</p><p><strong>Email:</strong> ${email}<br><strong>Temporary password:</strong> ${password}</p><p><a href="${loginUrl}">Sign in to Tilify</a></p><p>You'll be asked to set a new password on your first sign-in.</p><p>— Tilify</p>`;
+
+  const send = await sendViaResend(email, "Your Tilify login", emailHtml, emailText);
+
+  return NextResponse.json({
+    created: true,
+    email,
+    name,
+    emailSent: send.ok,
+    ...(send.ok ? {} : { emailError: send.error }),
+  });
 }

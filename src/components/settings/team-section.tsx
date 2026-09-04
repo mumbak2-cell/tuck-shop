@@ -11,7 +11,7 @@ import { useOrg, type PermissionKey } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { CollapsibleSection } from "@/components/ui/collapsible-section";
-import { Users, UserPlus, Trash2, AlertCircle, Copy, Check } from "lucide-react";
+import { Users, UserPlus, Trash2, AlertCircle } from "lucide-react";
 
 interface Member {
   id: string;
@@ -45,7 +45,8 @@ const PERMISSION_LABELS: { key: PermissionKey; label: string }[] = [
 interface NewCredential {
   email: string;
   name?: string;
-  tempPassword: string;
+  emailSent: boolean;
+  emailError?: string;
 }
 
 const ROLE_LABEL: Record<Member["role"], string> = {
@@ -84,7 +85,6 @@ export function TeamSection() {
   const canAddManager = locations.length > 1;
   const [notice, setNotice] = useState<string | null>(null);
   const [credential, setCredential] = useState<NewCredential | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (role !== "owner" && role !== "admin") return;
@@ -126,7 +126,6 @@ export function TeamSection() {
     setError(null);
     setNotice(null);
     setCredential(null);
-    setCopied(false);
     try {
       const res = await fetch("/api/team", {
         method: "POST",
@@ -143,8 +142,8 @@ export function TeamSection() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Could not add team member");
-      if (json.tempPassword) {
-        setCredential({ email: json.email, name: json.name, tempPassword: json.tempPassword });
+      if (json.created) {
+        setCredential({ email: json.email, name: json.name, emailSent: json.emailSent, emailError: json.emailError });
       } else {
         setNotice(json.message || `${json.email} was added to your team.`);
       }
@@ -307,31 +306,23 @@ export function TeamSection() {
         </div>
       )}
 
-      {/* One-time credential hand-off */}
+      {/* Credential hand-off — the password itself is never shown here, only emailed */}
       {credential && (
-        <div className="bg-amber-50 border border-amber-300 rounded-lg p-4 mb-4">
-          <p className="text-sm font-medium text-amber-900 mb-2">
-            Login created for {credential.name || credential.email}. Give them these details now — the password is shown only once.
-          </p>
-          <div className="bg-white border border-amber-200 rounded-md p-3 font-mono text-sm text-gray-800 space-y-1">
-            <div>email: {credential.email}</div>
-            <div>password: {credential.tempPassword}</div>
+        credential.emailSent ? (
+          <div className="bg-green-50 border border-green-200 text-green-800 px-4 py-3 rounded-lg text-sm mb-4">
+            Login details emailed to {credential.email}. Ask them to check their inbox (and spam folder) —
+            they&apos;ll set a new password on their first sign-in.
           </div>
-          <div className="flex items-center gap-3 mt-3">
-            <button
-              type="button"
-              onClick={() => {
-                navigator.clipboard?.writeText(`email: ${credential.email}\npassword: ${credential.tempPassword}`);
-                setCopied(true);
-              }}
-              className="inline-flex items-center gap-1.5 text-sm text-amber-800 hover:text-amber-950 font-medium"
-            >
-              {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copied ? "Copied" : "Copy"}
-            </button>
-            <span className="text-xs text-amber-700">Ask them to change it after their first sign-in.</span>
+        ) : (
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm mb-4">
+            <AlertCircle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>
+              {credential.name || credential.email}&apos;s account was created, but the login email to{" "}
+              {credential.email} failed to send{credential.emailError ? `: ${credential.emailError}` : ""}.
+              They have no password yet — try adding them again or contact support.
+            </span>
           </div>
-        </div>
+        )
       )}
 
       {/* Member list */}
