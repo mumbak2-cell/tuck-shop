@@ -1,7 +1,7 @@
 // Subscription plan catalogue. Prices and limits per plan tier, with
 // currency-specific amounts. The billing routing layer reads from here
-// to construct the Paystack / Flutterwave transaction for the org's
-// currency, and the UI reads from here to render the pricing modal.
+// to construct the Paystack transaction for the org's currency, and the
+// UI reads from here to render the pricing modal.
 
 export type PlanCode = "starter" | "growth" | "pro";
 
@@ -38,12 +38,6 @@ export interface Plan {
   highlight?: boolean;
   features: string[];
   limits: PlanLimits;
-  /** Paystack recurring Plan codes are resolved server-side per (tier, cycle)
-   * from environment variables — see lib/paystack-plans.ts. They are not held
-   * here because test-mode and live-mode codes differ per deployment, and they
-   * must never reach the client bundle. When no code is configured for a
-   * (tier, cycle), checkout falls back to a one-time charge. */
-  flutterwavePaymentPlanId?: number;
   /** Per-currency pricing. Currencies not listed here are unsupported
    * for that plan; the upgrade flow shows a "contact us" message. */
   prices: Partial<Record<string, PlanPrice>>;
