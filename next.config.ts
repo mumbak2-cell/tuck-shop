@@ -5,19 +5,8 @@ const securityHeaders = [
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
   { key: "X-Frame-Options", value: "DENY" },
   { key: "Strict-Transport-Security", value: "max-age=31536000; includeSubDomains" },
-  {
-    key: "Content-Security-Policy",
-    value: [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline'",
-      "style-src 'self' 'unsafe-inline'",
-      "img-src 'self' blob: data:",
-      "font-src 'self'",
-      "connect-src 'self' https://*.supabase.co wss://*.supabase.co",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-    ].join("; "),
-  },
+  // Content-Security-Policy is set per-request in proxy.ts, not here — it
+  // needs a fresh nonce on every request, which a static header can't carry.
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
 ];
 
