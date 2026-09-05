@@ -6,6 +6,12 @@ import { Upload, X, FileText, Image as ImageIcon, Loader2 } from "lucide-react";
 const MAX_SIZE_MB = 5;
 const MAX_SIZE_BYTES = MAX_SIZE_MB * 1024 * 1024;
 const ACCEPTED_TYPES = ["application/pdf", "image/jpeg", "image/png", "image/webp"];
+const EXT_BY_TYPE: Record<string, string> = {
+  "application/pdf": "pdf",
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+};
 
 interface ReceiptUploadProps {
   orgId: string;
@@ -36,7 +42,7 @@ export function ReceiptUpload({ orgId, onUploaded, value }: ReceiptUploadProps) 
     }
 
     setUploading(true);
-    const ext = file.name.split(".").pop()?.toLowerCase() || "bin";
+    const ext = EXT_BY_TYPE[file.type] || "bin";
     const storagePath = `${orgId}/${crypto.randomUUID()}.${ext}`;
 
     const { error: uploadErr } = await supabase.storage
