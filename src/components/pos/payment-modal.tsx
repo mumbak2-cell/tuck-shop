@@ -1,4 +1,5 @@
 "use client";
+import { z } from "zod";
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
@@ -36,6 +37,12 @@ import { receiptCode } from "@/lib/receipt-code";
  *  is required — the sale RPC (stock deduction, sales rows) and the ZRA
  *  fiscal submission — never for the receipt shown to the customer, which
  *  keeps the single, friendlier "Combo: X" line from the cart. */
+const cardRewardSchema = z.object({
+  enabled: z.boolean(),
+  threshold: z.number(),
+  productId: z.string().nullable(),
+});
+
 function expandComboLine(item: CartItem): CartItem[] {
   if (!item.comboBreakdown) return [item];
   return item.comboBreakdown.map((c) => ({
@@ -182,7 +189,8 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
       const rewardCacheKey = "tilify_card_reward_" + (currentLocationId ?? "");
       try {
         const raw = window.localStorage.getItem(rewardCacheKey);
-        setCardReward(raw ? JSON.parse(raw) : { enabled: false, threshold: 0, productId: null });
+        const result = raw ? cardRewardSchema.safeParse(JSON.parse(raw)) : null;
+        setCardReward(result?.success ? result.data : { enabled: false, threshold: 0, productId: null });
       } catch {
         setCardReward({ enabled: false, threshold: 0, productId: null });
       }

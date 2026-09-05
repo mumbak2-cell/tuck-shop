@@ -48,7 +48,9 @@ export function readCache<T>(orgId: string, kind: CacheKind): T[] | null {
   try {
     const raw = localStorage.getItem(cacheKey(orgId, kind));
     if (!raw) return null;
-    return JSON.parse(raw) as T[];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return null;
+    return parsed as T[];
   } catch {
     return null;
   }
@@ -58,7 +60,9 @@ export function readCacheMeta(orgId: string, kind: CacheKind): CacheMeta | null 
   try {
     const raw = localStorage.getItem(meta(orgId, kind));
     if (!raw) return null;
-    return JSON.parse(raw) as CacheMeta;
+    const parsed = JSON.parse(raw);
+    if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+    return parsed as CacheMeta;
   } catch {
     return null;
   }
@@ -114,7 +118,9 @@ export function readQueue(orgId: string): QueuedOp[] {
   try {
     const raw = localStorage.getItem(queueKey(orgId));
     if (!raw) return [];
-    return JSON.parse(raw) as QueuedOp[];
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return [];
+    return parsed as QueuedOp[];
   } catch {
     return [];
   }
