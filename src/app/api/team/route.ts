@@ -195,7 +195,7 @@ export async function POST(req: Request) {
   const auth = await requireOrgOwner(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const rl = rateLimit(`team:${auth.orgId}`, { max: 10 });
+  const rl = await rateLimit(`team:${auth.orgId}`, { max: 10 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   let body: InviteBody;

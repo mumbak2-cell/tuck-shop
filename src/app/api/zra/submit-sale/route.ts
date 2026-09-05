@@ -102,7 +102,7 @@ export async function POST(req: Request) {
   }
   const orgId = membership.org_id;
 
-  const rl = rateLimit(`zra:${orgId}`, { max: 30 });
+  const rl = await rateLimit(`zra:${orgId}`, { max: 30 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const { data: sale } = await admin

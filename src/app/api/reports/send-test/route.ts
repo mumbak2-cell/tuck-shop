@@ -76,7 +76,7 @@ export async function POST(req: Request) {
   const auth = await requireOrgManager(req);
   if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status });
 
-  const rl = rateLimit(`send-test:${auth.userId}`, { max: 5 });
+  const rl = await rateLimit(`send-test:${auth.userId}`, { max: 5 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const admin = getSupabaseAdmin();

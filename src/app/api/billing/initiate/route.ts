@@ -47,7 +47,7 @@ export async function POST(req: Request) {
   const userEmail = auth.email!;
   const orgId = auth.orgId!;
 
-  const rl = rateLimit(`billing:${userId}`, { max: 5 });
+  const rl = await rateLimit(`billing:${userId}`, { max: 5 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   const plan = PLANS.find((p) => p.code === planCode);

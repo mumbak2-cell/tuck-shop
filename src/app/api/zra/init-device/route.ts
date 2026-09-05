@@ -18,7 +18,7 @@ export async function POST(req: Request) {
 
   const admin = getSupabaseAdmin();
 
-  const rl = rateLimit(`zra-init:${auth.orgId}`, { max: 3 });
+  const rl = await rateLimit(`zra-init:${auth.orgId}`, { max: 3 });
   if (!rl.ok) return NextResponse.json({ error: "Too many requests" }, { status: 429 });
 
   // Get ZRA config
