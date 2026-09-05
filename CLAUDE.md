@@ -17,7 +17,7 @@ The Content-Security-Policy is NOT there — it's generated per-request in
 `src/proxy.ts` (Next.js 16's middleware-rename), because it carries a fresh
 nonce on every request that a static header can't express. script-src is
 nonce + `'strict-dynamic'` (no `unsafe-inline`); style-src is `'self'
-unsafe-inline'` (see proxy.ts's header comment for why those two directives
+'unsafe-inline'` (see proxy.ts's header comment for why those two directives
 are handled differently). If a new external origin is needed (e.g.
 analytics, CDN), add it to the CSP `connect-src` or `script-src` directive
 in `src/proxy.ts`, not `next.config.ts`. `src/app/layout.tsx` calls

@@ -15,30 +15,26 @@ const redis = new Redis({
   token: process.env.KV_REST_API_TOKEN!,
 });
 
-// One Ratelimit instance per distinct (windowMs, max) pair — every current
-// caller uses the default window, so in practice this cache holds a single
-// entry, but it stays correct if a future caller passes a custom one.
-const limiters = new Map<string, Ratelimit>();
-
-function getLimiter(windowMs: number, max: number): Ratelimit {
-  const cacheKey = windowMs + ":" + max;
-  let limiter = limiters.get(cacheKey);
-  if (!limiter) {
-    limiter = new Ratelimit({
-      redis,
-      limiter: Ratelimit.slidingWindow(max, `${Math.round(windowMs / 1000)} s`),
-      analytics: false,
-      prefix: "tilify-rl",
-    });
-    limiters.set(cacheKey, limiter);
-  }
-  return limiter;
-}
-
 export async function rateLimit(
   key: string,
   { windowMs = 60_000, max = 10 }: { windowMs?: number; max?: number } = {}
 ): Promise<{ ok: boolean; remaining: number }> {
-  const { success, remaining } = await getLimiter(windowMs, max).limit(key);
-  return { ok: success, remaining };
+  const limiter = new Ratelimit({
+    redis,
+    limiter: Ratelimit.slidingWindow(max, `${Math.round(windowMs / 1000)} s`),
+    analytics: false,
+    prefix: "tilify-rl",
+  });
+  try {
+    const { success, remaining } = await limiter.limit(key);
+    return { ok: success, remaining };
+  } catch (err) {
+    // Fail open: this is basic abuse prevention, not a hard guarantee (see
+    // header comment). A Redis outage/misconfiguration blocking real
+    // operations — ZRA fiscal submission, team invites, billing — would be
+    // a worse outcome than occasionally letting extra requests through
+    // during a rare infra blip.
+    console.error("rateLimit: Upstash call failed, failing open", err);
+    return { ok: true, remaining: max };
+  }
 }

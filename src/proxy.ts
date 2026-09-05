@@ -74,7 +74,16 @@ export function proxy(request: NextRequest) {
   return response;
 }
 
-export const proxyConfig = {
+// MUST be named exactly `config` — verified against this project's actual
+// installed Next.js (node_modules/next/dist/build/entries.js /
+// get-page-static-info.js): the matcher is extracted by looking for a const
+// literally named `config`, regardless of whether the file is middleware.ts
+// or proxy.ts. A `proxyConfig` export (an earlier version of this file used
+// that name, going on since-corrected doc guidance) is silently ignored —
+// Next falls back to its default catch-all matcher, so the exclusions below
+// never took effect and this ran on every single request, prefetches
+// included, until this was caught in review.
+export const config = {
   // Excludes: Next's own static assets/images/favicon (never need a CSP
   // nonce), API routes (return JSON, no scripts to nonce), and prefetch
   // requests (next-router-prefetch / purpose:prefetch) — a prefetched RSC
