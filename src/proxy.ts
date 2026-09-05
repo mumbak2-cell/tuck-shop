@@ -9,6 +9,16 @@ import { NextRequest, NextResponse } from "next/server";
  * anywhere in the app, since there are no hand-written inline <script> tags
  * in this codebase (confirmed by grep before writing this).
  *
+ * Requires every route to render dynamically, not statically — a
+ * statically-prerendered page bakes its script tags in at build time, when
+ * no request (and so no nonce) exists yet, so they'd never match whatever
+ * fresh nonce this proxy sets on the actual response and every script on
+ * that page would be blocked. src/app/layout.tsx calls next/server's
+ * connection() for exactly this reason — removing that call silently
+ * breaks hydration on every route (this was caught in review before ever
+ * reaching production: without it, nearly the entire app — including
+ * /login — builds as static and would have shipped broken).
+ *
  * style-src keeps 'unsafe-inline' — WITHOUT a nonce alongside it, unlike
  * script-src. That's deliberate, not an oversight: a nonce-source present
  * in a directive makes browsers ignore 'unsafe-inline' in that SAME
@@ -39,9 +49,15 @@ import { NextRequest, NextResponse } from "next/server";
  */
 export function proxy(request: NextRequest) {
   const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  // React's dev-mode error-stack reconstruction uses eval(); Next's own CSP
+  // guide requires 'unsafe-eval' in development for this reason. Production
+  // never uses eval(), so script-src stays fully strict there.
+  const scriptSrc = process.env.NODE_ENV === "development"
+    ? `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-eval'`
+    : `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`;
   const cspHeader = [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'`,
+    scriptSrc,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' blob: data:",
     "font-src 'self'",
@@ -51,7 +67,6 @@ export function proxy(request: NextRequest) {
   ].join("; ");
 
   const requestHeaders = new Headers(request.headers);
-  requestHeaders.set("x-nonce", nonce);
   requestHeaders.set("Content-Security-Policy", cspHeader);
 
   const response = NextResponse.next({ request: { headers: requestHeaders } });
@@ -60,5 +75,20 @@ export function proxy(request: NextRequest) {
 }
 
 export const proxyConfig = {
-  matcher: ["/:path*"],
+  // Excludes: Next's own static assets/images/favicon (never need a CSP
+  // nonce), API routes (return JSON, no scripts to nonce), and prefetch
+  // requests (next-router-prefetch / purpose:prefetch) — a prefetched RSC
+  // payload bakes in the nonce from the moment it was prefetched, which
+  // won't match the nonce enforced on the document the user is actually
+  // viewing by the time a client-side transition uses it. This matches the
+  // matcher Next's own CSP guide recommends for this exact nonce pattern.
+  matcher: [
+    {
+      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
+      missing: [
+        { type: "header", key: "next-router-prefetch" },
+        { type: "header", key: "purpose", value: "prefetch" },
+      ],
+    },
+  ],
 };

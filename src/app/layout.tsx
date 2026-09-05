@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { connection } from "next/server";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { ShiftProvider } from "@/lib/shift-context";
@@ -35,7 +36,17 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  // Forces every route to render dynamically instead of being statically
+  // prerendered at build time. Required by proxy.ts's per-request CSP
+  // nonce: a statically-generated page's script tags are fixed at build
+  // time, when no nonce exists yet, so they'd never match the fresh nonce
+  // the proxy sets on the real response and every script on that page
+  // would be blocked (this is what a 'strict-dynamic' script-src needs —
+  // see proxy.ts's header comment). connection() reads nothing; it exists
+  // purely to opt out of static generation.
+  await connection();
+
   return (
     <html lang="en">
       <body className="antialiased bg-gray-50 text-gray-900" suppressHydrationWarning>

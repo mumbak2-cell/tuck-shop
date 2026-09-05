@@ -8,12 +8,22 @@ read it before running anything that writes to the database.
 
 ## Security headers
 
-`next.config.ts` sets response headers on all routes: CSP (self + Supabase
-origins, inline styles/scripts for Tailwind/Next.js, blob/data URIs for
-receipts), `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`next.config.ts` sets the static response headers on all routes:
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
 `Referrer-Policy: strict-origin-when-cross-origin`, `Permissions-Policy`
-disabling camera/mic/geo. If a new external origin is needed (e.g. analytics,
-CDN), add it to the CSP `connect-src` or `script-src` directive there.
+disabling camera/mic/geo.
+
+The Content-Security-Policy is NOT there — it's generated per-request in
+`src/proxy.ts` (Next.js 16's middleware-rename), because it carries a fresh
+nonce on every request that a static header can't express. script-src is
+nonce + `'strict-dynamic'` (no `unsafe-inline`); style-src is `'self'
+unsafe-inline'` (see proxy.ts's header comment for why those two directives
+are handled differently). If a new external origin is needed (e.g.
+analytics, CDN), add it to the CSP `connect-src` or `script-src` directive
+in `src/proxy.ts`, not `next.config.ts`. `src/app/layout.tsx` calls
+`connection()` to force every route to render dynamically — required for
+the nonce to work at all; do not remove it without understanding why
+(proxy.ts's header comment explains).
 
 ## Health Stack
 
