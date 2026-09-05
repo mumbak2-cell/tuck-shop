@@ -6,6 +6,39 @@ Revenue-Assurance PWA for SADC retailers. Next.js (App Router) + Supabase + Tail
 Setup, migration numbering, and the Supabase CLI baseline caveats live in `README.md` —
 read it before running anything that writes to the database.
 
+## PROTECTED: `.env.local` and secret files — read before touching them
+
+**On 2026-09-05, `.env.local` was wiped.** `vercel integration add upstash/upstash-kv
+--non-interactive` ran `vercel env pull` as a side effect and **overwrote the entire
+file** — every existing var (Supabase URL/keys, Resend, Paystack, cron secret) gone,
+replaced by only the new Upstash vars. The CLI printed "Overwriting existing .env.local
+file" but `--non-interactive` suppressed the prompt that would have stopped it. The
+follow-up `vercel env pull --environment=production` "restore" then wrote `VAR=""`
+(empty) for every var Vercel has marked **Sensitive** — those are write-only from the
+CLI's side and **cannot be recovered by `vercel env pull` at all**. The file had to be
+rebuilt by hand from the Supabase / Paystack / Resend dashboards.
+
+### Hard rules — no exceptions
+
+1. **`.env.local`, `.env`, `.env.*`, and any file holding keys / tokens / passwords /
+   connection strings are PROTECTED.** Do not create, modify, overwrite, delete, or run
+   a command that does any of those to such a file **without BOTH**:
+   - **explicit user confirmation in the current session**, naming the exact file and
+     the exact action, AND
+   - **a timestamped backup taken first**: `cp .env.local ".env.local.bak.$(date +%Y%m%d-%H%M%S)"`.
+2. **These `vercel` CLI commands rewrite `.env.local` — never run any of them without a
+   yes from the user first:** `vercel env pull`, `vercel env add`, `vercel env rm`,
+   `vercel link` (can trigger a pull), `vercel dev`, and **`vercel integration add`**
+   (runs `vercel env pull` as a side effect — this is the one that caused the incident).
+3. **Never pass `--non-interactive` / `--yes` to a `vercel` command that can touch
+   `.env.local`.** The interactive "Overwriting existing file" prompt is the safeguard;
+   removing it removed the safeguard.
+4. **`vercel env pull` is NOT a backup/restore tool.** It silently writes `VAR=""` for
+   Sensitive-type vars and reports success. The source of truth for those values is the
+   third-party dashboards + the owner's own records — never assume a pull round-trips.
+5. **Before running ANY `vercel` CLI command, state exactly what it will read or write
+   and wait for the user to say go.**
+
 ## Security headers
 
 `next.config.ts` sets the static response headers on all routes:
