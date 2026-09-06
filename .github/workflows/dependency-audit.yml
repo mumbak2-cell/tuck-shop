@@ -1,0 +1,23 @@
+name: dependency-audit
+
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, Monday 06:00 UTC — surfaces advisories published after a merge.
+    - cron: '0 6 * * 1'
+
+jobs:
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm audit --audit-level=high
