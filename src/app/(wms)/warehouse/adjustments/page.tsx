@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, matchLocationPin } from "@/lib/auth-context";
 import { useOrg } from "@/lib/org-context";
 import { formatDate } from "@/lib/format";
 import { Button } from "@/components/ui/button";
@@ -170,23 +170,14 @@ export default function WmsAdjustmentsPage() {
     })();
   }, [orgId]);
 
-  // No admin-PIN checker is exposed by useAuth() — its context value is only
-  // { role, name, authenticated, login, logout }, and `pins` is internal state
-  // to AuthProvider, not part of the public API. login(pin) exists but would
-  // re-authenticate the whole session as Admin (writes sessionStorage), which
-  // is the wrong side effect for a one-off approval gate. So this mirrors
-  // auth-context.tsx's own (unexported) fetchPinsForLocation query instead —
-  // same table, same key, same "1234" fallback — without changing that file.
+  // The PIN compare happens server-side through the match_location_pin RPC
+  // (via matchLocationPin from auth-context): it never returns the stored PIN
+  // value to the client, re-checks org membership so the admin_pin row stays
+  // unreadable to cashiers (migration 100), and is rate-limited by migration
+  // 110's brute-force throttle. Only an 'admin' match clears this gate.
   async function verifyAdminPin(pin: string): Promise<boolean> {
     if (!pin) return false;
-    const { data } = await db
-      .from("location_settings")
-      .select("value")
-      .eq("location_id", currentLocationId)
-      .eq("key", "admin_pin")
-      .maybeSingle();
-    const adminPin = (data as any)?.value || "1234";
-    return pin === adminPin;
+    return (await matchLocationPin(currentLocationId, pin)) === "admin";
   }
 
   function openForm() {
