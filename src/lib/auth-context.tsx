@@ -23,6 +23,21 @@ export async function matchLocationPin(
   return data === "admin" || data === "cashier" ? data : null;
 }
 
+/** Seconds remaining on the caller's own till-PIN lockout, or null when not
+ *  locked (or on any error — a failed status lookup must never block or alter
+ *  the login path). Backed by till_pin_lockout_seconds() (migration 112); the
+ *  throttle itself (migration 110) still returns a wrong-PIN-indistinguishable
+ *  result, this is the one place the lockout is surfaced. */
+export async function tillPinLockoutSeconds(): Promise<number | null> {
+  try {
+    const { data, error } = await db.rpc("till_pin_lockout_seconds");
+    if (error || typeof data !== "number") return null;
+    return data;
+  } catch {
+    return null;
+  }
+}
+
 interface AuthState {
   role: UserRole | null;
   name: string;

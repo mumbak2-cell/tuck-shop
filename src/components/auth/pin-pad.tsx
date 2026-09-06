@@ -1,21 +1,24 @@
 "use client";
 import { useState, useEffect } from "react";
-import { useAuth } from "@/lib/auth-context";
+import { useAuth, tillPinLockoutSeconds } from "@/lib/auth-context";
 import { Delete } from "lucide-react";
 
 export function PinPad() {
   const { login } = useAuth();
   const [pin, setPin] = useState("");
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function handleSubmit() {
     if (pin.length < 4) return;
     setLoading(true);
-    setError(false);
+    setError(null);
     const success = await login(pin);
     if (!success) {
-      setError(true);
+      const lockSecs = await tillPinLockoutSeconds();
+      setError(lockSecs != null
+        ? "Too many attempts — try again in a minute"
+        : "Incorrect PIN. Try again.");
       setPin("");
     }
     setLoading(false);
@@ -23,7 +26,7 @@ export function PinPad() {
 
   function handleDigit(d: string) {
     if (pin.length >= 6) return;
-    setError(false);
+    setError(null);
     const next = pin + d;
     setPin(next);
     // Auto-submit at 4 digits
@@ -32,7 +35,10 @@ export function PinPad() {
         setLoading(true);
         const success = await login(next);
         if (!success) {
-          setError(true);
+          const lockSecs = await tillPinLockoutSeconds();
+          setError(lockSecs != null
+            ? "Too many attempts — try again in a minute"
+            : "Incorrect PIN. Try again.");
           setPin("");
         }
         setLoading(false);
@@ -42,7 +48,7 @@ export function PinPad() {
 
   function handleBackspace() {
     setPin((p) => p.slice(0, -1));
-    setError(false);
+    setError(null);
   }
 
   // Hardware-keyboard entry. The on-screen pad stays for touch devices, but
@@ -97,9 +103,7 @@ export function PinPad() {
         </div>
 
         {error && (
-          <p className="text-center text-sm text-red-600 mb-4">
-            Incorrect PIN. Try again.
-          </p>
+          <p className="text-center text-sm text-red-600 mb-4">{error}</p>
         )}
 
         {/* Digit grid */}
