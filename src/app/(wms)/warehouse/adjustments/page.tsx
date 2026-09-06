@@ -1,5 +1,6 @@
 "use client";
 import { useState, useEffect, useCallback } from "react";
+import { useRouter } from "next/navigation";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { useAuth, matchLocationPin } from "@/lib/auth-context";
@@ -68,9 +69,10 @@ interface BulkLine {
 }
 
 export default function WmsAdjustmentsPage() {
-  const { name: userName } = useAuth();
+  const { name: userName, role, loading: authLoading } = useAuth();
   const { orgId, session, currentLocationId } = useOrg();
   const toast = useToast();
+  const router = useRouter();
   const [adjustments, setAdjustments] = useState<AdjustmentDisplay[]>([]);
   const [catalogItems, setCatalogItems] = useState<WmsCatalogItem[]>([]);
   const [inventoryMap, setInventoryMap] = useState<Map<number, number>>(new Map());
@@ -479,6 +481,26 @@ export default function WmsAdjustmentsPage() {
     });
     return [...byDay.entries()];
   })();
+
+  // Mount-time admin-role guard. This is a UX / defence-in-depth control, NOT a
+  // security boundary: record_wms_adjustment (migration 094) is SECURITY DEFINER
+  // but has no org_members.role check — auth.uid() is used only for the audit-log
+  // insert, and the over-threshold approval gate is enforced client-side. A
+  // caller can invoke that RPC directly via PostgREST and bypass both the PIN
+  // gate and this guard. Real enforcement needs a role check inside the RPC and
+  // belongs with the Phase 2 role-scoped RLS work, not here.
+  useEffect(() => {
+    if (!authLoading && role !== "admin") {
+      router.replace("/warehouse/dashboard");
+    }
+  }, [authLoading, role, router]);
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center text-gray-400">Loading...</div>
+    );
+  }
+  if (role !== "admin") return null;
 
   return (
     <div className="space-y-6">
