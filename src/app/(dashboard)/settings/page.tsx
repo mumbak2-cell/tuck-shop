@@ -101,7 +101,7 @@ export default function SettingsPage() {
 
   // Load the PINs for the branch being edited (and reload when it changes).
   useEffect(() => {
-    if (effectivePinLocationId) loadPins(effectivePinLocationId);
+    if (effectivePinLocationId) loadPins();
   }, [effectivePinLocationId]);
 
   // Load the per-branch receipts toggle for every branch at once.
@@ -249,17 +249,12 @@ export default function SettingsPage() {
     setLoading(false);
   }
 
-  // PINs come from location_settings (per branch), not app_settings.
-  async function loadPins(locationId: string) {
-    const { data } = await db
-      .from("location_settings")
-      .select("key, value")
-      .eq("location_id", locationId)
-      .in("key", ["admin_pin", "cashier_pin"]);
-    const map: Record<string, string> = {};
-    ((data || []) as { key: string; value: string }[]).forEach((row) => (map[row.key] = row.value));
-    setAdminPin(map.admin_pin || "1234");
-    setCashierPin(map.cashier_pin || "0000");
+  // PINs are write-only after migration 111 (location_settings.value holds a
+  // bcrypt digest, not the PIN). Nothing to load — just clear the fields so a
+  // PIN typed for one branch isn't carried over when the branch changes.
+  function loadPins() {
+    setAdminPin("");
+    setCashierPin("");
   }
 
   async function handleManageSubscription() {
@@ -359,20 +354,25 @@ export default function SettingsPage() {
       return;
     }
 
-    // PINs — per branch. location_settings is keyed UNIQUE(location_id, key).
+    // PINs — per branch. Write-only via set_location_pin (migration 111),
+    // which bcrypt-hashes server-side. A blank field is left untouched, so an
+    // existing PIN survives a Save that didn't change it.
     // Absence of the target location is only possible before the org has loaded.
     if (effectivePinLocationId) {
-      const pinRows = [
-        { org_id: orgId, location_id: effectivePinLocationId, key: "admin_pin", value: adminPin || "1234", updated_at: new Date().toISOString() },
-        { org_id: orgId, location_id: effectivePinLocationId, key: "cashier_pin", value: cashierPin || "0000", updated_at: new Date().toISOString() },
-      ];
-      const { error: pinErr } = await db
-        .from("location_settings")
-        .upsert(pinRows, { onConflict: "location_id,key" });
-      if (pinErr) {
-        setSaving(false);
-        alert("Failed to save PINs: " + (pinErr.message || "Unknown error"));
-        return;
+      const pinWrites: Array<{ key: string; pin: string }> = [];
+      if (adminPin) pinWrites.push({ key: "admin_pin", pin: adminPin });
+      if (cashierPin) pinWrites.push({ key: "cashier_pin", pin: cashierPin });
+      for (const w of pinWrites) {
+        const { error: pinErr } = await db.rpc("set_location_pin", {
+          p_location_id: effectivePinLocationId,
+          p_key: w.key,
+          p_pin: w.pin,
+        });
+        if (pinErr) {
+          setSaving(false);
+          alert("Failed to save PINs: " + (pinErr.message || "Unknown error"));
+          return;
+        }
       }
     }
 
@@ -679,7 +679,7 @@ export default function SettingsPage() {
                 type="text"
                 value={adminPin}
                 onChange={(e) => setAdminPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="4-6 digit PIN"
+                placeholder="Leave blank to keep current PIN"
                 maxLength={6}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-widest focus:border-green-500 focus:ring-1 focus:ring-green-500"
               />
@@ -691,7 +691,7 @@ export default function SettingsPage() {
                 type="text"
                 value={cashierPin}
                 onChange={(e) => setCashierPin(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="4-6 digit PIN"
+                placeholder="Leave blank to keep current PIN"
                 maxLength={6}
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono tracking-widest focus:border-green-500 focus:ring-1 focus:ring-green-500"
               />
