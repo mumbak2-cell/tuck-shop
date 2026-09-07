@@ -27,6 +27,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 export const runtime = "nodejs";
 
 const MS_PER_DAY = 86_400_000;
+const ACTIVE_WINDOW_MS = 7 * MS_PER_DAY;
 
 interface OrgRow {
   id: string;
@@ -89,9 +90,10 @@ export async function GET(req: Request) {
 
   const orgIds = orgs.map((o) => o.id);
 
-  const [membersRes, locationsRes, emails] = await Promise.all([
+  const [membersRes, locationsRes, lastSaleRes, emails] = await Promise.all([
     admin.from("org_members").select("org_id, user_id, role").in("org_id", orgIds),
     admin.from("locations").select("org_id, active").in("org_id", orgIds),
+    admin.rpc("org_last_sale_dates"),
     fetchUserEmails(admin),
   ]);
 
@@ -100,6 +102,9 @@ export async function GET(req: Request) {
   }
   if (locationsRes.error) {
     return NextResponse.json({ error: locationsRes.error.message }, { status: 500 });
+  }
+  if (lastSaleRes.error) {
+    return NextResponse.json({ error: lastSaleRes.error.message }, { status: 500 });
   }
 
   const members = (membersRes.data as Array<{
@@ -128,7 +133,19 @@ export async function GET(req: Request) {
     if (l.active) activeLocations.set(l.org_id, (activeLocations.get(l.org_id) || 0) + 1);
   });
 
+  const lastSaleAt = new Map<string, string>();
+  ((lastSaleRes.data as Array<{ org_id: string; last_sale_at: string }> | null) || []).forEach(
+    (r) => lastSaleAt.set(r.org_id, r.last_sale_at)
+  );
+
   const now = Date.now();
+
+  /** Whether a shop has actually used the POS, not just signed up. */
+  function activityFor(orgId: string): "active" | "dormant" | "never_used" {
+    const last = lastSaleAt.get(orgId);
+    if (!last) return "never_used";
+    return now - new Date(last).getTime() <= ACTIVE_WINDOW_MS ? "active" : "dormant";
+  }
 
   return NextResponse.json({
     orgs: orgs.map((o) => {
@@ -163,6 +180,7 @@ export async function GET(req: Request) {
           (onTrial && new Date(o.trial_ends_at).getTime() > now),
         referralCode: o.referral_code,
         createdAt: o.created_at,
+        activity: activityFor(o.id),
       };
     }),
   });

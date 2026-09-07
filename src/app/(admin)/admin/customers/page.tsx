@@ -6,7 +6,7 @@
 // Platform admins can override subscription state per row via "Manage"
 // (PATCH /api/admin/orgs/[id]); every change is logged to admin_org_overrides.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "@/lib/supabase";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -32,6 +32,8 @@ interface OrgRow {
   writable: boolean;
   referralCode: string | null;
   createdAt: string;
+  /** Based on their most recent sale: active = sold in the last 7 days. */
+  activity: "active" | "dormant" | "never_used";
 }
 
 const STATUS_COLOR: Record<OrgRow["status"], string> = {
@@ -68,6 +70,84 @@ function TrialCell({ org }: { org: OrgRow }) {
     <span className={urgent ? "text-amber-700 font-medium" : "text-gray-700"}>
       {org.trialDaysLeft} {org.trialDaysLeft === 1 ? "day" : "days"} left
     </span>
+  );
+}
+
+const ACTIVITY_LABEL: Record<OrgRow["activity"], string> = {
+  active: "Active this week",
+  dormant: "Sold before, gone quiet",
+  never_used: "Signed up, never sold",
+};
+
+const ACTIVITY_COLOR: Record<OrgRow["activity"], string> = {
+  active: "bg-green-600",
+  dormant: "bg-amber-500",
+  never_used: "bg-rose-500",
+};
+
+/**
+ * Part-to-whole bar: how many shops are actually using Tilify (sold in the
+ * last 7 days) vs went quiet vs never sold anything at all. Signups alone
+ * don't tell you that — this does.
+ */
+function ActivityBar({ orgs }: { orgs: OrgRow[] }) {
+  const [hovered, setHovered] = useState<OrgRow["activity"] | null>(null);
+  const counts = useMemo(() => {
+    const c: Record<OrgRow["activity"], number> = { active: 0, dormant: 0, never_used: 0 };
+    orgs.forEach((o) => c[o.activity]++);
+    return c;
+  }, [orgs]);
+
+  const total = orgs.length;
+  if (total === 0) return null;
+
+  const order: OrgRow["activity"][] = ["active", "dormant", "never_used"];
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-2xl p-5 mb-6">
+      <h2 className="font-semibold text-gray-900 mb-1">Shop activity</h2>
+      <p className="text-sm text-gray-500 mb-4">
+        Based on each shop&apos;s most recent sale, not just whether they signed up.
+      </p>
+
+      <div className="flex gap-[2px] h-6 rounded-full overflow-hidden bg-white">
+        {order.map((key) => {
+          const pct = (counts[key] / total) * 100;
+          if (pct === 0) return null;
+          return (
+            <div
+              key={key}
+              className={`${ACTIVITY_COLOR[key]} transition-opacity`}
+              style={{
+                width: `${pct}%`,
+                opacity: hovered === null || hovered === key ? 1 : 0.4,
+              }}
+              onMouseEnter={() => setHovered(key)}
+              onMouseLeave={() => setHovered(null)}
+              role="img"
+              aria-label={`${ACTIVITY_LABEL[key]}: ${counts[key]} of ${total} shops`}
+            />
+          );
+        })}
+      </div>
+
+      <div className="flex flex-wrap gap-x-6 gap-y-2 mt-4">
+        {order.map((key) => (
+          <div
+            key={key}
+            className="flex items-center gap-2 text-sm"
+            onMouseEnter={() => setHovered(key)}
+            onMouseLeave={() => setHovered(null)}
+          >
+            <span className={`w-2.5 h-2.5 rounded-full ${ACTIVITY_COLOR[key]}`} />
+            <span className="text-gray-700">{ACTIVITY_LABEL[key]}</span>
+            <span className="text-gray-400">
+              {counts[key]} ({Math.round((counts[key] / total) * 100)}%)
+            </span>
+          </div>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -135,6 +215,8 @@ export default function AdminCustomersPage() {
           </span>
         </div>
       )}
+
+      {!loading && <ActivityBar orgs={orgs} />}
 
       <div className="bg-white border border-gray-200 rounded-2xl overflow-hidden">
         <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
