@@ -19,7 +19,15 @@ export const runtime = "nodejs";
 
 const BCC = "mumba@mkglobal.co.za";
 
-function emailBody(shopName: string): string {
+// ZRA (Zambia Revenue Authority) e-invoicing only applies to Zambian shops.
+// Currency is a reasonable proxy for country here: ZMW is Zambia-only among
+// the SADC_CURRENCIES choices offered at signup (src/lib/currency.ts).
+const ZRA_PARAGRAPH = `
+
+ZRA compliance is available whenever you need it. If your business needs to report sales to Zambia Revenue Authority, Tilify can submit every sale straight to ZRA through your shop's VSDC and hand you back an official receipt number, with no separate fiscal device and no manual filing. It's off by default; turn it on in Settings when you're ready for it.`;
+
+function emailBody(shopName: string, currency: string | null): string {
+  const zraSection = currency === "ZMW" ? ZRA_PARAGRAPH : "";
   return `Hi ${shopName} team,
 
 Welcome to Tilify. Your 14-day trial just started.
@@ -28,9 +36,7 @@ Tilify is a point-of-sale and inventory system built for shops like yours: ring 
 
 A couple of things worth knowing as you get started:
 
-You're not just getting a till. You're getting a warehouse. Purchase orders, stock transfers between locations, lot/expiry tracking, landed cost: the same tools bigger retailers pay a lot more for. If you're running more than one location, this is where Tilify starts saving real hours.
-
-ZRA compliance is available whenever you need it. If your business needs to report sales to Zambia Revenue Authority, Tilify can submit every sale straight to ZRA through your shop's VSDC and hand you back an official receipt number, with no separate fiscal device and no manual filing. It's off by default; turn it on in Settings when you're ready for it.
+You're not just getting a till. You're getting a warehouse. Purchase orders, stock transfers between locations, lot/expiry tracking, landed cost: the same tools bigger retailers pay a lot more for. If you're running more than one location, this is where Tilify starts saving real hours.${zraSection}
 
 A few quick wins to try this week:
 - Ring up your first sale
@@ -43,7 +49,11 @@ The Tilify Team
 support@mkglobal.co.za`;
 }
 
-async function sendViaResend(toEmail: string, shopName: string): Promise<{ ok: boolean; error?: string }> {
+async function sendViaResend(
+  toEmail: string,
+  shopName: string,
+  currency: string | null
+): Promise<{ ok: boolean; error?: string }> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) {
     return { ok: false, error: "RESEND_API_KEY not configured" };
@@ -60,7 +70,7 @@ async function sendViaResend(toEmail: string, shopName: string): Promise<{ ok: b
       to: toEmail,
       bcc: BCC,
       subject: "Welcome to Tilify",
-      text: emailBody(shopName),
+      text: emailBody(shopName, currency),
     }),
   });
   if (!res.ok) {
@@ -117,7 +127,17 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: "User has no email on record" }, { status: 400 });
   }
 
-  const sendResult = await sendViaResend(ownerEmail, org.name);
+  // Currency is set at signup (see create_organization_for_user) and lives in
+  // app_settings, not on the organizations row itself.
+  const { data: currencySetting } = await admin
+    .from("app_settings")
+    .select("value")
+    .eq("org_id", org.id)
+    .eq("key", "currency")
+    .maybeSingle();
+  const currency = (currencySetting?.value as string | undefined) ?? null;
+
+  const sendResult = await sendViaResend(ownerEmail, org.name, currency);
   if (!sendResult.ok) {
     return NextResponse.json({ error: sendResult.error }, { status: 502 });
   }
