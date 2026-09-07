@@ -93,7 +93,23 @@ export default function SignupPage() {
       // ignore
     }
 
-    // 3. Go to the dashboard
+    // 3. Fire the welcome email. Best-effort: a failure here shouldn't block
+    // the user from reaching their new dashboard.
+    void (async () => {
+      try {
+        const { data: sess } = await supabase.auth.getSession();
+        const token = sess.session?.access_token;
+        if (!token) return;
+        await fetch("/api/onboarding/welcome", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+        });
+      } catch {
+        // ignore — not worth surfacing to the user
+      }
+    })();
+
+    // 4. Go to the dashboard
     router.push("/dashboard");
     void orgIdResult;
   }
