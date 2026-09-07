@@ -61,8 +61,11 @@ BEGIN
       AND has_function_privilege('anon', p.oid, 'EXECUTE')
   LOOP
     IF EXISTS (
+      -- aclexplode's grantee column is oid; the explicit ::oid cast after
+      -- ::regrole removes any reliance on cross-type comparison resolving
+      -- implicitly, rather than leaving it to be "very probably" fine.
       SELECT 1 FROM aclexplode(COALESCE(r.proacl, '{}'::aclitem[]))
-       WHERE grantee = 'authenticated'::regrole AND privilege_type = 'EXECUTE'
+       WHERE grantee = 'authenticated'::regrole::oid AND privilege_type = 'EXECUTE'
     ) THEN
       EXECUTE format('REVOKE EXECUTE ON FUNCTION %s FROM PUBLIC', r.sig);
     ELSE
