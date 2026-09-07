@@ -12,11 +12,14 @@ import { z } from "zod";
 
 export const runtime = "nodejs";
 
-const NOTIFY_EMAIL = "reports@mkglobal.co.za";
+const NOTIFY_EMAIL = "info@mkglobal.co.za";
 
 const LeadSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  whatsapp: z.string().trim().regex(/^[+\d][\d\s-]{6,19}$/, "Invalid WhatsApp number"),
+  // Normalized to international format (+<countrycode><number>) client-side
+  // via lib/currency's toInternationalPhone before it ever reaches here.
+  whatsapp: z.string().trim().regex(/^\+\d{7,15}$/, "Invalid WhatsApp number"),
+  country: z.string().trim().min(1).max(100),
   monthlyStockValue: z.number().positive().max(1_000_000_000),
   shrinkPct: z.number().min(0).max(100),
 });
@@ -60,7 +63,7 @@ export async function POST(req: Request) {
       { status: 400 },
     );
   }
-  const { name, whatsapp, monthlyStockValue, shrinkPct } = parsed.data;
+  const { name, whatsapp, country, monthlyStockValue, shrinkPct } = parsed.data;
 
   const monthlyLoss = monthlyStockValue * (shrinkPct / 100);
   const annualLoss = monthlyLoss * 12;
@@ -70,6 +73,7 @@ export async function POST(req: Request) {
 
 Name: ${name}
 WhatsApp: ${whatsapp}
+Country: ${country}
 Monthly stock value: ${monthlyStockValue}
 Shrinkage rate: ${shrinkPct}%
 Estimated monthly loss: ${monthlyLoss.toFixed(2)}
@@ -77,6 +81,7 @@ Estimated annual loss: ${annualLoss.toFixed(2)}`;
   const html = `<p>New lead from the Inventory Leak Calculator page.</p>
 <p><strong>Name:</strong> ${name}<br>
 <strong>WhatsApp:</strong> ${whatsapp}<br>
+<strong>Country:</strong> ${country}<br>
 <strong>Monthly stock value:</strong> ${monthlyStockValue}<br>
 <strong>Shrinkage rate:</strong> ${shrinkPct}%<br>
 <strong>Estimated monthly loss:</strong> ${monthlyLoss.toFixed(2)}<br>

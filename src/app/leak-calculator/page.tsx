@@ -2,6 +2,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { SADC_CURRENCIES, DEFAULT_CURRENCY, getCurrency, toInternationalPhone, type CurrencyCode } from "@/lib/currency";
 
 // Marketing landing page for the Facebook "Inventory Leak Calculator" ad.
 // Public, no auth. Result computes instantly client-side (no gate, matches
@@ -15,6 +16,7 @@ export default function LeakCalculatorPage() {
   const [shrinkPct, setShrinkPct] = useState(String(DEFAULT_SHRINK_PCT));
 
   const [name, setName] = useState("");
+  const [country, setCountry] = useState<CurrencyCode>(DEFAULT_CURRENCY.code);
   const [whatsapp, setWhatsapp] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -34,7 +36,8 @@ export default function LeakCalculatorPage() {
       setSubmitError("Please enter your name.");
       return;
     }
-    if (!/^[+\d][\d\s-]{6,19}$/.test(whatsapp.trim())) {
+    const internationalWhatsapp = toInternationalPhone(whatsapp, country);
+    if (!/^\d{7,15}$/.test(internationalWhatsapp)) {
       setSubmitError("Please enter a valid WhatsApp number.");
       return;
     }
@@ -46,7 +49,8 @@ export default function LeakCalculatorPage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           name: name.trim(),
-          whatsapp: whatsapp.trim(),
+          whatsapp: "+" + internationalWhatsapp,
+          country: getCurrency(country).country,
           monthlyStockValue: stockValueNum,
           shrinkPct: shrinkPctNum,
         }),
@@ -148,13 +152,24 @@ export default function LeakCalculatorPage() {
                 placeholder="Your name"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
               />
-              <input
-                type="tel"
-                value={whatsapp}
-                onChange={(e) => setWhatsapp(e.target.value)}
-                placeholder="WhatsApp number"
-                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
-              />
+              <div className="flex gap-2">
+                <select
+                  value={country}
+                  onChange={(e) => setCountry(e.target.value as CurrencyCode)}
+                  className="border border-gray-300 rounded-lg px-2 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                >
+                  {SADC_CURRENCIES.map((c) => (
+                    <option key={c.code} value={c.code}>{c.country}</option>
+                  ))}
+                </select>
+                <input
+                  type="tel"
+                  value={whatsapp}
+                  onChange={(e) => setWhatsapp(e.target.value)}
+                  placeholder="WhatsApp number"
+                  className="flex-1 min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:border-green-500 focus:ring-1 focus:ring-green-500"
+                />
+              </div>
               {submitError && (
                 <div className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-lg px-3 py-2">
                   {submitError}
