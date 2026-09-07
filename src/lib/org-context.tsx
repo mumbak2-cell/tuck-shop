@@ -389,17 +389,21 @@ export function OrgProvider({ children }: { children: ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Start (or restart) the offline sync loop whenever the signed-in org changes.
-  // It refreshes the local cache from Supabase on mount, runs every 5 minutes,
-  // and drains the write queue whenever the browser comes back online.
+  // Start (or restart) the offline sync loop whenever the signed-in org or
+  // current location changes. It refreshes the local cache from Supabase on
+  // mount, runs every 5 minutes, and drains the write queue whenever the
+  // browser comes back online. Scoped to currentLocationId so the cached
+  // stock/prices match what the online POS path fetches — a branch switch
+  // restarts the loop with the new scope rather than leaving the previous
+  // branch's rows cached.
   useEffect(() => {
     if (!state.orgId) {
       stopSyncLoop();
       return;
     }
-    const stop = startSyncLoop(state.orgId);
+    const stop = startSyncLoop(state.orgId, state.currentLocationId);
     return () => stop();
-  }, [state.orgId]);
+  }, [state.orgId, state.currentLocationId]);
 
   function switchLocation(locationId: string) {
     setState((s) => {
