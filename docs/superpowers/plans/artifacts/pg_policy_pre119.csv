@@ -1,0 +1,229 @@
+tbl,polname,polcmd,polpermissive,roles,using_expr,check_expr
+admin_org_overrides,admin_overrides_read,r,true,,"(EXISTS ( SELECT 1
+   FROM platform_admins pa
+  WHERE (pa.user_id = auth.uid())))",
+app_settings,app_settings_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+app_settings,app_settings_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+app_settings,app_settings_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+app_settings,app_settings_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+audit_logs,audit_logs_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+balance_adjustments,balance_adjustments_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+balance_adjustments,balance_adjustments_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+balance_adjustments,balance_adjustments_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+balance_adjustments,balance_adjustments_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+categories,categories_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+categories,categories_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+categories,categories_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+categories,categories_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+combo_items,combo_items_insert,a,true,,,"(combo_id IN ( SELECT combos.id
+   FROM combos
+  WHERE (combos.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))"
+combo_items,combo_items_delete,d,true,,"(combo_id IN ( SELECT combos.id
+   FROM combos
+  WHERE (combos.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+combo_items,combo_items_read,r,true,,"(combo_id IN ( SELECT combos.id
+   FROM combos
+  WHERE (combos.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+combos,combos_insert,a,true,,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+combos,combos_delete,d,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+combos,combos_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+combos,combos_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+commission_payouts,payouts_admin_all,*,true,,is_platform_admin(),is_platform_admin()
+commission_payouts,payouts_select_own,r,true,,"((partner_id IN ( SELECT partners.id
+   FROM partners
+  WHERE (partners.user_id = auth.uid()))) OR is_platform_admin())",
+customer_payments,customer_payments_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+customer_payments,customer_payments_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+customer_payments,customer_payments_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+customer_payments,customer_payments_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+customers,customers_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+customers,customers_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+customers,customers_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+customers,customers_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+daily_reconciliation,daily_reconciliation_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+daily_reconciliation,daily_reconciliation_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+daily_reconciliation,daily_reconciliation_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+daily_reconciliation,daily_reconciliation_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+expense_categories,expense_categories_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+expense_categories,expense_categories_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+expense_categories,expense_categories_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+expense_categories,expense_categories_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+expenses,expenses_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))) AND ((recorded_by_user_id IS NULL) OR (recorded_by_user_id = auth.uid())))
+expenses,expenses_loc_delete,d,true,,"((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))) AND ((EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = expenses.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))) OR (recorded_by_user_id = auth.uid())))",
+expenses,expenses_loc_read,r,true,,"((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))) AND ((EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = expenses.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))) OR (recorded_by_user_id = auth.uid())))",
+expenses,expenses_loc_update,w,true,,"((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))) AND ((EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = expenses.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))) OR (recorded_by_user_id = auth.uid())))",((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+ingredients,ingredients_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+ingredients,ingredients_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+ingredients,ingredients_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+ingredients,ingredients_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+invoice_events,invoice_events_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+location_settings,location_settings_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))
+location_settings,location_settings_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),
+location_settings,location_settings_read,r,true,,"((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) AND ((key <> ALL (ARRAY['admin_pin'::text, 'cashier_pin'::text])) OR (EXISTS ( SELECT 1
+   FROM org_members om
+  WHERE ((om.org_id = location_settings.org_id) AND (om.user_id = auth.uid()) AND (om.role = ANY (ARRAY['owner'::text, 'admin'::text])))))))",
+location_settings,location_settings_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))
+locations,locations_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+locations,locations_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+locations,locations_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+locations,locations_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+org_members,member_insert_owner,a,true,,,"(org_id IN ( SELECT org_members_1.org_id
+   FROM org_members org_members_1
+  WHERE ((org_members_1.user_id = auth.uid()) AND (org_members_1.role = 'owner'::text))))"
+org_members,member_delete_own_or_owner,d,true,,"((user_id = auth.uid()) OR (org_id IN ( SELECT org_members_1.org_id
+   FROM org_members org_members_1
+  WHERE ((org_members_1.user_id = auth.uid()) AND (org_members_1.role = 'owner'::text)))))",
+org_members,member_read_own_org,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+organizations,org_read_own,r,true,,(id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+organizations,org_update_owner,w,true,,"(id IN ( SELECT org_members.org_id
+   FROM org_members
+  WHERE ((org_members.user_id = auth.uid()) AND (org_members.role = 'owner'::text))))","(id IN ( SELECT org_members.org_id
+   FROM org_members
+  WHERE ((org_members.user_id = auth.uid()) AND (org_members.role = 'owner'::text))))"
+partner_applications,partner_applications_admin_all,*,true,,is_platform_admin(),is_platform_admin()
+partners,partners_admin_all,*,true,,is_platform_admin(),is_platform_admin()
+partners,partners_select_own,r,true,,((user_id = auth.uid()) OR is_platform_admin()),
+payment_methods,payment_methods_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+payment_methods,payment_methods_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+payment_methods,payment_methods_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+payment_methods,payment_methods_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+period_locks,period_locks_write,*,true,,"((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (EXISTS ( SELECT 1
+   FROM org_members
+  WHERE ((org_members.org_id = period_locks.org_id) AND (org_members.user_id = auth.uid()) AND (org_members.role = 'owner'::text)))))",
+period_locks,period_locks_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+platform_admins,platform_admins_admin_all,*,true,,is_platform_admin(),is_platform_admin()
+product_location_prices,plp_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))
+product_location_prices,plp_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),
+product_location_prices,plp_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),
+product_location_prices,plp_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))
+product_stock,product_stock_insert,a,true,,,"((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) AND (EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = product_stock.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))))"
+product_stock,product_stock_delete,d,true,,"((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) AND (EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = product_stock.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))))",
+product_stock,product_stock_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),
+product_stock,product_stock_update,w,true,,"((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) AND (EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = product_stock.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))))","((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) AND (EXISTS ( SELECT 1
+   FROM org_members m
+  WHERE ((m.org_id = product_stock.org_id) AND (m.user_id = auth.uid()) AND (m.role = ANY (ARRAY['owner'::text, 'admin'::text]))))))"
+production_log,production_log_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+production_log,production_log_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+production_log,production_log_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+production_log,production_log_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+products,products_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+products,products_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+products,products_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+products,products_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+promotion_items,promotion_items_insert,a,true,,,"(promotion_id IN ( SELECT promotions.id
+   FROM promotions
+  WHERE (promotions.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))"
+promotion_items,promotion_items_delete,d,true,,"(promotion_id IN ( SELECT promotions.id
+   FROM promotions
+  WHERE (promotions.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+promotion_items,promotion_items_read,r,true,,"(promotion_id IN ( SELECT promotions.id
+   FROM promotions
+  WHERE (promotions.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+promotions,promotions_insert,a,true,,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+promotions,promotions_delete,d,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+promotions,promotions_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+promotions,promotions_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+purchase_order_items,purchase_order_items_insert,a,true,,,"(po_id IN ( SELECT purchase_orders.id
+   FROM purchase_orders
+  WHERE (purchase_orders.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))"
+purchase_order_items,purchase_order_items_delete,d,true,,"(po_id IN ( SELECT purchase_orders.id
+   FROM purchase_orders
+  WHERE (purchase_orders.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+purchase_order_items,purchase_order_items_read,r,true,,"(po_id IN ( SELECT purchase_orders.id
+   FROM purchase_orders
+  WHERE (purchase_orders.org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))))",
+purchase_orders,purchase_orders_insert,a,true,,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+purchase_orders,purchase_orders_delete,d,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+purchase_orders,purchase_orders_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+purchase_orders,purchase_orders_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+purchases,purchases_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+purchases,purchases_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+purchases,purchases_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+purchases,purchases_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+ra_notes,ra_notes_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+ra_notes,ra_notes_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+ra_notes,ra_notes_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+ra_notes,ra_notes_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+recipes,recipes_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+recipes,recipes_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+recipes,recipes_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+recipes,recipes_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+referrals,referrals_admin_all,*,true,,is_platform_admin(),is_platform_admin()
+referrals,referrals_select_own,r,true,,"((partner_id IN ( SELECT partners.id
+   FROM partners
+  WHERE (partners.user_id = auth.uid()))) OR is_platform_admin())",
+report_subscriptions,report_subs_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+report_subscriptions,report_subs_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+report_subscriptions,report_subs_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+report_subscriptions,report_subs_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+sales,sales_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+sales,sales_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+sales,sales_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+sales,sales_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+shifts,shifts_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+shifts,shifts_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+shifts,shifts_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+shifts,shifts_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+stock_adjustments,stock_adjustments_loc_insert,a,true,,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+stock_adjustments,stock_adjustments_loc_delete,d,true,,((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+stock_adjustments,stock_adjustments_loc_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+stock_adjustments,stock_adjustments_loc_update,w,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),((org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)) AND ((location_id IS NULL) OR (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))))
+stock_count_audit,stock_count_audit_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_count_audit,stock_count_audit_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+stock_count_audit,stock_count_audit_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+stock_count_audit,stock_count_audit_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_counts,stock_counts_write_location,*,true,,(location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)),(location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))
+stock_counts,stock_counts_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_counts,stock_counts_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+stock_counts,stock_counts_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+stock_counts,stock_counts_read_location,r,true,,(location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)),
+stock_counts,stock_counts_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_movements,stock_movements_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+stock_oversells,stock_oversells_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND (location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids))),
+stock_receipt_items,stock_receipt_items_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_receipt_items,stock_receipt_items_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+stock_receipt_items,stock_receipt_items_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+stock_receipt_items,stock_receipt_items_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_receipts,stock_receipts_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_receipts,stock_receipts_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+stock_receipts,stock_receipts_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+stock_receipts,stock_receipts_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+stock_transfers,stock_transfers_read,r,true,,((org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)) AND ((from_location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)) OR (to_location_id IN ( SELECT current_user_location_ids() AS current_user_location_ids)))),
+suppliers,suppliers_org_insert,a,true,,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+suppliers,suppliers_org_delete,d,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+suppliers,suppliers_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+suppliers,suppliers_org_update,w,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+wms_adjustments,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_catalog,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_dispatch_items,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_dispatches,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_inventory,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_locations,wms_locations_org_write,*,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+wms_locations,wms_locations_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+wms_org_settings,wms_org_settings_org_write,*,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids))
+wms_org_settings,wms_org_settings_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+wms_po_items,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_purchase_orders,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_receipt_items,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_receipts,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_stock_count_audit,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_stock_count_sessions,wms_scs_org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_stock_counts,org_isolation,*,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids))
+wms_transfer_items,wms_transfer_items_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+wms_transfers,wms_transfers_org_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+zra_config,zra_config_write,*,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+zra_config,zra_config_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
+zra_invoices,zra_invoices_write,*,true,,(org_id IN ( SELECT current_user_writable_org_ids() AS current_user_writable_org_ids)),
+zra_invoices,zra_invoices_read,r,true,,(org_id IN ( SELECT current_user_org_ids() AS current_user_org_ids)),
