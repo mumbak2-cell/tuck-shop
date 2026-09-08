@@ -145,27 +145,45 @@ export default function ShiftPage() {
   });
 
   // Load today's sales grouped by raw payment_method for the reconciliation
-  // panel. Refreshes whenever the operator opens or returns to the screen
-  // with an open shift, and when location switches.
+  // panel, plus today's credit-account settlements (customer_payments) —
+  // otherwise cash collected against a customer's balance never raises
+  // expected cash, and a cashier pocketing it shows no shortfall. Refreshes
+  // whenever the operator opens or returns to the screen with an open
+  // shift, and when location switches.
   useEffect(() => {
     async function loadMethodTotals() {
       if (!shift || !currentLocationId) return;
       setLoadingTotals(true);
       const today = localToday();
-      const { data } = await db
-        .from("sales")
-        .select("total_amount, payment_method, location_id, cash_back")
-        .eq("sale_date", today)
-        .eq("voided", false)
-        .eq("location_id", currentLocationId);
+      const [salesRes, paymentsRes] = await Promise.all([
+        db
+          .from("sales")
+          .select("total_amount, payment_method, location_id, cash_back")
+          .eq("sale_date", today)
+          .eq("voided", false)
+          .eq("location_id", currentLocationId),
+        db
+          .from("customer_payments")
+          .select("amount, payment_method, location_id")
+          .eq("payment_date", today)
+          .eq("location_id", currentLocationId),
+      ]);
       const sums = new Map<string, number>();
       let paidOut = 0;
-      ((data as { total_amount: number; payment_method: string; cash_back: number | null }[]) || []).forEach((s) => {
+      ((salesRes.data as { total_amount: number; payment_method: string; cash_back: number | null }[]) || []).forEach((s) => {
         const m = (s.payment_method || "Unknown").trim() || "Unknown";
         sums.set(m, (sums.get(m) || 0) + (Number(s.total_amount) || 0));
         // Recorded once per transaction, on its first line, so a plain sum is
         // the day's total rather than a multiple of it.
         paidOut += Number(s.cash_back) || 0;
+      });
+      // Rows from before migration 118 have no payment_method — they predate
+      // this fix and are excluded rather than guessed at (Unknown would
+      // silently misclassify them into a bucket).
+      ((paymentsRes.data as { amount: number; payment_method: string | null }[]) || []).forEach((p) => {
+        if (!p.payment_method) return;
+        const m = p.payment_method.trim() || "Unknown";
+        sums.set(m, (sums.get(m) || 0) + (Number(p.amount) || 0));
       });
       setCashBackPaidOut(paidOut);
       const rows: MethodTotal[] = Array.from(sums.entries())
