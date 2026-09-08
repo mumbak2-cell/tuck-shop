@@ -54,7 +54,8 @@ export default function CustomersPage() {
   const [historyCustomer, setHistoryCustomer] = useState<Customer | null>(null);
   const [statementCustomer, setStatementCustomer] = useState<Customer | null>(null);
 
-  const { currentLocationId, currentLocationName, currency } = useOrg();
+  const { currentLocationId, currentLocationName, currency, role } = useOrg();
+  const canEditCustomers = role !== "member"; // owner + admin (manager) only; matches migration 119 RLS
 
   // Server-side pagination via .range() — accepts the page explicitly rather
   // than reading it from state, so "Load more" can't race a stale closure
@@ -349,13 +350,15 @@ export default function CustomersPage() {
                   >
                     <ArrowDownCircle className="w-5 h-5" />
                   </button>
-                  <button
-                    onClick={() => openEdit(customer)}
-                    className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg touch-manipulation"
-                    title="Edit"
-                  >
-                    <Edit2 className="w-5 h-5" />
-                  </button>
+                  {canEditCustomers && (
+                    <button
+                      onClick={() => openEdit(customer)}
+                      className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-50 rounded-lg touch-manipulation"
+                      title="Edit"
+                    >
+                      <Edit2 className="w-5 h-5" />
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

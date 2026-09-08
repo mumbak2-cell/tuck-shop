@@ -230,9 +230,11 @@ export default function ExpensesPage() {
           <p className="text-sm text-gray-500 mt-1">Track daily outflows, expenses, and director withdrawals</p>
         </div>
         <div className="flex gap-2">
-          <Button variant="secondary" onClick={() => setShowCategories(true)}>
-            <Tag className="w-4 h-4 mr-2" /> Manage Categories
-          </Button>
+          {can("manage_expenses") && (
+            <Button variant="secondary" onClick={() => setShowCategories(true)}>
+              <Tag className="w-4 h-4 mr-2" /> Manage Categories
+            </Button>
+          )}
           <Button onClick={() => setShowAdd(true)}>
             <Plus className="w-4 h-4 mr-2" /> Record Expense
           </Button>
