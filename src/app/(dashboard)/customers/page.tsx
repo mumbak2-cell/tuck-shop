@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
+import { Select } from "@/components/ui/select";
 import {
   Users,
   Plus,
@@ -25,6 +26,14 @@ import { insertOrQueue } from "@/lib/offline-ops";
 import { localToday } from "@/lib/date-utils";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { computeOverdueForCustomers } from "@/lib/customer-ledger";
+import { readCache } from "@/lib/offline-store";
+
+interface PaymentMethodRow {
+  id: string;
+  name: string;
+  kind: string;
+  sort_order: number;
+}
 
 const PAGE_SIZE = 50;
 
@@ -597,8 +606,10 @@ function PaymentModal({
   customer: Customer;
   onSaved: () => void;
 }) {
-  const { orgId } = useOrg();
+  const { orgId, currentLocationId, currency } = useOrg();
   const [amount, setAmount] = useState("");
+  const [methods, setMethods] = useState<PaymentMethodRow[]>([]);
+  const [methodId, setMethodId] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [queuedNote, setQueuedNote] = useState<string | null>(null);
@@ -606,10 +617,32 @@ function PaymentModal({
   useEffect(() => {
     if (open) {
       setAmount("");
+      setMethodId("");
       setError("");
       setQueuedNote(null);
     }
   }, [open]);
+
+  // Load how the customer can pay — same list the till uses, minus "Credit
+  // Account" itself (settling a credit balance with credit makes no sense).
+  useEffect(() => {
+    if (!open || !orgId) return;
+    const cached = (readCache<PaymentMethodRow>(orgId, "payment_methods") ?? []).filter(
+      (m) => m.kind !== "credit"
+    );
+    if (!navigator.onLine) {
+      setMethods(cached);
+      return;
+    }
+    db.from("payment_methods")
+      .select("id, name, kind, sort_order")
+      .eq("active", true)
+      .neq("kind", "credit")
+      .order("sort_order")
+      .then(({ data }: { data: PaymentMethodRow[] | null }) => {
+        setMethods(data && data.length > 0 ? data : cached);
+      });
+  }, [open, orgId]);
 
   async function handleRecord() {
     const val = parseFloat(amount);
@@ -625,6 +658,17 @@ function PaymentModal({
       setError("Shop not loaded yet.");
       return;
     }
+    const method = methods.find((m) => m.id === methodId);
+    if (!method) {
+      setError("Select how the customer paid");
+      return;
+    }
+
+    // Open the WhatsApp confirmation window now, synchronous with the click,
+    // so the browser doesn't block it as a popup once we're past the first
+    // await below. Navigated (or closed, if the payment ends up queued
+    // offline) once we know the outcome.
+    const waWindow = customer.phone ? window.open("about:blank", "_blank") : null;
 
     setSaving(true);
     setError("");
@@ -632,6 +676,9 @@ function PaymentModal({
     // Queue or send the payment row. The replay handler for
     // insert_customer_payment also decrements the customer's balance once
     // online, atomically with the payment insert.
+    // location_id is the till actually collecting the cash (currentLocationId),
+    // not the customer's home branch — otherwise a multi-location shop
+    // attributes the cash to the wrong branch's reconciliation.
     const result = await insertOrQueue({
       org_id: orgId,
       table: "customer_payments",
@@ -640,14 +687,22 @@ function PaymentModal({
         customer_id: customer.id,
         payment_date: localToday(),
         amount: val,
-        location_id: (customer as { location_id?: string | null }).location_id ?? null,
+        payment_method: method.name,
+        location_id: currentLocationId,
       } as { id?: string } & Record<string, unknown>,
     });
 
     if (!result.ok) {
       setError(result.error || "Unknown error");
       setSaving(false);
+      waWindow?.close();
       return;
+    }
+
+    // Offline: the payment hasn't actually reached the customer's account
+    // yet, so don't send a confirmation for it.
+    if (result.queued) {
+      waWindow?.close();
     }
 
     // If we're online the insert already landed; decrement balance atomically (H1 fix).
@@ -674,6 +729,14 @@ function PaymentModal({
         onClose();
       }, 1800);
     } else {
+      if (waWindow && customer.phone) {
+        const intlPhone = toInternationalPhone(customer.phone, currency);
+        const newBalance = Math.max(customer.balance - val, 0);
+        const msg =
+          `Hi ${customer.name}, we've received your payment of ${formatZAR(val)} ` +
+          `(${method.name}). Your new balance is ${formatZAR(newBalance)}. Thank you!`;
+        waWindow.location.href = `https://wa.me/${intlPhone}?text=${encodeURIComponent(msg)}`;
+      }
       onSaved();
       onClose();
     }
@@ -696,6 +759,14 @@ function PaymentModal({
           placeholder="How much is the customer paying?"
           value={amount}
           onChange={(e) => setAmount(e.target.value)}
+        />
+
+        <Select
+          label="Paid via"
+          placeholder="How did the customer pay?"
+          value={methodId}
+          onChange={(e) => setMethodId(e.target.value)}
+          options={methods.map((m) => ({ value: m.id, label: m.name }))}
         />
 
         {amount && parseFloat(amount) > 0 && (

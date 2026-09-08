@@ -169,6 +169,10 @@ export interface CustomerPayment {
   payment_date: string;
   amount: number;
   created_at: string;
+  // How the customer settled this — feeds the daily cash-up so cash
+  // collected against a credit balance isn't invisible to reconciliation.
+  // Nullable: rows recorded before migration 118 have no method on record.
+  payment_method: string | null;
 }
 
 // Signed reconciliation entry: + increases what the customer owes, - decreases it.
