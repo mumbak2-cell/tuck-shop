@@ -168,11 +168,15 @@ export default function ShiftPage() {
           .eq("payment_date", today)
           .eq("location_id", currentLocationId),
       ]);
-      const sums = new Map<string, number>();
+      // Kept as two separate maps, not merged into one — a manager
+      // reconciling needs to see WHY the till holds what it holds, not just
+      // a bigger "Cash" number with no explanation.
+      const saleSums = new Map<string, number>();
+      const paymentSums = new Map<string, number>();
       let paidOut = 0;
       ((salesRes.data as { total_amount: number; payment_method: string; cash_back: number | null }[]) || []).forEach((s) => {
         const m = (s.payment_method || "Unknown").trim() || "Unknown";
-        sums.set(m, (sums.get(m) || 0) + (Number(s.total_amount) || 0));
+        saleSums.set(m, (saleSums.get(m) || 0) + (Number(s.total_amount) || 0));
         // Recorded once per transaction, on its first line, so a plain sum is
         // the day's total rather than a multiple of it.
         paidOut += Number(s.cash_back) || 0;
@@ -183,17 +187,25 @@ export default function ShiftPage() {
       ((paymentsRes.data as { amount: number; payment_method: string | null }[]) || []).forEach((p) => {
         if (!p.payment_method) return;
         const m = p.payment_method.trim() || "Unknown";
-        sums.set(m, (sums.get(m) || 0) + (Number(p.amount) || 0));
+        paymentSums.set(m, (paymentSums.get(m) || 0) + (Number(p.amount) || 0));
       });
       setCashBackPaidOut(paidOut);
-      const rows: MethodTotal[] = Array.from(sums.entries())
-        .map(([method, total]) => ({
+      const rows: MethodTotal[] = [
+        ...Array.from(saleSums.entries()).map(([method, total]) => ({
           method,
           total,
           bucket: paymentBucket(method),
           confirmed: false,
-        }))
-        .sort((a, b) => b.total - a.total);
+        })),
+        // Distinct label (not merged into the matching sale row) so the
+        // breakdown shows what the cash is actually for.
+        ...Array.from(paymentSums.entries()).map(([method, total]) => ({
+          method: `${method} (Credit Payment)`,
+          total,
+          bucket: paymentBucket(method),
+          confirmed: false,
+        })),
+      ].sort((a, b) => b.total - a.total);
       setMethodTotals(rows);
       setLoadingTotals(false);
     }
