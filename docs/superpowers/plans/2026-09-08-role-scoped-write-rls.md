@@ -24,76 +24,81 @@
 
 ---
 
-## Local rig protocol (amended after Task 1 BLOCKED)
+## Verification rig protocol (v3 — after 3 failed local-replay attempts)
 
-The local Supabase stack is a Postgres-only structural dry-run rig, **not** a
-faithful prod replica. Two host facts and one migration-series defect force
-this protocol; every task that runs `supabase` or `psql` follows it.
+The Tilify migration series **does not replay from zero**. Confirmed gaps:
+`066`/`067` (tenant data-guard `RAISE EXCEPTION`), `080` (REVOKE on
+`restock_at_location`, a function no migration creates), `097` (two files
+share the prefix → `schema_migrations_pkey` collision), and `098`–`118`
+were never reached. A local `supabase start` / `db reset` is therefore **not
+used by this plan**. Also: the npm `supabase` wrapper is broken on this host
+(`uv_spawn`), and `psql` is not on PATH.
 
-1. **Supabase CLI:** the npm `supabase` wrapper is broken on this host
-   (`uv_spawn EUNKNOWN`). Use the legacy Go binary directly. Define once per
-   shell:
-   ```bash
-   SB="./node_modules/@supabase/cli-windows-x64/bin/supabase-go.exe"
-   ```
-   Wherever a task step says `npx supabase X`, run `"$SB" X`.
-2. **psql is not on PATH.** Wherever a task step says `psql "$LOCAL_DB" ...`,
-   run it through the DB container:
-   ```bash
-   DBX(){ docker exec -i supabase_db_tilify psql -U postgres -d postgres "$@"; }
-   ```
-   (container name from `docker ps` — expected `supabase_db_tilify`). For
-   `-f file.sql`, pipe it: `DBX < file.sql` or `docker exec -i supabase_db_tilify psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < file.sql`.
-3. **Migrations `066` and `067` abort a fresh `supabase start` / `db reset`.**
-   Both are tenant-specific one-shot **data** fixes (an `UPDATE products`
-   markup backfill; an `app_settings.currency` fix for one org) guarded by a
-   top-level `RAISE EXCEPTION` when `mariah.chilufya@gmail.com` owns no org —
-   which is always true on a seedless local DB. They create **no** table,
-   column, constraint, index, or policy, so the local `pg_policy` and
-   column-presence state with them skipped is identical to a full apply.
-   **Rig prep** — before every `supabase start` and every `db reset`:
-   ```bash
-   for n in 066_backfill_cost_prices_50pct_markup 067_fix_chichi_currency_zmw; do
-     [ -f "supabase/migrations/$n.sql" ] && mv "supabase/migrations/$n.sql" "supabase/migrations/$n.sql.disabled"
-   done
-   ```
-   **Rig restore** — as soon as the dumps / that reset's verification are
-   captured, and unconditionally in Task 14:
-   ```bash
-   for n in 066_backfill_cost_prices_50pct_markup 067_fix_chichi_currency_zmw; do
-     [ -f "supabase/migrations/$n.sql.disabled" ] && mv "supabase/migrations/$n.sql.disabled" "supabase/migrations/$n.sql"
-   done
-   git checkout -- supabase/migrations/  # belt-and-braces; the tracked .sql content was never edited
-   ```
-   `*.sql.disabled` is untracked scratch — never `git add` it; delete any
-   stragglers in Task 14. The migration files' tracked content is never
-   modified, only temporarily renamed on disk.
-   **Also — missing-function drift:** migration `080` REVOKEs on
-   `restock_at_location(uuid,uuid,integer)`, a function no migration ever
-   `CREATE`s (prod-only). Before `"$SB" start`, after rig-prep, seed a stub
-   so the REVOKE resolves:
-   ```bash
-   docker exec -i supabase_db_tilify psql -U postgres -d postgres -c \
-     "CREATE OR REPLACE FUNCTION public.restock_at_location(uuid,uuid,integer) RETURNS void LANGUAGE sql AS 'SELECT null::void';" 2>/dev/null || true
-   ```
-   That can't run before the DB container exists, so instead: create a
-   throwaway pre-migration file `supabase/migrations/000_rig_stubs.sql`
-   (renamed to `.disabled` / deleted in restore, never committed) containing
-   that `CREATE FUNCTION` plus any further stubs later gaps reveal. If a
-   **4th** distinct replay gap appears, STOP — the controller switches the
-   rig to a synthetic policy-layer DB built from the dump instead of a full
-   replay. Known repo bug to surface at the end (not this plan's job):
-   `080` revokes signature `(uuid,uuid,integer)` but call sites pass
-   `(uuid,integer,uuid)`.
-4. **Ruling (ledgered):** the local rig skips `066`/`067`; the **owner's
-   production `pg_policy` dump remains the final authority** (Task 15
-   checklist already diffs local vs prod). If `066`/`067` had a latent
-   schema effect this misses — they don't, they are `UPDATE`-only — the
-   Task 15 prod diff catches it. Cost if wrong: low.
-5. `066`/`067` also mean **`supabase migration list --local` and
-   `migration repair` are not used locally** — the CLI's migration ledger is
-   irrelevant to this rig. `db reset` re-runs the on-disk `*.sql` set; that
-   is the only mechanism this plan needs.
+Verification instead has three legs:
+
+### Leg 1 — authoritative dump (Task 1a, needs the owner)
+
+The owner runs the two `SELECT`s from the spec's "Governing principle"
+section against the **live** project (`pkufxpyrvcygobrgneep`) in the
+Supabase SQL Editor and pastes the results back. They are committed as
+`docs/superpowers/plans/artifacts/pg_policy_pre119.tsv` and
+`columns_pre119.tsv` (no `.local` suffix — this is prod truth). Every
+authoring task transcribes from these. This is the spec's stated governing
+principle; the local rig was only ever a convenience reproduction of it.
+
+### Leg 2 — synthetic policy-layer DB (Task 1b; bare Postgres, no Supabase)
+
+A generated schema that reproduces **only** the RLS surface migration 119
+touches, built mechanically from the Leg-1 dump:
+- `docker run --rm -d --name rls_rig -e POSTGRES_PASSWORD=x -p 5599:5432 postgres:16`
+- `RIGX(){ docker exec -i rls_rig psql -U postgres -d postgres "$@"; }`
+- `artifacts/synth_schema.sql` (generated by `artifacts/build_synth.py` from
+  the two `.tsv` files): for every table in the dump — `CREATE TABLE public.<t> (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, location_id uuid,
+  recorded_by_user_id uuid, <any other column name referenced in that table's
+  policy exprs> text)`; stub SETOF-uuid functions
+  `current_user_org_ids()`, `current_user_writable_org_ids()`,
+  `current_user_location_ids()` (each `RETURNS SETOF uuid LANGUAGE sql AS
+  'SELECT null::uuid WHERE false'`); a real `org_members(org_id uuid, user_id
+  uuid, role text)`; then every `CREATE POLICY` transcribed verbatim from the
+  dump rows; `ALTER TABLE ... ENABLE ROW LEVEL SECURITY` per table.
+- Load: `RIGX -v ON_ERROR_STOP=1 -f - < artifacts/synth_schema.sql`. It
+  MUST load clean — if a policy expr references a column `build_synth.py`
+  didn't provide, add that column name to the generator and regenerate
+  (this itself validates the dump is internally consistent).
+
+`artifacts/rig_load.sh` = drop+recreate the `rls_rig` DB, load
+`synth_schema.sql`, then load `supabase/migrations/119_role_scoped_write_rls.sql`.
+**Wherever a later task says "`npx supabase db reset && psql … -f 119…sql`",
+it means `bash artifacts/rig_load.sh`; wherever it says `psql "$LOCAL_DB"
+-f X`, it means `RIGX -v ON_ERROR_STOP=1 -f - < X`.**
+
+The synthetic DB proves: 119 parses; every `DROP POLICY` name exists;
+every `CREATE POLICY` expr is valid SQL against the real column set; the
+coverage / expr-diff / no-new-surface queries (Q2–Q5) run and return clean.
+It does **not** prove runtime RLS behaviour (stub functions return nothing)
+— that is Leg 3.
+
+### Leg 3 — owner apply to production (Task 15)
+
+Unchanged: owner applies `119` on a full closed day, runs `verification.sql`
++ the impersonation + throwaway-member runtime tests. This is the only leg
+that exercises real `auth.uid()` / real rows.
+
+### Teardown
+
+`docker rm -f rls_rig` (Task 14). No Supabase stack, no migration renames,
+no `.sql.disabled` / `000_rig_stubs.sql` — none of that is used in v3. If a
+stray `supabase_db_tilify` container or `*.disabled` file exists from a
+Task-1 attempt, remove it in Task 14.
+
+### Known repo issues surfaced (NOT this plan's job — report at the end)
+
+- Migration series not replayable from zero (`066`/`067` guards, `080`
+  missing `restock_at_location`, `097` duplicate prefix, `098`–`118`
+  unexercised).
+- `080` REVOKEs `restock_at_location(uuid,uuid,integer)` but call sites pass
+  `(uuid,integer,uuid)` — signature mismatch.
 
 ---
 
@@ -102,8 +107,8 @@ this protocol; every task that runs `supabase` or `psql` follows it.
 | Path | Responsibility |
 |---|---|
 | `supabase/migrations/119_role_scoped_write_rls.sql` | the migration — helper + Part 2 canonical blocks + Part 3 explicit blocks |
-| `docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv` | local dump of `pg_policy` after migrations 001–118 (reference data) |
-| `docs/superpowers/plans/artifacts/columns_pre119.local.tsv` | local dump of `org_id`/`location_id`/`recorded_by_user_id` column presence |
+| `docs/superpowers/plans/artifacts/pg_policy_pre119.tsv` | local dump of `pg_policy` after migrations 001–118 (reference data) |
+| `docs/superpowers/plans/artifacts/columns_pre119.tsv` | local dump of `org_id`/`location_id`/`recorded_by_user_id` column presence |
 | `docs/superpowers/plans/artifacts/table-classification.md` | every public table → bucket, real policy names, verbatim current exprs, planned new expr |
 | `docs/superpowers/plans/artifacts/client-guard-inventory.md` | member-reachable `src/` writes to Bucket A tables → guard needed / not |
 | `docs/superpowers/plans/artifacts/verification.sql` | the 4 post-apply verification queries, runnable as-is |
@@ -116,60 +121,110 @@ this protocol; every task that runs `supabase` or `psql` follows it.
 ## Task 1: Local Supabase rig + authoritative dumps
 
 **Files:**
-- Create: `docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv`
-- Create: `docs/superpowers/plans/artifacts/columns_pre119.local.tsv`
+- Create: `docs/superpowers/plans/artifacts/pg_policy_pre119.tsv`
+- Create: `docs/superpowers/plans/artifacts/columns_pre119.tsv`
 
 **Interfaces:**
-- Produces: the two `.tsv` dumps every later task reads. Column order for `pg_policy_pre119.local.tsv`: `tbl, polname, polcmd, polpermissive, roles, using_expr, check_expr`.
+- Produces: `docs/superpowers/plans/artifacts/pg_policy_pre119.tsv` (cols: `tbl, polname, polcmd, polpermissive, roles, using_expr, check_expr`) and `columns_pre119.tsv` (cols: `table_name, column_name`) — every later task reads these.
 
-Follow the **Local rig protocol** section above. `SB` and `DBX` as defined there.
+See the **Verification rig protocol** section above. Task 1 has two sub-parts; do 1a first.
 
-- [ ] **Step 1: Rig prep + start the local stack**
+### Task 1a — obtain the authoritative dumps (owner-provided)
 
-Run the rig-prep block (renames `066`/`067` aside), then:
-`cd /c/26June/Dev/tilify && "$SB" start`
-Expected: containers come up; prints `DB URL` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`). Migrations `001`–`118` (minus the two disabled) + `20260819000000_*` apply. If a **different** migration fails (not `066`/`067`), STOP and report — do not proceed with a partial schema.
+- [ ] **Step 1: Request the dumps**
 
-- [ ] **Step 2: Confirm the DB is up and migrations ran**
+The controller asks the owner to run these two queries in the Supabase SQL Editor for project `pkufxpyrvcygobrgneep` and paste the tab-separated results back:
 
-Run: `docker ps --format '{{.Names}} {{.Status}}' | grep supabase_db_tilify` and `docker exec -i supabase_db_tilify psql -U postgres -d postgres -c "SELECT count(*) FROM pg_policy;"`
-Expected: container healthy; policy count > 100.
-
-- [ ] **Step 3: Dump `pg_policy`**
-
-```bash
-docker exec -i supabase_db_tilify psql -U postgres -d postgres -At -F $'\t' -c "
+```sql
+-- DUMP 1 (pg_policy)
 SELECT c.relname, p.polname, p.polcmd, p.polpermissive,
        (SELECT string_agg(r.rolname,',') FROM pg_roles r WHERE r.oid = ANY (p.polroles)),
        pg_get_expr(p.polqual, p.polrelid),
        pg_get_expr(p.polwithcheck, p.polrelid)
 FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
 WHERE c.relnamespace = 'public'::regnamespace
-ORDER BY 1,3,2;" > docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv
-```
+ORDER BY 1,3,2;
 
-- [ ] **Step 4: Dump column presence**
-
-```bash
-docker exec -i supabase_db_tilify psql -U postgres -d postgres -At -F $'\t' -c "
+-- DUMP 2 (columns)
 SELECT table_name, column_name FROM information_schema.columns
 WHERE table_schema='public' AND column_name IN ('org_id','location_id','recorded_by_user_id')
-ORDER BY 1,2;" > docs/superpowers/plans/artifacts/columns_pre119.local.tsv
+ORDER BY 1,2;
 ```
 
-- [ ] **Step 5: Rig restore + sanity-check the dumps**
+- [ ] **Step 2: Write the two files**
 
-Run the rig-restore block immediately (066/067 back in place). Then:
-`wc -l docs/superpowers/plans/artifacts/*.local.tsv`
-Expected: `pg_policy` dump has ~150–250 rows; `grep 'shifts' pg_policy_pre119.local.tsv` shows its real write-policy names; `grep 'shifts.*location_id' columns_pre119.local.tsv` returns a row (confirms spec open item). Record the `shifts` policy names + whether `location_id` is present in the report.
-Also run `git status --short supabase/migrations/` — expected: **no changes** (the two `.sql` files restored, no `.sql.disabled` left).
+Save DUMP 1 output verbatim (tab-separated, one row per line, no header) to `docs/superpowers/plans/artifacts/pg_policy_pre119.tsv`; DUMP 2 to `columns_pre119.tsv`.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 3: Sanity-check**
+
+`wc -l` both files. `pg_policy_pre119.tsv` ≈ 150–300 rows. `grep '^shifts' pg_policy_pre119.tsv` → note its write-policy names (`_loc_*`? `_org_*`? bare?). `grep '^shifts	location_id' columns_pre119.tsv` → present? Record both in the report (resolves a spec open item). `grep -c 'org_isolation' pg_policy_pre119.tsv` → note the FOR-ALL count.
+
+- [ ] **Step 4: Commit**
 
 ```bash
-git add docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv docs/superpowers/plans/artifacts/columns_pre119.local.tsv
-git status --short   # verify ONLY the two artifacts staged, no migration files
-git commit -m "Add local pg_policy + column dumps (pre-119 reference)
+git add docs/superpowers/plans/artifacts/pg_policy_pre119.tsv docs/superpowers/plans/artifacts/columns_pre119.tsv
+git status --short   # ONLY these two staged
+git commit -m "Add prod pg_policy + column dumps (pre-119, owner-provided)
+
+<trailer>"
+```
+
+### Task 1b — synthetic policy-layer DB
+
+- [ ] **Step 5: Start the bare Postgres container**
+
+```bash
+docker rm -f rls_rig 2>/dev/null; docker run --rm -d --name rls_rig -e POSTGRES_PASSWORD=x -p 5599:5432 postgres:16
+sleep 5
+docker exec -i rls_rig psql -U postgres -d postgres -c "SELECT version();"
+```
+Expected: Postgres 16 responds.
+
+- [ ] **Step 6: Write `build_synth.py`**
+
+Create `docs/superpowers/plans/artifacts/build_synth.py`. It reads the two `.tsv` files and writes `synth_schema.sql`:
+- collect every distinct `tbl`; for each emit `CREATE TABLE public.<tbl> (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, location_id uuid, recorded_by_user_id uuid);` then `ALTER TABLE public.<tbl> ADD COLUMN IF NOT EXISTS <c> text;` for every other bare identifier that appears in that table's policy `using_expr`/`check_expr` and is not a keyword/function/known column (regex `[a-z_][a-z0-9_]*` minus a stoplist: `select`,`from`,`where`,`and`,`or`,`in`,`exists`,`current_user_org_ids`,`current_user_writable_org_ids`,`current_user_location_ids`,`current_user_manager_org_ids`,`auth`,`uid`,`org_id`,`location_id`,`recorded_by_user_id`,`true`,`false`,`null`,`is`,`not`,`id`).
+- emit stub functions:
+  ```sql
+  CREATE OR REPLACE FUNCTION public.current_user_org_ids() RETURNS SETOF uuid LANGUAGE sql AS $$ SELECT null::uuid WHERE false $$;
+  -- same for current_user_writable_org_ids, current_user_location_ids
+  CREATE SCHEMA IF NOT EXISTS auth;
+  CREATE OR REPLACE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$ SELECT null::uuid $$;
+  CREATE TABLE IF NOT EXISTS public.org_members (id uuid PRIMARY KEY DEFAULT gen_random_uuid(), org_id uuid, user_id uuid, role text);
+  ```
+- for every dump row emit the `CREATE POLICY "<polname>" ON public.<tbl> FOR <cmd> [TO <roles>] [USING (<using_expr>)] [WITH CHECK (<check_expr>)];` (`cmd` from `polcmd`: r→SELECT, a→INSERT, w→UPDATE, d→DELETE, *→ALL). Skip empty exprs.
+- `ALTER TABLE public.<tbl> ENABLE ROW LEVEL SECURITY;` once per table.
+
+- [ ] **Step 7: Generate + load**
+
+```bash
+python docs/superpowers/plans/artifacts/build_synth.py
+docker exec -i rls_rig psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < docs/superpowers/plans/artifacts/synth_schema.sql
+```
+Expected: loads clean. If it fails on a missing column, add that identifier to `build_synth.py`'s capture and regenerate. If it fails because a policy expr calls a function neither stubbed nor built-in, add a stub. Iterate until clean. Record any identifier you had to add.
+
+- [ ] **Step 8: Write `rig_load.sh`**
+
+```bash
+cat > docs/superpowers/plans/artifacts/rig_load.sh <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+D="docs/superpowers/plans/artifacts"
+docker exec -i rls_rig psql -U postgres -d postgres -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public; DROP SCHEMA IF EXISTS auth CASCADE;" >/dev/null
+docker exec -i rls_rig psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < "$D/synth_schema.sql" >/dev/null
+docker exec -i rls_rig psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < supabase/migrations/119_role_scoped_write_rls.sql
+echo "rig_load OK"
+SH
+chmod +x docs/superpowers/plans/artifacts/rig_load.sh
+```
+(119 does not exist yet — Task 3 creates it; `rig_load.sh` is exercised from Task 3 onward.)
+
+- [ ] **Step 9: Commit**
+
+```bash
+git add docs/superpowers/plans/artifacts/build_synth.py docs/superpowers/plans/artifacts/synth_schema.sql docs/superpowers/plans/artifacts/rig_load.sh
+git status --short
+git commit -m "Add synthetic policy-layer rig (build_synth.py, synth_schema.sql, rig_load.sh)
 
 <trailer>"
 ```
@@ -182,7 +237,7 @@ git commit -m "Add local pg_policy + column dumps (pre-119 reference)
 - Create: `docs/superpowers/plans/artifacts/table-classification.md`
 
 **Interfaces:**
-- Consumes: `pg_policy_pre119.local.tsv`, `columns_pre119.local.tsv` from Task 1.
+- Consumes: `pg_policy_pre119.tsv`, `columns_pre119.tsv` from Task 1a.
 - Produces: `table-classification.md` — the authoritative per-table spec every authoring task (3–8) transcribes from. One row per (table, command) with: real `polname`, current `using_expr`, current `check_expr`, bucket, planned new `polname` (usually same), planned new expr.
 
 - [ ] **Step 1: Build the classification table**
@@ -249,7 +304,7 @@ FROM pg_proc WHERE proname = 'current_user_manager_org_ids';
 
 - [ ] **Step 2: Run Q1 — expect zero rows**
 
-Run: `psql "$LOCAL_DB" -f docs/superpowers/plans/artifacts/verification.sql`
+Run: `docker exec -i rls_rig psql -U postgres -d postgres -f - < docs/superpowers/plans/artifacts/verification.sql`
 Expected: 0 rows (function does not exist yet).
 
 - [ ] **Step 3: Write the migration skeleton + helper**
@@ -297,18 +352,17 @@ COMMIT;
 
 - [ ] **Step 4: Apply locally**
 
-Run: `psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql`
-Expected: `BEGIN … CREATE FUNCTION … REVOKE … GRANT … COMMIT`, no error.
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
+Expected: `rig_load OK` — synth schema loads, then `119` applies (`BEGIN … CREATE FUNCTION … REVOKE … GRANT … COMMIT`), no error.
 
 - [ ] **Step 5: Run Q1 — expect one row, correct attributes**
 
-Run: `psql "$LOCAL_DB" -f docs/superpowers/plans/artifacts/verification.sql`
+Run: `docker exec -i rls_rig psql -U postgres -d postgres -f - < docs/superpowers/plans/artifacts/verification.sql`
 Expected: 1 row: `provolatile = s` (STABLE), `prosecdef = t`, `proconfig = {search_path=""}`, ACL grants `authenticated` and not `anon`/`PUBLIC`.
 
-- [ ] **Step 6: Reset local DB to a clean pre-119 state for the next task**
+- [ ] **Step 6: (no reset needed)**
 
-Run: `npx supabase db reset` (re-applies 001–118 only, since 119 is not yet in a state the CLI tracks — confirm `migration list --local` shows 119 absent). If `db reset` picks up 119 as a file, temporarily move it out, reset, move it back — the local rig must start each authoring task at pre-119.
-Note for executor: simpler alternative — keep a SQL script `artifacts/_local_apply_119_sofar.sql` that is just Parts 1..N written so far, and after each `db reset` run it to reach "pre-next-part" state.
+`rig_load.sh` drops and recreates the whole schema on every call, so each later task starts clean automatically. Nothing to do here.
 
 - [ ] **Step 7: Commit**
 
@@ -380,20 +434,25 @@ Do **not** normalise `current_user_org_ids()` ↔ `current_user_writable_org_ids
 
 - [ ] **Step 4: Apply locally & run Q2**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
 Expected: applies clean.
 Run Q2. Expected: the Part-2 tables have dropped out of the result; only not-yet-done buckets (FOR ALL, child, `_loc_` not in this task) remain.
 
 - [ ] **Step 5: Run Q3 expr-diff**
 
+Dump the post-119 policy state from the rig with the same query shape as the Task 1a DUMP 1, then diff:
 ```bash
-psql "$LOCAL_DB" -At -F $'\t' -c "<same SELECT as Task 1 Step 3>" > /tmp/pg_policy_post119.tsv
-# For each Part-2 table, assert new expr == old expr + ' AND org_id IN (SELECT current_user_manager_org_ids())'
-python - <<'EOF'
-# load both tsvs, join on (tbl,polcmd) for Part-2 tables, assert the only delta is the appended clause
-EOF
+docker exec -i rls_rig psql -U postgres -d postgres -At -F $'\t' -c "
+SELECT c.relname, p.polname, p.polcmd, p.polpermissive,
+       (SELECT string_agg(r.rolname,',') FROM pg_roles r WHERE r.oid = ANY (p.polroles)),
+       pg_get_expr(p.polqual, p.polrelid), pg_get_expr(p.polwithcheck, p.polrelid)
+FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
+WHERE c.relnamespace='public'::regnamespace ORDER BY 1,3,2;" > docs/superpowers/plans/artifacts/pg_policy_post119.tsv
+python docs/superpowers/plans/artifacts/exprdiff.py   # write this helper: joins pre/post on (tbl,polname,polcmd),
+                                                      # for every touched policy asserts new == old + ' AND org_id IN (SELECT current_user_manager_org_ids())'
+                                                      # (or, for Bucket B member-allowed commands, new == old), prints every violation
 ```
-Expected: for every Part-2 policy, the sole difference is the appended gate. Any other delta → fix the block (you copied the expr wrong).
+Expected: for every Part-2 policy, the sole difference is the appended gate. Any other delta → fix the block (you copied the expr wrong). Commit `exprdiff.py` alongside.
 
 - [ ] **Step 6: Commit**
 
@@ -432,7 +491,7 @@ CREATE POLICY "stock_adjustments_loc_insert" ON public.stock_adjustments FOR INS
 
 - [ ] **Step 3: Apply locally, run Q2 + Q3**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
 Q2 expected: Part-3 tables now gone from the result. `sales` — if its `_loc_update/_delete` were dropped, Q2's "policy exists but lacks gate" won't fire for them (they don't exist); add a one-off assert that `sales` has no `w`/`d` policy.
 Q3 expected: Part-3 policies differ from pre-119 only by the appended clause (and for `sales` update/delete, they're absent — expected).
 
@@ -479,7 +538,7 @@ Note: a `FOR ALL` policy usually has only `polqual` (USING), no `polwithcheck` �
 
 - [ ] **Step 2: Apply locally, verify member read is preserved**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f …119….sql`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
 Add Q4 to `verification.sql`:
 ```sql
 -- Q4: every FOR-ALL-decompose table now has exactly 4 policies (r,a,w,d) and the SELECT one has NO gate.
@@ -531,7 +590,7 @@ If a child command has **no** existing policy today (e.g. `promotion_items` UPDA
 
 - [ ] **Step 2: Apply locally**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f …119….sql`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
 Expected: clean apply (this is the step that would have thrown `column "org_id" does not exist` under the v1 loop — confirm it doesn't).
 Run Q2 (child tables use a parent subquery referencing the helper — Q2's `LIKE '%current_user_manager_org_ids%'` still matches). Expected: child tables clean.
 
@@ -563,12 +622,12 @@ If Task 2 Step 3 resolved `customer_payments` hardening to **option B**, add the
 
 - [ ] **Step 2: Apply locally — full migration now complete**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh`
 Expected: clean apply end to end.
 
 - [ ] **Step 3: Run the full verification suite**
 
-Run: `psql "$LOCAL_DB" -f docs/superpowers/plans/artifacts/verification.sql`
+Run: `docker exec -i rls_rig psql -U postgres -d postgres -f - < docs/superpowers/plans/artifacts/verification.sql`
 Expected:
 - Q1: helper correct.
 - Q2: **0 rows** (every Bucket A IUD policy gated in the right clause).
@@ -594,12 +653,12 @@ git commit -m "119 Part 6: Bucket B — keep member INSERT paths, gate the rest
 
 - [ ] **Step 1: Re-run the migration on an already-migrated DB (idempotency)**
 
-Run: `psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql` (a second time, no reset).
+Run: `docker exec -i rls_rig psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < supabase/migrations/119_role_scoped_write_rls.sql` (a second time, no reset).
 Expected: clean — every `DROP POLICY IF EXISTS` + `CREATE` re-runs, `CREATE OR REPLACE FUNCTION` re-runs. No "policy already exists" error.
 
 - [ ] **Step 2: Full reset + apply + full verification, capture output**
 
-Run: `npx supabase db reset && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql && psql "$LOCAL_DB" -f docs/superpowers/plans/artifacts/verification.sql | tee docs/superpowers/plans/artifacts/verification_local_output.txt`
+Run: `bash docs/superpowers/plans/artifacts/rig_load.sh && docker exec -i rls_rig psql -U postgres -d postgres -f - < docs/superpowers/plans/artifacts/verification.sql | tee docs/superpowers/plans/artifacts/verification_local_output.txt`
 Expected: Q2 = 0 rows, Q5 = 0 rows, Q4 all-pass, Q1 correct.
 
 - [ ] **Step 3: Minimal RLS behaviour probe (local, seeded)**
@@ -713,7 +772,7 @@ git commit -m "Guard <screen(s)> for cashier accounts under role-scoped write RL
 - Create: `docs/superpowers/plans/artifacts/rollback_119.sql`
 
 **Interfaces:**
-- Consumes: `pg_policy_pre119.local.tsv` (Task 1).
+- Consumes: `pg_policy_pre119.tsv` (Task 1).
 - Produces: a script that returns `pg_policy` for every touched table to its exact pre-119 state and drops the helper.
 
 - [ ] **Step 1: Generate from the dump**
@@ -722,7 +781,7 @@ For every policy the migration `DROP`s or `CREATE`s (enumerate from `119_role_sc
 ```sql
 DROP POLICY IF EXISTS "<current/new name>" ON public.<t>;
 ```
-then, for every row in `pg_policy_pre119.local.tsv` belonging to a touched table:
+then, for every row in `pg_policy_pre119.tsv` belonging to a touched table:
 ```sql
 CREATE POLICY "<pre119 polname>" ON public.<t> FOR <cmd from polcmd>
   [USING (<pre119 using_expr>)] [WITH CHECK (<pre119 check_expr>)];
@@ -734,12 +793,18 @@ Wrap in `BEGIN; SET LOCAL lock_timeout='5s'; … DROP FUNCTION IF EXISTS public.
 
 Run:
 ```bash
-npx supabase db reset \
- && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f supabase/migrations/119_role_scoped_write_rls.sql \
- && psql "$LOCAL_DB" -v ON_ERROR_STOP=1 -f docs/superpowers/plans/artifacts/rollback_119.sql \
- && psql "$LOCAL_DB" -At -F $'\t' -c "<Task 1 Step 3 SELECT>" > /tmp/pg_policy_after_rollback.tsv \
- && diff <(sort docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv) <(sort /tmp/pg_policy_after_rollback.tsv)
+D=docs/superpowers/plans/artifacts
+bash $D/rig_load.sh \
+ && docker exec -i rls_rig psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < $D/rollback_119.sql \
+ && docker exec -i rls_rig psql -U postgres -d postgres -At -F $'\t' -c "
+     SELECT c.relname,p.polname,p.polcmd,p.polpermissive,
+       (SELECT string_agg(r.rolname,',') FROM pg_roles r WHERE r.oid = ANY(p.polroles)),
+       pg_get_expr(p.polqual,p.polrelid),pg_get_expr(p.polwithcheck,p.polrelid)
+     FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid
+     WHERE c.relnamespace='public'::regnamespace ORDER BY 1,3,2;" > /tmp/pg_policy_after_rollback.tsv \
+ && diff <(sort $D/pg_policy_pre119.tsv) <(sort /tmp/pg_policy_after_rollback.tsv)
 ```
+(`rig_load.sh` already loads synth + 119; the rollback then runs on top.)
 Expected: `diff` is empty — post-rollback policy state is byte-identical to pre-119. Any difference → fix `rollback_119.sql`.
 
 - [ ] **Step 3: Commit**
@@ -766,7 +831,7 @@ Sections:
 - **Scope** — link the spec + this plan + `table-classification.md`.
 - **Local verification** — paste `verification_local_output.txt` highlights (Q2=0, Q5=0, Q4 pass, behaviour probe pass).
 - **Owner apply checklist** (closed day):
-  1. Re-run the two dump queries from the spec against **prod**; `diff` against `pg_policy_pre119.local.tsv`. If prod has drift on a touched table, STOP and ping — the migration/rollback may need a tweak.
+  1. Re-run the two dump queries from the spec against **prod**; `diff` against `pg_policy_pre119.tsv`. If prod has drift on a touched table, STOP and ping — the migration/rollback may need a tweak.
   2. Paste `supabase/migrations/119_role_scoped_write_rls.sql` into the SQL Editor, run.
   3. Run `docs/superpowers/plans/artifacts/verification.sql`; confirm Q2=0, Q5=0, Q4 pass, Q1 correct.
   4. Impersonation checks: helper returns non-empty for a known admin, empty for a known member; `SELECT DISTINCT role FROM org_members` = `{owner,admin,member}`.
@@ -792,7 +857,7 @@ git commit -m "Add PR body + owner apply/verify checklist for migration 119
 
 - [ ] **Step 1: Stop the local stack**
 
-Run: `npx supabase stop`
+Run: `docker rm -f rls_rig`
 Expected: containers down. (Local dumps stay committed as reference.)
 
 - [ ] **Step 2: Final tree check**
