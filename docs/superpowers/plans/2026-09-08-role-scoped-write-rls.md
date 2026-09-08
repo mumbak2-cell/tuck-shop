@@ -24,6 +24,62 @@
 
 ---
 
+## Local rig protocol (amended after Task 1 BLOCKED)
+
+The local Supabase stack is a Postgres-only structural dry-run rig, **not** a
+faithful prod replica. Two host facts and one migration-series defect force
+this protocol; every task that runs `supabase` or `psql` follows it.
+
+1. **Supabase CLI:** the npm `supabase` wrapper is broken on this host
+   (`uv_spawn EUNKNOWN`). Use the legacy Go binary directly. Define once per
+   shell:
+   ```bash
+   SB="./node_modules/@supabase/cli-windows-x64/bin/supabase-go.exe"
+   ```
+   Wherever a task step says `npx supabase X`, run `"$SB" X`.
+2. **psql is not on PATH.** Wherever a task step says `psql "$LOCAL_DB" ...`,
+   run it through the DB container:
+   ```bash
+   DBX(){ docker exec -i supabase_db_tilify psql -U postgres -d postgres "$@"; }
+   ```
+   (container name from `docker ps` — expected `supabase_db_tilify`). For
+   `-f file.sql`, pipe it: `DBX < file.sql` or `docker exec -i supabase_db_tilify psql -U postgres -d postgres -v ON_ERROR_STOP=1 -f - < file.sql`.
+3. **Migrations `066` and `067` abort a fresh `supabase start` / `db reset`.**
+   Both are tenant-specific one-shot **data** fixes (an `UPDATE products`
+   markup backfill; an `app_settings.currency` fix for one org) guarded by a
+   top-level `RAISE EXCEPTION` when `mariah.chilufya@gmail.com` owns no org —
+   which is always true on a seedless local DB. They create **no** table,
+   column, constraint, index, or policy, so the local `pg_policy` and
+   column-presence state with them skipped is identical to a full apply.
+   **Rig prep** — before every `supabase start` and every `db reset`:
+   ```bash
+   for n in 066_backfill_cost_prices_50pct_markup 067_fix_chichi_currency_zmw; do
+     [ -f "supabase/migrations/$n.sql" ] && mv "supabase/migrations/$n.sql" "supabase/migrations/$n.sql.disabled"
+   done
+   ```
+   **Rig restore** — as soon as the dumps / that reset's verification are
+   captured, and unconditionally in Task 14:
+   ```bash
+   for n in 066_backfill_cost_prices_50pct_markup 067_fix_chichi_currency_zmw; do
+     [ -f "supabase/migrations/$n.sql.disabled" ] && mv "supabase/migrations/$n.sql.disabled" "supabase/migrations/$n.sql"
+   done
+   git checkout -- supabase/migrations/  # belt-and-braces; the tracked .sql content was never edited
+   ```
+   `*.sql.disabled` is untracked scratch — never `git add` it; delete any
+   stragglers in Task 14. The migration files' tracked content is never
+   modified, only temporarily renamed on disk.
+4. **Ruling (ledgered):** the local rig skips `066`/`067`; the **owner's
+   production `pg_policy` dump remains the final authority** (Task 15
+   checklist already diffs local vs prod). If `066`/`067` had a latent
+   schema effect this misses — they don't, they are `UPDATE`-only — the
+   Task 15 prod diff catches it. Cost if wrong: low.
+5. `066`/`067` also mean **`supabase migration list --local` and
+   `migration repair` are not used locally** — the CLI's migration ledger is
+   irrelevant to this rig. `db reset` re-runs the on-disk `*.sql` set; that
+   is the only mechanism this plan needs.
+
+---
+
 ## File Structure
 
 | Path | Responsibility |
@@ -49,49 +105,53 @@
 **Interfaces:**
 - Produces: the two `.tsv` dumps every later task reads. Column order for `pg_policy_pre119.local.tsv`: `tbl, polname, polcmd, polpermissive, roles, using_expr, check_expr`.
 
-- [ ] **Step 1: Start the local stack**
+Follow the **Local rig protocol** section above. `SB` and `DBX` as defined there.
 
-Run: `cd /c/26June/Dev/tilify && npx supabase start`
-Expected: containers come up; it prints `API URL`, `DB URL` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`), `service_role key`. All migrations `001`–`118` + `20260819000000_*` apply during start. If a migration fails, STOP and report — do not proceed with a partial schema.
+- [ ] **Step 1: Rig prep + start the local stack**
 
-- [ ] **Step 2: Confirm every migration applied**
+Run the rig-prep block (renames `066`/`067` aside), then:
+`cd /c/26June/Dev/tilify && "$SB" start`
+Expected: containers come up; prints `DB URL` (`postgresql://postgres:postgres@127.0.0.1:54322/postgres`). Migrations `001`–`118` (minus the two disabled) + `20260819000000_*` apply. If a **different** migration fails (not `066`/`067`), STOP and report — do not proceed with a partial schema.
 
-Run: `npx supabase migration list --local`
-Expected: local column shows every file `001`…`118` and the timestamped one as applied.
+- [ ] **Step 2: Confirm the DB is up and migrations ran**
+
+Run: `docker ps --format '{{.Names}} {{.Status}}' | grep supabase_db_tilify` and `docker exec -i supabase_db_tilify psql -U postgres -d postgres -c "SELECT count(*) FROM pg_policy;"`
+Expected: container healthy; policy count > 100.
 
 - [ ] **Step 3: Dump `pg_policy`**
 
-Run:
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -At -F $'\t' -o docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv -c "
+docker exec -i supabase_db_tilify psql -U postgres -d postgres -At -F $'\t' -c "
 SELECT c.relname, p.polname, p.polcmd, p.polpermissive,
        (SELECT string_agg(r.rolname,',') FROM pg_roles r WHERE r.oid = ANY (p.polroles)),
        pg_get_expr(p.polqual, p.polrelid),
        pg_get_expr(p.polwithcheck, p.polrelid)
 FROM pg_policy p JOIN pg_class c ON c.oid = p.polrelid
 WHERE c.relnamespace = 'public'::regnamespace
-ORDER BY 1,3,2;"
+ORDER BY 1,3,2;" > docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv
 ```
 
 - [ ] **Step 4: Dump column presence**
 
-Run:
 ```bash
-psql "postgresql://postgres:postgres@127.0.0.1:54322/postgres" -At -F $'\t' -o docs/superpowers/plans/artifacts/columns_pre119.local.tsv -c "
+docker exec -i supabase_db_tilify psql -U postgres -d postgres -At -F $'\t' -c "
 SELECT table_name, column_name FROM information_schema.columns
 WHERE table_schema='public' AND column_name IN ('org_id','location_id','recorded_by_user_id')
-ORDER BY 1,2;"
+ORDER BY 1,2;" > docs/superpowers/plans/artifacts/columns_pre119.local.tsv
 ```
 
-- [ ] **Step 5: Sanity-check the dumps**
+- [ ] **Step 5: Rig restore + sanity-check the dumps**
 
-Run: `wc -l docs/superpowers/plans/artifacts/*.local.tsv && grep -c . docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv`
-Expected: `pg_policy` dump has ~150–250 rows; `grep 'shifts' pg_policy_pre119.local.tsv` shows its real write-policy names (expect `shifts_loc_*` or similar, NOT `shifts_org_*`); `grep 'shifts.*location_id' columns_pre119.local.tsv` returns a row (confirms spec open item).
+Run the rig-restore block immediately (066/067 back in place). Then:
+`wc -l docs/superpowers/plans/artifacts/*.local.tsv`
+Expected: `pg_policy` dump has ~150–250 rows; `grep 'shifts' pg_policy_pre119.local.tsv` shows its real write-policy names; `grep 'shifts.*location_id' columns_pre119.local.tsv` returns a row (confirms spec open item). Record the `shifts` policy names + whether `location_id` is present in the report.
+Also run `git status --short supabase/migrations/` — expected: **no changes** (the two `.sql` files restored, no `.sql.disabled` left).
 
 - [ ] **Step 6: Commit**
 
 ```bash
 git add docs/superpowers/plans/artifacts/pg_policy_pre119.local.tsv docs/superpowers/plans/artifacts/columns_pre119.local.tsv
+git status --short   # verify ONLY the two artifacts staged, no migration files
 git commit -m "Add local pg_policy + column dumps (pre-119 reference)
 
 <trailer>"
