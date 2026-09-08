@@ -68,6 +68,23 @@ this protocol; every task that runs `supabase` or `psql` follows it.
    `*.sql.disabled` is untracked scratch — never `git add` it; delete any
    stragglers in Task 14. The migration files' tracked content is never
    modified, only temporarily renamed on disk.
+   **Also — missing-function drift:** migration `080` REVOKEs on
+   `restock_at_location(uuid,uuid,integer)`, a function no migration ever
+   `CREATE`s (prod-only). Before `"$SB" start`, after rig-prep, seed a stub
+   so the REVOKE resolves:
+   ```bash
+   docker exec -i supabase_db_tilify psql -U postgres -d postgres -c \
+     "CREATE OR REPLACE FUNCTION public.restock_at_location(uuid,uuid,integer) RETURNS void LANGUAGE sql AS 'SELECT null::void';" 2>/dev/null || true
+   ```
+   That can't run before the DB container exists, so instead: create a
+   throwaway pre-migration file `supabase/migrations/000_rig_stubs.sql`
+   (renamed to `.disabled` / deleted in restore, never committed) containing
+   that `CREATE FUNCTION` plus any further stubs later gaps reveal. If a
+   **4th** distinct replay gap appears, STOP — the controller switches the
+   rig to a synthetic policy-layer DB built from the dump instead of a full
+   replay. Known repo bug to surface at the end (not this plan's job):
+   `080` revokes signature `(uuid,uuid,integer)` but call sites pass
+   `(uuid,integer,uuid)`.
 4. **Ruling (ledgered):** the local rig skips `066`/`067`; the **owner's
    production `pg_policy` dump remains the final authority** (Task 15
    checklist already diffs local vs prod). If `066`/`067` had a latent
