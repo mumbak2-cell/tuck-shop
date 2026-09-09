@@ -1,0 +1,69 @@
+# Migration 119 â€” local synthetic-rig verification capture
+# rig: bare postgres:16 container 'rls_rig', schema = docs/superpowers/plans/artifacts/synth_schema.sql (generated from prod pg_policy dump)
+# date: 2026-09-08T20:20:37Z
+
+=== 1. rig_load.sh : load synth schema, then apply 119 ===
+rig_load OK
+
+=== 2. re-apply 119 a second time (idempotency) ===
+BEGIN
+COMMIT
+(NOTICE 'policy ... does not exist, skipping' lines are expected â€” DROP POLICY IF EXISTS is re-runnable)
+
+=== 3. verification.sql (Q1/Q2/Q4/Q5) ===
+=== Q1: helper function attributes ===
+           proname            | provolatile | prosecdef |      proconfig       | result_type 
+------------------------------+-------------+-----------+----------------------+-------------
+ current_user_manager_org_ids | s           | t         | {"search_path=\"\""} | SETOF uuid
+(1 row)
+
+--- Q1 ACL (expect authenticated=X; no anon, no PUBLIC/empty-grantee) ---
+    grantee    | privilege_type 
+---------------+----------------
+ authenticated | EXECUTE
+ postgres      | EXECUTE
+(2 rows)
+
+
+=== Q2: write-policy gate coverage (expect 0 rows) ===
+ tbl | cmd | polname | using_expr | check_expr | failure 
+-----+-----+---------+------------+------------+---------
+(0 rows)
+
+
+=== Q4: FOR-ALL decompose shape (expect n_read=1, read_wrongly_gated=f, n_write=3 for all) ===
+         relname          | n_read | read_wrongly_gated | n_write | n_forall_left 
+--------------------------+--------+--------------------+---------+---------------
+ wms_adjustments          |      1 | f                  |       3 |             0
+ wms_catalog              |      1 | f                  |       3 |             0
+ wms_dispatch_items       |      1 | f                  |       3 |             0
+ wms_dispatches           |      1 | f                  |       3 |             0
+ wms_inventory            |      1 | f                  |       3 |             0
+ wms_locations            |      1 | f                  |       3 |             0
+ wms_org_settings         |      1 | f                  |       3 |             0
+ wms_po_items             |      1 | f                  |       3 |             0
+ wms_purchase_orders      |      1 | f                  |       3 |             0
+ wms_receipt_items        |      1 | f                  |       3 |             0
+ wms_receipts             |      1 | f                  |       3 |             0
+ wms_stock_count_audit    |      1 | f                  |       3 |             0
+ wms_stock_count_sessions |      1 | f                  |       3 |             0
+ wms_stock_counts         |      1 | f                  |       3 |             0
+ zra_config               |      1 | f                  |       3 |             0
+ zra_invoices             |      1 | f                  |       3 |             0
+(16 rows)
+
+
+=== Q5: no write policy on true append-only ledgers (expect 0 rows) ===
+ relname | polname | polcmd 
+---------+---------+--------
+(0 rows)
+
+
+=== 4. exprdiff.py (every touched policy == old + gate, nothing else) ===
+EXPRDIFF: 0 violations — every touched policy transformed exactly as intended.
+
+=== 5. rollback dry-run: rig_load -> rollback_119.sql -> compare touched tables to pre-119 ===
+BEGIN
+COMMIT
+pre touched rows: 141   post touched rows: 141
+ROLLBACK DRY-RUN: IDENTICAL — every touched-table policy restored to pre-119 state.
