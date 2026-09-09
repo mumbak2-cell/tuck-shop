@@ -24,11 +24,25 @@
 --     (normally 0 rows for a never-sold org).
 --   * invoice_events.org_id is ON DELETE SET NULL — payment forensics are
 --     kept (org_id nulled), deliberately not deleted.
+--
+-- HOW TO RUN — paste and run each STATEMENT block below separately, in
+-- order. Do NOT paste the whole file at once and do NOT wrap it in a
+-- BEGIN/COMMIT: the Supabase SQL Editor may spread a multi-statement paste
+-- across connections, so temp tables / transaction scope from one statement
+-- can be invisible to the next (this bit us on migration 096). Instead the
+-- dead set is captured into two PLAIN, COMMITTED staging tables
+-- (`_purge_dead_orgs`, `_purge_dead_users`) that every later statement
+-- reads back from real storage. STATEMENT 6 drops them again.
+-- Each DELETE is its own statement, hence its own transaction: run
+-- STATEMENT 3 first, eyeball the counts, then run 4 → 5 → 6 → 7. If one
+-- fails, the earlier committed steps stand and re-running the remaining
+-- statements is safe (the staging tables still hold the list; a second
+-- delete just matches 0 rows).
 -- ============================================================
 
 
 -- ---- STEP 1 : PREVIEW (read-only, safe to run any time) -----------------
--- Eyeball this list and its count before running Step 2.
+-- Eyeball this list and its count before doing anything in Step 2.
 
 SELECT o.id, o.name, o.slug, o.subscription_status,
        o.trial_ends_at, o.created_at,
@@ -45,12 +59,13 @@ ORDER BY o.created_at;
 
 
 -- ---- STEP 2 : DELETE (closed hours, after backup) ----------------------
--- Run as one block. Check the three DELETE row counts look sane, then
--- COMMIT. Anything unexpected -> ROLLBACK.
+-- Run STATEMENT 1..7 one block at a time, in order.
 
-BEGIN;
 
-CREATE TEMP TABLE dead_orgs AS
+-- STATEMENT 1 : capture the dead-org set into a committed staging table.
+-- Re-runnable (drops any prior copy first).
+DROP TABLE IF EXISTS _purge_dead_orgs;
+CREATE TABLE _purge_dead_orgs AS
 SELECT o.id
 FROM organizations o
 WHERE NOT EXISTS (SELECT 1 FROM sales s WHERE s.org_id = o.id)
@@ -61,25 +76,43 @@ WHERE NOT EXISTS (SELECT 1 FROM sales s WHERE s.org_id = o.id)
   AND o.current_period_end      IS NULL
   AND NOT EXISTS (SELECT 1 FROM invoice_events e WHERE e.org_id = o.id);
 
-CREATE TEMP TABLE dead_users AS
+
+-- STATEMENT 2 : capture the users who belong to those orgs, BEFORE the
+-- org delete cascades org_members away. Re-runnable.
+DROP TABLE IF EXISTS _purge_dead_users;
+CREATE TABLE _purge_dead_users AS
 SELECT DISTINCT m.user_id
 FROM org_members m
-WHERE m.org_id IN (SELECT id FROM dead_orgs);
+WHERE m.org_id IN (SELECT id FROM _purge_dead_orgs);
 
-SELECT (SELECT count(*) FROM dead_orgs)  AS orgs_to_delete,
-       (SELECT count(*) FROM dead_users) AS users_in_scope;
 
--- 1. non-cascading FK — clear first
-DELETE FROM period_locks WHERE org_id IN (SELECT id FROM dead_orgs);
+-- STATEMENT 3 : PREVIEW the staged counts. Sanity-check these against
+-- STEP 1's list before running STATEMENT 4 onward.
+SELECT (SELECT count(*) FROM _purge_dead_orgs)  AS orgs_to_delete,
+       (SELECT count(*) FROM _purge_dead_users) AS users_in_scope;
 
--- 2. the org row — cascades every ON DELETE CASCADE child
-DELETE FROM organizations WHERE id IN (SELECT id FROM dead_orgs);
 
--- 3. orphaned auth logins — only if the user has no other org and is not a platform admin
+-- STATEMENT 4 : non-cascading FK (period_locks.org_id is NO ACTION) —
+-- clear first. Normally 0 rows for a never-sold org.
+DELETE FROM period_locks WHERE org_id IN (SELECT id FROM _purge_dead_orgs);
+
+
+-- STATEMENT 5 : the org row — cascades every ON DELETE CASCADE child
+-- (org_members included). This is the big one; it is a single atomic
+-- statement, so it deletes all matched orgs and their subtrees or none.
+DELETE FROM organizations WHERE id IN (SELECT id FROM _purge_dead_orgs);
+
+
+-- STATEMENT 6 : orphaned auth logins. Runs AFTER STATEMENT 5 has
+-- committed, so the dead orgs' org_members rows are already gone — any
+-- membership still attached to the user means a surviving (live) org, so
+-- keep that user. Also skip platform admins.
 DELETE FROM auth.users u
-WHERE u.id IN (SELECT user_id FROM dead_users)
+WHERE u.id IN (SELECT user_id FROM _purge_dead_users)
   AND NOT EXISTS (SELECT 1 FROM org_members    m  WHERE m.user_id  = u.id)
   AND NOT EXISTS (SELECT 1 FROM platform_admins pa WHERE pa.user_id = u.id);
 
--- COMMIT;
--- ROLLBACK;
+
+-- STATEMENT 7 : drop the staging tables.
+DROP TABLE IF EXISTS _purge_dead_users;
+DROP TABLE IF EXISTS _purge_dead_orgs;
