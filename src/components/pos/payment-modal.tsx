@@ -43,7 +43,7 @@ const cardRewardSchema = z.object({
   productId: z.string().nullable(),
 });
 
-function expandComboLine(item: CartItem): CartItem[] {
+export function expandComboLine(item: CartItem): CartItem[] {
   if (!item.comboBreakdown) return [item];
   return item.comboBreakdown.map((c) => ({
     productId: c.productId,
@@ -75,7 +75,11 @@ interface Props {
   onClose: () => void;
   items: CartItem[];
   total: number;
-  onComplete: () => void;
+  /** Passes the free reward line (if one was earned this sale) back to the
+   *  caller, so it can be included alongside `items` wherever the caller
+   *  needs the full set of what actually sold — e.g. an optimistic stock
+   *  update, since the reward product is invisible to the caller otherwise. */
+  onComplete: (rewardLine?: CartItem | null) => void;
 }
 
 const KIND_ICON: Record<PaymentKind, React.ElementType> = {
@@ -675,7 +679,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
   if (success) {
     const receiptData = buildReceiptData();
     return (
-      <Modal open={open} onClose={onComplete} title="Sale Complete">
+      <Modal open={open} onClose={() => onComplete(rewardLine)} title="Sale Complete">
         <div className="flex flex-col items-center py-8">
           <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
             <Check className="w-8 h-8 text-green-600" />
@@ -750,7 +754,7 @@ export function PaymentModal({ open, onClose, items, total, onComplete }: Props)
               </>
             )}
 
-            <Button onClick={onComplete} className="w-full">
+            <Button onClick={() => onComplete(rewardLine)} className="w-full">
               Done
             </Button>
           </div>
