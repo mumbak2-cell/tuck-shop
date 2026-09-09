@@ -4,7 +4,7 @@ import { db } from "@/lib/supabase";
 import { Product } from "@/types/database";
 import { ProductGrid } from "@/components/pos/product-grid";
 import { Cart, CartItem } from "@/components/pos/cart";
-import { PaymentModal } from "@/components/pos/payment-modal";
+import { PaymentModal, expandComboLine } from "@/components/pos/payment-modal";
 import { useShift } from "@/lib/shift-context";
 import { useOrg } from "@/lib/org-context";
 import { fetchAllPaged } from "@/lib/fetch-all";
@@ -505,10 +505,37 @@ export default function POSPage() {
     setShowPayment(true);
   }
 
-  function handleSaleComplete() {
+  function handleSaleComplete(rewardLine?: CartItem | null) {
     setShowPayment(false);
+
+    // Optimistic stock decrement instead of a full fetchProducts() reload.
+    // For large catalogues (Chichi's: 1300+ SKUs per branch) refetching the
+    // whole paginated catalog + stock after every single sale was the actual
+    // cause of "POS feels slow" — the sale RPC itself averages ~60ms. We
+    // already know exactly which real products sold and how many units
+    // (combo lines expanded to their constituents, same as the sale RPC
+    // itself uses), so update local state directly. The server stays
+    // authoritative; the periodic offline-sync loop reconciles any drift
+    // from other tills selling the same SKUs concurrently at this branch.
+    // rewardLine (a free card-reward item) is invisible to `cart` — the
+    // payment modal builds it internally — so it's passed back explicitly.
+    const soldQuantities = new Map<string, number>();
+    const lines = rewardLine ? [...cart, rewardLine] : cart;
+    lines.forEach((item) => {
+      expandComboLine(item).forEach((line) => {
+        soldQuantities.set(line.productId, (soldQuantities.get(line.productId) ?? 0) + line.quantity);
+      });
+    });
+    setProducts((prev) =>
+      prev
+        .map((p) => {
+          const sold = soldQuantities.get(p.id);
+          return sold ? { ...p, opening_stock: Math.max(0, p.opening_stock - sold) } : p;
+        })
+        .filter((p) => p.opening_stock > 0)
+    );
+
     setCart([]);
-    fetchProducts();
     fetchPromotions();
   }
 
