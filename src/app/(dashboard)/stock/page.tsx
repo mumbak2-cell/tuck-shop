@@ -98,6 +98,9 @@ export default function StockCountPage() {
   const [sessionLabel, setSessionLabel] = useState("Stock Count");
   const [todaySessions, setTodaySessions] = useState<ExistingSession[]>([]);
   const [showSessionPicker, setShowSessionPicker] = useState(false);
+  // Client-only review beat: gates the Confirm button in the UI, nothing more.
+  const [reviewAck, setReviewAck] = useState(false);
+  const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
 
   const today = localToday();
 
@@ -107,6 +110,10 @@ export default function StockCountPage() {
       return;
     }
     setLoading(true);
+    // Loading a session (mount, switch, new, post-confirm) resets the client-only
+    // review beat and any unsaved per-line note drafts.
+    setReviewAck(false);
+    setNoteDraft({});
 
     // Get active products. PostgREST's server-side max_rows ceiling
     // (default 1000) silently truncates large catalogues, so we paginate
@@ -410,6 +417,20 @@ export default function StockCountPage() {
       return;
     }
 
+    const noteEntries = Object.entries(noteDraft).filter(([, v]) => v.trim() !== "");
+    if (noteEntries.length > 0) {
+      await Promise.all(
+        noteEntries.map(([productId, note]) =>
+          db
+            .from("stock_counts")
+            .update({ review_note: note.trim() })
+            .eq("session_id", sessionId)
+            .eq("location_id", currentLocationId)
+            .eq("product_id", productId),
+        ),
+      );
+    }
+
     const { error } = await db.from("product_stock").upsert(
       counted.map((c) => ({
         product_id: c.product_id,
@@ -471,6 +492,18 @@ export default function StockCountPage() {
     (r) => r.closingCount !== "" && r.expectedUnits !== null && parseInt(r.closingCount) < r.expectedUnits,
   ).length;
 
+  // r.expected is product_stock.quantity at page load (built from expectedMap in
+  // fetchProducts), so it stands in for expectedMap.get(id) ?? 0 here.
+  const uncountedWithStock = rows.filter(
+    (r) => r.closingCount === "" && r.expected > 0,
+  );
+  const stockMovedSince = rows.some(
+    (r) =>
+      r.closingCount !== "" &&
+      r.expectedUnits !== null &&
+      r.expected !== r.expectedUnits,
+  );
+
   const activeSession = todaySessions.find((s) => s.sessionId === sessionId) ?? null;
   // Every session is pending until explicitly confirmed. Only the owner on an
   // admin till PIN can trigger the write.
@@ -525,17 +558,56 @@ export default function StockCountPage() {
               )}
               {" "}Stock levels still show the old figures until you confirm.
             </p>
+            {(flaggedCount > 0 || uncountedWithStock.length > 0) && (
+              <label className="flex items-start gap-2 mt-3 text-sm text-amber-900">
+                <input
+                  type="checkbox"
+                  checked={reviewAck}
+                  onChange={(e) => setReviewAck(e.target.checked)}
+                  className="mt-0.5"
+                />
+                <span>
+                  I&apos;ve reviewed the {flaggedCount} flagged line{flaggedCount !== 1 ? "s" : ""}
+                  {uncountedWithStock.length > 0 && ` and ${uncountedWithStock.length} uncounted item${uncountedWithStock.length !== 1 ? "s" : ""}`}.
+                </span>
+              </label>
+            )}
             <Button
               onClick={confirmSession}
               loading={confirming}
               className="mt-3"
               size="sm"
+              disabled={
+                (flaggedCount > 0 || uncountedWithStock.length > 0) && !reviewAck
+              }
             >
               <Check className="w-4 h-4 mr-2" />
               Confirm and apply to stock
             </Button>
           </div>
         </div>
+      )}
+
+      {canConfirmSession && !isCashierView && uncountedWithStock.length > 0 && (
+        <details className="bg-white border border-amber-200 rounded-xl mb-6 px-4 py-3">
+          <summary className="text-sm font-medium text-amber-900 cursor-pointer">
+            {uncountedWithStock.length} product{uncountedWithStock.length !== 1 ? "s" : ""} with stock on hand were not counted
+          </summary>
+          <ul className="mt-2 text-sm text-gray-600 space-y-1">
+            {uncountedWithStock.map((r) => (
+              <li key={r.product.id} className="flex justify-between">
+                <span className="truncate">{r.product.name}</span>
+                <span className="tabular-nums text-gray-400">system: {r.expected}</span>
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      {canConfirmSession && !isCashierView && stockMovedSince && (
+        <p className="text-xs text-amber-700 mb-4">
+          Stock has moved at this branch since this count was taken — confirming will overwrite those changes with the counted figures.
+        </p>
       )}
 
       {activeSession?.confirmedAt && (
@@ -757,6 +829,18 @@ export default function StockCountPage() {
                     >
                       {FLAG_SHORT[row.flagKind]}
                     </span>
+                  )}
+
+                  {row.flagKind && !isCashierView && (
+                    <input
+                      type="text"
+                      placeholder="note (optional)"
+                      value={noteDraft[row.product.id] ?? ""}
+                      onChange={(e) =>
+                        setNoteDraft((d) => ({ ...d, [row.product.id]: e.target.value }))
+                      }
+                      className="w-40 text-xs px-2 py-1 border border-gray-200 rounded"
+                    />
                   )}
                 </div>
               </div>
