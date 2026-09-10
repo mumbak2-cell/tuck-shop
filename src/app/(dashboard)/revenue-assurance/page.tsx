@@ -656,38 +656,37 @@ export default function RevenueAssurancePage() {
                 </div>
               )}
 
-              {/* Detail table */}
+              {/* Detail table. Header, body rows and the totals footer all use
+                  the same flexbox column widths — a real <thead>/<th> layout
+                  sizes its columns independently of the body's flex cells, so
+                  the two never line up and every value renders under the wrong
+                  header. */}
               <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-sm">
-                    <thead>
-                      <tr className="bg-gray-50 border-b border-gray-200">
-                        <th className="text-left px-4 py-3 font-medium text-gray-500">Product</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Opening</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Restock</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Closing</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Units Sold</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">POS Recorded</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Discrepancy</th>
-                        <th className="text-right px-3 py-3 font-medium text-gray-500">Missing Rev.</th>
-                        <th className="px-3 py-3 font-medium text-gray-500 text-center">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
+                  <div className="w-full text-sm min-w-[52rem]">
+                    <div className="flex items-stretch bg-gray-50 border-b border-gray-200 font-medium text-gray-500 text-xs leading-tight">
+                      <div className="flex-1 min-w-0 px-4 py-3 flex items-center text-left">Product</div>
+                      <div className="w-16 px-3 py-3 flex items-center justify-end text-right">Opening</div>
+                      <div className="w-16 px-3 py-3 flex items-center justify-end text-right">Restock</div>
+                      <div className="w-16 px-3 py-3 flex items-center justify-end text-right">Closing</div>
+                      <div className="w-20 px-3 py-3 flex items-center justify-end text-right">Units Sold</div>
+                      <div className="w-24 px-3 py-3 flex items-center justify-end text-right">POS Recorded</div>
+                      <div className="w-24 px-3 py-3 flex items-center justify-end text-right">Discrepancy</div>
+                      <div className="w-28 px-3 py-3 flex items-center justify-end text-right">Missing Rev.</div>
+                      <div className="w-24 px-3 py-3 flex items-center justify-center text-center">Actions</div>
+                    </div>
+                    <div className="divide-y divide-gray-100">
                       {filtered.length === 0 ? (
-                        <tr>
-                          <td colSpan={9} className="px-4 py-8 text-center text-gray-400">
-                            {filterMode === "discrepancies" ? "No discrepancies — stock movement matches POS records in both directions." : "No data."}
-                          </td>
-                        </tr>
+                        <div className="px-4 py-8 text-center text-gray-400">
+                          {filterMode === "discrepancies" ? "No discrepancies — stock movement matches POS records in both directions." : "No data."}
+                        </div>
                       ) : (
                         filtered.map((r) => {
                           const rowNotes = notes.get(r.productId) || [];
                           const isExpanded = expandedRow === r.productId;
 
                           return (
-                            <tr key={r.productId} className="group">
-                              <td colSpan={9} className="p-0">
+                            <div key={r.productId} className="group">
                                 {/* Main row */}
                                 <div className={`flex items-center ${r.unrecordedUnits > 0 ? "bg-red-50/50" : r.oversoldUnits > 0 ? "bg-amber-50/50" : ""}`}>
                                   <div className="flex-1 min-w-0 px-4 py-3">
@@ -810,34 +809,34 @@ export default function RevenueAssurancePage() {
                                     </div>
                                   </div>
                                 )}
-                              </td>
-                            </tr>
+                            </div>
                           );
                         })
                       )}
-                    </tbody>
+                    </div>
                     {filtered.length > 0 && (
-                      <tfoot className="bg-gray-50 border-t border-gray-200">
-                        <tr>
-                          <td className="px-4 py-3 font-semibold text-gray-700" colSpan={4}>Totals</td>
-                          <td className="text-right px-3 py-3 font-semibold text-gray-900">{filtered.reduce((s, r) => s + r.unitsSold, 0)}</td>
-                          <td className="text-right px-3 py-3 font-semibold text-gray-600">{filtered.reduce((s, r) => s + r.recordedSales, 0)}</td>
-                          {/* Each direction totalled separately — netting them would let a
-                              shortfall cancel a loss and report both as clean. */}
-                          <td className="text-right px-3 py-3 font-semibold">
-                            <span className="text-red-600">{filtered.reduce((s, r) => s + r.unrecordedUnits, 0)}</span>
-                            {filtered.some((r) => r.oversoldUnits > 0) && (
-                              <span className="text-amber-600">
-                                {" / "}{filtered.reduce((s, r) => s + r.oversoldUnits, 0)} over
-                              </span>
-                            )}
-                          </td>
-                          <td className="text-right px-3 py-3 font-bold text-red-700">{formatZAR(filtered.reduce((s, r) => s + r.missingRevenue, 0))}</td>
-                          <td />
-                        </tr>
-                      </tfoot>
+                      <div className="flex items-center bg-gray-50 border-t border-gray-200 font-semibold">
+                        <div className="flex-1 min-w-0 px-4 py-3 text-gray-700">Totals</div>
+                        <div className="w-16" />
+                        <div className="w-16" />
+                        <div className="w-16" />
+                        <div className="w-20 text-right px-3 py-3 text-gray-900 tabular-nums">{filtered.reduce((s, r) => s + r.unitsSold, 0)}</div>
+                        <div className="w-24 text-right px-3 py-3 text-gray-600 tabular-nums">{filtered.reduce((s, r) => s + r.recordedSales, 0)}</div>
+                        {/* Each direction totalled separately — netting them would let a
+                            shortfall cancel a loss and report both as clean. */}
+                        <div className="w-24 text-right px-3 py-3 tabular-nums">
+                          <span className="text-red-600">{filtered.reduce((s, r) => s + r.unrecordedUnits, 0)}</span>
+                          {filtered.some((r) => r.oversoldUnits > 0) && (
+                            <span className="text-amber-600">
+                              {" / "}{filtered.reduce((s, r) => s + r.oversoldUnits, 0)} over
+                            </span>
+                          )}
+                        </div>
+                        <div className="w-28 text-right px-3 py-3 font-bold text-red-700 tabular-nums">{formatZAR(filtered.reduce((s, r) => s + r.missingRevenue, 0))}</div>
+                        <div className="w-24" />
+                      </div>
                     )}
-                  </table>
+                  </div>
                 </div>
               </div>
 
