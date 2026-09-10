@@ -180,12 +180,27 @@ export default function StockCountPage() {
     }
     setSessionId(activeSessionId);
 
-    // Load counts for this session (filtered to current location)
-    const { data: existingCounts } = await db
+    // Load counts for this session (filtered to current location). The extended
+    // select pulls the variance-flag snapshot columns (migration 121); if that
+    // migration isn't live yet PostgREST fails the whole request (42703 /
+    // PGRST204, data: null) rather than returning partial rows, which would
+    // blank every saved line in an open session. Retry once with the base
+    // columns on error — badges and the expectedUnits snapshot then degrade to
+    // null, which the rest of this code already handles.
+    const countsRes = await db
       .from("stock_counts")
       .select("product_id, closing_units, expected_units, flag_kind")
       .eq("session_id", activeSessionId)
       .eq("location_id", currentLocationId);
+    let existingCounts = countsRes.data;
+    if (countsRes.error) {
+      const baseRes = await db
+        .from("stock_counts")
+        .select("product_id, closing_units")
+        .eq("session_id", activeSessionId)
+        .eq("location_id", currentLocationId);
+      existingCounts = baseRes.data;
+    }
 
     const countMap = new Map<
       string,
@@ -243,11 +258,11 @@ export default function StockCountPage() {
     fetchProducts(s.sessionId);
   }
 
-  async function applySessionSpread(sessionId: string, locationId: string) {
+  async function applySessionSpread(sid: string, locationId: string) {
     const { data } = await db
       .from("stock_counts")
       .select("closing_units, expected_units, flag_kind, products(selling_price, is_prepared)")
-      .eq("session_id", sessionId)
+      .eq("session_id", sid)
       .eq("location_id", locationId)
       .not("closing_units", "is", null);
     const lines: {
@@ -270,7 +285,7 @@ export default function StockCountPage() {
     await db
       .from("stock_counts")
       .update({ flag_kind: "session_spread" })
-      .eq("session_id", sessionId)
+      .eq("session_id", sid)
       .eq("location_id", locationId)
       .is("flag_kind", null)
       .not("closing_units", "is", null);
