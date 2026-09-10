@@ -6,7 +6,8 @@
 // staff. Renders nothing for cashiers.
 
 import { useEffect, useState } from "react";
-import { supabase } from "@/lib/supabase";
+import { supabase, db } from "@/lib/supabase";
+import { formatZAR } from "@/lib/format";
 import { useOrg, type PermissionKey } from "@/lib/org-context";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -63,7 +64,7 @@ async function token(): Promise<string> {
 }
 
 export function TeamSection() {
-  const { role, locations } = useOrg();
+  const { role, orgId, locations } = useOrg();
   const [members, setMembers] = useState<Member[]>([]);
   const [seats, setSeats] = useState<{ used: number; max: number | null }>({ used: 0, max: null });
   const [loading, setLoading] = useState(true);
@@ -105,6 +106,61 @@ export function TeamSection() {
     })();
     return () => { cancelled = true; };
   }, [role]);
+
+  const [varianceDays, setVarianceDays] = useState<30 | 60 | 90>(30);
+  const [variance, setVariance] = useState<
+    { countedBy: string; sessions: number; over: number; under: number; exposure: number }[]
+  >([]);
+
+  useEffect(() => {
+    if (role !== "owner" || !orgId) return;
+    (async () => {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - varianceDays);
+      const { data } = await db
+        .from("stock_counts")
+        .select("session_id, counted_by, closing_units, expected_units, flag_kind, products(selling_price)")
+        .eq("org_id", orgId)
+        .gte("count_date", cutoff.toISOString().slice(0, 10))
+        .not("closing_units", "is", null)
+        .not("expected_units", "is", null);
+      const byCashier = new Map<
+        string,
+        { countedBy: string; sessionIds: Set<string>; over: number; under: number; exposure: number }
+      >();
+      const rows: {
+        session_id: string;
+        counted_by: string | null;
+        closing_units: number;
+        expected_units: number;
+        flag_kind: string | null;
+        products?: { selling_price: number | null } | null;
+      }[] = data || [];
+      for (const r of rows) {
+        const name = r.counted_by || "Unknown";
+        if (!byCashier.has(name))
+          byCashier.set(name, { countedBy: name, sessionIds: new Set(), over: 0, under: 0, exposure: 0 });
+        const e = byCashier.get(name)!;
+        e.sessionIds.add(r.session_id);
+        if (!r.flag_kind) continue;
+        const v = r.closing_units - r.expected_units;
+        if (v > 0) e.over += 1;
+        else if (v < 0) e.under += 1;
+        e.exposure += Math.abs(v) * (Number(r.products?.selling_price) || 0);
+      }
+      setVariance(
+        [...byCashier.values()]
+          .map((e) => ({
+            countedBy: e.countedBy,
+            sessions: e.sessionIds.size,
+            over: e.over,
+            under: e.under,
+            exposure: e.exposure,
+          }))
+          .sort((a, b) => b.exposure - a.exposure),
+      );
+    })();
+  }, [role, orgId, varianceDays]);
 
   // Owners and managers only — cashiers manage nothing here.
   if (role !== "owner" && role !== "admin") return null;
@@ -495,6 +551,53 @@ export function TeamSection() {
           ))
         )}
       </div>
+
+      {role === "owner" && (
+        <div className="bg-white rounded-xl border border-gray-200 mt-6 p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-sm font-semibold text-gray-900">Stock-count variance by person</h3>
+            <div className="flex gap-1">
+              {([30, 60, 90] as const).map((d) => (
+                <button
+                  key={d}
+                  onClick={() => setVarianceDays(d)}
+                  className={`text-xs px-2 py-1 rounded ${
+                    varianceDays === d ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-600"
+                  }`}
+                >
+                  {d}d
+                </button>
+              ))}
+            </div>
+          </div>
+          {variance.length === 0 ? (
+            <p className="text-sm text-gray-400">No counts in this window.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-left text-xs text-gray-500">
+                  <th className="py-1">Person</th>
+                  <th className="py-1 text-right">Counts</th>
+                  <th className="py-1 text-right">Flagged over</th>
+                  <th className="py-1 text-right">Flagged under</th>
+                  <th className="py-1 text-right">Rand exposure</th>
+                </tr>
+              </thead>
+              <tbody>
+                {variance.map((v) => (
+                  <tr key={v.countedBy} className="border-t border-gray-100">
+                    <td className="py-1.5">{v.countedBy}</td>
+                    <td className="py-1.5 text-right tabular-nums">{v.sessions}</td>
+                    <td className={`py-1.5 text-right tabular-nums ${v.over > 0 ? "text-amber-700 font-medium" : "text-gray-400"}`}>{v.over}</td>
+                    <td className={`py-1.5 text-right tabular-nums ${v.under > 0 ? "text-red-700 font-medium" : "text-gray-400"}`}>{v.under}</td>
+                    <td className="py-1.5 text-right tabular-nums">{formatZAR(v.exposure)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      )}
 
       {/* Add form — owner only */}
       {!canManageStaff ? null : atLimit ? (
