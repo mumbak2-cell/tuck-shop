@@ -272,8 +272,11 @@ small same-direction overs by one cashier becomes a visible, quantified case.
 - **PostgREST errors** — read `.message` off the error object, not
   `err instanceof Error` (PGRST errors are plain objects — `CLAUDE.md`).
 - **Frontend degrades** if migration 121 is not yet applied: `expected_units` /
-  `flag_kind` columns absent → no badges, no uncounted list, old behaviour. Safe
-  to deploy the frontend before or after the migration.
+  `flag_kind` columns absent → no badges, no uncounted list, old behaviour. That
+  is a clean *degradation*, not a licence to ship early: the frontend must not be
+  **merged** before 121 is applied, because a silently flag-less Stock page gives
+  the owner no signal that the control is pending — it just looks like nothing
+  ever trips a flag.
 
 ### 7. Rollout
 

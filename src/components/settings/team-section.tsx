@@ -114,6 +114,7 @@ export function TeamSection() {
 
   useEffect(() => {
     if (role !== "owner" || !orgId) return;
+    let cancelled = false;
     (async () => {
       const cutoff = new Date();
       cutoff.setDate(cutoff.getDate() - varianceDays);
@@ -148,6 +149,7 @@ export function TeamSection() {
         else if (v < 0) e.under += 1;
         e.exposure += Math.abs(v) * (Number(r.products?.selling_price) || 0);
       }
+      if (cancelled) return;
       setVariance(
         [...byCashier.values()]
           .map((e) => ({
@@ -160,6 +162,7 @@ export function TeamSection() {
           .sort((a, b) => b.exposure - a.exposure),
       );
     })();
+    return () => { cancelled = true; };
   }, [role, orgId, varianceDays]);
 
   // Owners and managers only — cashiers manage nothing here.

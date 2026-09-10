@@ -93,6 +93,7 @@ export default function StockCountPage() {
   const [search, setSearch] = useState("");
   const [filterCategory, setFilterCategory] = useState("All");
   const [showCountedOnly, setShowCountedOnly] = useState(false);
+  const [showFlaggedOnly, setShowFlaggedOnly] = useState(false);
   const [savedCount, setSavedCount] = useState(0);
   const [sessionId, setSessionId] = useState<string>("");
   const [sessionLabel, setSessionLabel] = useState("Stock Count");
@@ -101,6 +102,8 @@ export default function StockCountPage() {
   // Client-only review beat: gates the Confirm button in the UI, nothing more.
   const [reviewAck, setReviewAck] = useState(false);
   const [noteDraft, setNoteDraft] = useState<Record<string, string>>({});
+  // True when the extended (migration-121) select failed and the base retry ran.
+  const [migrationPending, setMigrationPending] = useState(false);
 
   const today = localToday();
 
@@ -207,6 +210,9 @@ export default function StockCountPage() {
         .eq("session_id", activeSessionId)
         .eq("location_id", currentLocationId);
       existingCounts = baseRes.data;
+      setMigrationPending(true);
+    } else {
+      setMigrationPending(false);
     }
 
     const countMap = new Map<
@@ -268,19 +274,26 @@ export default function StockCountPage() {
   async function applySessionSpread(sid: string, locationId: string) {
     const { data } = await db
       .from("stock_counts")
-      .select("closing_units, expected_units, flag_kind, products(selling_price, is_prepared)")
+      .select("product_id, closing_units, expected_units, flag_kind, products(selling_price, is_prepared)")
       .eq("session_id", sid)
       .eq("location_id", locationId)
       .not("closing_units", "is", null);
     const lines: {
+      product_id: string;
       closing_units: number;
       expected_units: number | null;
+      flag_kind: string | null;
       products?: { selling_price: number | null; is_prepared: boolean | null } | null;
     }[] = data || [];
     let sameDir = 0;
     let posExposure = 0;
+    // Prepared-food lines carry no flag of any kind (the trigger leaves their
+    // flag_kind NULL on purpose), so they must be excluded from the UPDATE too
+    // — a blanket "flag_kind is null" filter would badge every one of them.
+    const eligibleIds: string[] = [];
     for (const l of lines) {
       if (l.expected_units == null || l.products?.is_prepared) continue;
+      if (l.flag_kind == null && l.closing_units != null) eligibleIds.push(l.product_id);
       const v = l.closing_units - l.expected_units;
       if (v > 0) {
         sameDir += 1;
@@ -288,12 +301,13 @@ export default function StockCountPage() {
       }
     }
     const spread = sameDir >= 8 || posExposure >= 150;
-    if (!spread) return;
+    if (!spread || eligibleIds.length === 0) return;
     await db
       .from("stock_counts")
       .update({ flag_kind: "session_spread" })
       .eq("session_id", sid)
       .eq("location_id", locationId)
+      .in("product_id", eligibleIds)
       .is("flag_kind", null)
       .not("closing_units", "is", null);
   }
@@ -469,15 +483,24 @@ export default function StockCountPage() {
   // Get unique categories from loaded products
   const categories = ["All", ...new Set(rows.map((r) => r.product.category))];
 
-  const filtered = rows.filter((r) => {
-    const matchesSearch = r.product.name
-      .toLowerCase()
-      .includes(search.toLowerCase());
-    const matchesCat =
-      filterCategory === "All" || r.product.category === filterCategory;
-    const matchesCounted = !showCountedOnly || r.closingCount !== "";
-    return matchesSearch && matchesCat && matchesCounted;
-  });
+  const filtered = rows
+    .filter((r) => {
+      const matchesSearch = r.product.name
+        .toLowerCase()
+        .includes(search.toLowerCase());
+      const matchesCat =
+        filterCategory === "All" || r.product.category === filterCategory;
+      const matchesCounted = !showCountedOnly || r.closingCount !== "";
+      return (
+        matchesSearch &&
+        matchesCat &&
+        matchesCounted &&
+        (!showFlaggedOnly || r.flagKind !== null)
+      );
+    })
+    // Flagged lines first — they are what the owner is here to review. Array
+    // .sort is stable, so the category/name order survives within each group.
+    .sort((a, b) => Number(b.flagKind !== null) - Number(a.flagKind !== null));
 
   const unsavedCount = rows.filter(
     (r) => r.closingCount !== "" && !r.saved
@@ -485,10 +508,12 @@ export default function StockCountPage() {
 
   const flaggedRows = rows.filter((r) => r.flagKind !== null);
   const flaggedCount = flaggedRows.length;
-  const overCount = rows.filter(
+  // Over/under are the breakdown OF the flagged lines the banner just named —
+  // counting every counted row instead read "3 flagged — 41 over, 12 under".
+  const overCount = flaggedRows.filter(
     (r) => r.closingCount !== "" && r.expectedUnits !== null && parseInt(r.closingCount) > r.expectedUnits,
   ).length;
-  const underCount = rows.filter(
+  const underCount = flaggedRows.filter(
     (r) => r.closingCount !== "" && r.expectedUnits !== null && parseInt(r.closingCount) < r.expectedUnits,
   ).length;
 
@@ -567,8 +592,10 @@ export default function StockCountPage() {
                   className="mt-0.5"
                 />
                 <span>
-                  I&apos;ve reviewed the {flaggedCount} flagged line{flaggedCount !== 1 ? "s" : ""}
-                  {uncountedWithStock.length > 0 && ` and ${uncountedWithStock.length} uncounted item${uncountedWithStock.length !== 1 ? "s" : ""}`}.
+                  I&apos;ve reviewed the
+                  {flaggedCount > 0 && ` ${flaggedCount} flagged line${flaggedCount !== 1 ? "s" : ""}`}
+                  {flaggedCount > 0 && uncountedWithStock.length > 0 && " and"}
+                  {uncountedWithStock.length > 0 && ` ${uncountedWithStock.length} uncounted item${uncountedWithStock.length !== 1 ? "s" : ""}`}.
                 </span>
               </label>
             )}
@@ -602,6 +629,12 @@ export default function StockCountPage() {
             ))}
           </ul>
         </details>
+      )}
+
+      {migrationPending && !isCashierView && (
+        <p className="text-xs text-amber-700 mb-4">
+          Variance flags unavailable — database migration pending.
+        </p>
       )}
 
       {canConfirmSession && !isCashierView && stockMovedSince && (
@@ -732,6 +765,18 @@ export default function StockCountPage() {
         >
           Counted only
         </button>
+        {!isCashierView && (
+          <button
+            onClick={() => setShowFlaggedOnly(!showFlaggedOnly)}
+            className={`px-3 py-2.5 rounded-lg text-sm font-medium border transition-colors whitespace-nowrap ${
+              showFlaggedOnly
+                ? "bg-amber-50 border-amber-300 text-amber-700"
+                : "bg-white border-gray-200 text-gray-600 hover:bg-gray-50"
+            }`}
+          >
+            Flagged only
+          </button>
+        )}
         <select
           value={filterCategory}
           onChange={(e) => setFilterCategory(e.target.value)}
@@ -755,9 +800,12 @@ export default function StockCountPage() {
         <div className="bg-white rounded-xl border border-gray-200 divide-y divide-gray-100">
           {filtered.map((row) => {
             const closing = parseInt(row.closingCount);
+            // Same baseline as the "Expected:" label below — the frozen
+            // snapshot once saved, page-load product_stock before that.
+            // Using r.expected here disagreed with the label after a confirm.
             const variance =
               row.closingCount !== ""
-                ? closing - row.expected
+                ? closing - (row.expectedUnits ?? row.expected)
                 : null;
             const isLow =
               row.closingCount !== "" &&
