@@ -19,9 +19,19 @@ import {
   MapPin,
 } from "lucide-react";
 
+type FlagKind =
+  | "near_empty"
+  | "value"
+  | "unit_ceiling"
+  | "session_spread"
+  | "pattern"
+  | null;
+
 interface StockRow {
   product: Product;
-  expected: number; // product_stock.quantity at currentLocationId
+  expected: number; // product_stock.quantity at currentLocationId, at page load
+  expectedUnits: number | null; // frozen snapshot from stock_counts, once saved
+  flagKind: FlagKind;
   closingCount: string; // text input value
   saved: boolean;
 }
@@ -36,6 +46,21 @@ interface ExistingSession {
   confirmedAt: string | null;
   countDate: string;
 }
+
+const FLAG_SHORT: Record<Exclude<FlagKind, null>, string> = {
+  near_empty: "near-empty",
+  value: "R value",
+  unit_ceiling: "big swing",
+  session_spread: "spread",
+  pattern: "repeat",
+};
+const FLAG_LABEL: Record<Exclude<FlagKind, null>, string> = {
+  near_empty: "Counted well above stock the system thinks is nearly gone",
+  value: "Variance worth R100+ at selling price",
+  unit_ceiling: "Variance of 15+ units",
+  session_spread: "Part of a session with many same-direction variances",
+  pattern: "Same-direction variance 3 counts running",
+};
 
 export default function StockCountPage() {
   const { name: userName, role: tillRole } = useAuth();
@@ -158,19 +183,24 @@ export default function StockCountPage() {
     // Load counts for this session (filtered to current location)
     const { data: existingCounts } = await db
       .from("stock_counts")
-      .select("product_id, closing_units")
+      .select("product_id, closing_units, expected_units, flag_kind")
       .eq("session_id", activeSessionId)
       .eq("location_id", currentLocationId);
 
-    const countMap = new Map<string, number>();
+    const countMap = new Map<
+      string,
+      { closing_units: number; expected_units: number | null; flag_kind: string | null }
+    >();
     ((existingCounts || []) as any[]).forEach((c: any) => {
-      countMap.set(c.product_id, c.closing_units);
+      countMap.set(c.product_id, c);
     });
 
     const stockRowsForUi: StockRow[] = ((products || []) as any[]).map((p: any) => ({
       product: p,
       expected: expectedMap.get(p.id) ?? 0,
-      closingCount: countMap.has(p.id) ? countMap.get(p.id)!.toString() : "",
+      expectedUnits: countMap.get(p.id)?.expected_units ?? null,
+      flagKind: (countMap.get(p.id)?.flag_kind ?? null) as FlagKind,
+      closingCount: countMap.has(p.id) ? countMap.get(p.id)!.closing_units.toString() : "",
       saved: countMap.has(p.id),
     }));
 
@@ -211,6 +241,39 @@ export default function StockCountPage() {
     setSessionLabel(s.label);
     setShowSessionPicker(false);
     fetchProducts(s.sessionId);
+  }
+
+  async function applySessionSpread(sessionId: string, locationId: string) {
+    const { data } = await db
+      .from("stock_counts")
+      .select("closing_units, expected_units, flag_kind, products(selling_price, is_prepared)")
+      .eq("session_id", sessionId)
+      .eq("location_id", locationId)
+      .not("closing_units", "is", null);
+    const lines: {
+      closing_units: number;
+      expected_units: number | null;
+      products?: { selling_price: number | null; is_prepared: boolean | null } | null;
+    }[] = data || [];
+    let sameDir = 0;
+    let posExposure = 0;
+    for (const l of lines) {
+      if (l.expected_units == null || l.products?.is_prepared) continue;
+      const v = l.closing_units - l.expected_units;
+      if (v > 0) {
+        sameDir += 1;
+        posExposure += v * (Number(l.products?.selling_price) || 0);
+      }
+    }
+    const spread = sameDir >= 8 || posExposure >= 150;
+    if (!spread) return;
+    await db
+      .from("stock_counts")
+      .update({ flag_kind: "session_spread" })
+      .eq("session_id", sessionId)
+      .eq("location_id", locationId)
+      .is("flag_kind", null)
+      .not("closing_units", "is", null);
   }
 
   async function saveAllCounts() {
@@ -287,6 +350,11 @@ export default function StockCountPage() {
       if (auditEntries.length > 0) {
         await db.from("stock_count_audit").insert(auditEntries);
       }
+
+      // session_spread: a session with many same-direction variances, or a large
+      // summed positive exposure, is itself the anomaly. Needs session-level
+      // aggregates a per-row trigger can't see, so it's a second pass here.
+      await applySessionSpread(sessionId, currentLocationId);
 
       // No product_stock write here — see the canConfirm comment above.
       // The Confirm button on a pending session is the only path to stock.
@@ -379,6 +447,15 @@ export default function StockCountPage() {
     (r) => r.closingCount !== "" && !r.saved
   ).length;
 
+  const flaggedRows = rows.filter((r) => r.flagKind !== null);
+  const flaggedCount = flaggedRows.length;
+  const overCount = rows.filter(
+    (r) => r.closingCount !== "" && r.expectedUnits !== null && parseInt(r.closingCount) > r.expectedUnits,
+  ).length;
+  const underCount = rows.filter(
+    (r) => r.closingCount !== "" && r.expectedUnits !== null && parseInt(r.closingCount) < r.expectedUnits,
+  ).length;
+
   const activeSession = todaySessions.find((s) => s.sessionId === sessionId) ?? null;
   // Every session is pending until explicitly confirmed. Only the owner on an
   // admin till PIN can trigger the write.
@@ -411,7 +488,7 @@ export default function StockCountPage() {
         <Button
           onClick={saveAllCounts}
           loading={saving}
-          disabled={unsavedCount === 0}
+          disabled={unsavedCount === 0 || activeSession?.confirmedAt != null}
         >
           <Check className="w-4 h-4 mr-2" />
           Save ({unsavedCount})
@@ -428,9 +505,10 @@ export default function StockCountPage() {
             <p className="text-sm text-amber-800 mt-1">
               {activeSession.countedBy} counted {activeSession.productCount} product
               {activeSession.productCount !== 1 ? "s" : ""} in &ldquo;{activeSession.label}&rdquo;.
-              Stock levels still show the old figures until you confirm. Check the
-              variance column below first — confirming replaces the recorded stock at{" "}
-              {currentLocationName || "this branch"} with the counted figures.
+              {flaggedCount > 0 && (
+                <> <strong>{flaggedCount} flagged</strong> — {overCount} over expected, {underCount} under.</>
+              )}
+              {" "}Stock levels still show the old figures until you confirm.
             </p>
             <Button
               onClick={confirmSession}
@@ -616,7 +694,7 @@ export default function StockCountPage() {
                     )}
                   </div>
                   <p className="text-xs text-gray-500">
-                    {row.product.category}{!isCashierView && ` · Expected: ${row.expected}`} · {formatZAR(row.product.selling_price)}
+                    {row.product.category}{!isCashierView && ` · Expected: ${row.expectedUnits ?? row.expected}`} · {formatZAR(row.product.selling_price)}
                   </p>
                 </div>
 
@@ -648,6 +726,21 @@ export default function StockCountPage() {
                     >
                       {variance > 0 ? "+" : ""}
                       {variance}
+                    </span>
+                  )}
+
+                  {row.flagKind && !isCashierView && (
+                    <span
+                      className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                        row.flagKind === "near_empty"
+                          ? "bg-red-100 text-red-700"
+                          : row.flagKind === "value" || row.flagKind === "unit_ceiling"
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-gray-100 text-gray-600"
+                      }`}
+                      title={FLAG_LABEL[row.flagKind]}
+                    >
+                      {FLAG_SHORT[row.flagKind]}
                     </span>
                   )}
                 </div>
