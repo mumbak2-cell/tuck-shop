@@ -498,9 +498,16 @@ export default function StockCountPage() {
         (!showFlaggedOnly || r.flagKind !== null)
       );
     })
-    // Flagged lines first — they are what the owner is here to review. Array
-    // .sort is stable, so the category/name order survives within each group.
-    .sort((a, b) => Number(b.flagKind !== null) - Number(a.flagKind !== null));
+    // Flagged lines first — they are what the owner is here to review. Never
+    // for a cashier: flagKind is populated in their fetch too, so the ordering
+    // alone would tell them which of their own counts the system considers
+    // anomalous, defeating the blind count. Array .sort is stable, so the
+    // category/name order survives within each group.
+    .sort((a, b) =>
+      isCashierView
+        ? 0
+        : Number(b.flagKind !== null) - Number(a.flagKind !== null),
+    );
 
   const unsavedCount = rows.filter(
     (r) => r.closingCount !== "" && !r.saved
