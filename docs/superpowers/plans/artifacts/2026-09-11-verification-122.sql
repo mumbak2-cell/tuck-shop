@@ -35,3 +35,20 @@ SELECT record_wms_adjustment(
 -- 4. Confirm nothing legitimate broke: as the OWNER test account, run a
 --    real WMS receive → dispatch → adjust cycle through the actual app UI
 --    (not just the RPC) and confirm each step still succeeds.
+
+-- 5. ACL sanity check — CREATE OR REPLACE preserves existing grants, but
+--    migration 058 showed a function redefinition can silently restore
+--    PUBLIC EXECUTE. One query, cheap insurance:
+SELECT proname, array_to_string(proacl, ' ') AS acl
+  FROM pg_proc
+ WHERE proname IN (
+   'record_wms_adjustment', 'adjust_wms_inventory', 'apply_wms_stock_count',
+   'cancel_wms_transfer', 'create_wms_dispatch', 'create_wms_dispatch_draft',
+   'create_wms_purchase_order', 'create_wms_transfer',
+   'freeze_wms_count_session', 'unfreeze_wms_count_session',
+   'pack_wms_dispatch', 'pick_wms_dispatch', 'ship_wms_dispatch',
+   'receive_wms_purchase_order', 'receive_wms_stock', 'receive_wms_transfer',
+   'set_wms_dispatch_status', 'set_wms_po_status'
+ );
+-- Expect: every row shows "authenticated=X" (or similar) and no bare
+-- "=X/" entry, which would indicate a PUBLIC grant.

@@ -19,6 +19,19 @@
 -- Apply: Supabase SQL Editor (project pkufxpyrvcygobrgneep), any time —
 --   this migration only restricts a path the UI never exercises, so it
 --   carries none of the trading-hours risk a table RLS change would.
+--
+-- PRE-APPLY GATE — read before running this in the SQL Editor:
+--   Every function body in this file was built from migration history,
+--   not a live query (no DB connection was available while authoring
+--   it). Before applying, for each of the 20 functions below run
+--   SELECT pg_get_functiondef('public.<name>'::regproc);
+--   and diff it against the body in this file. The only difference must
+--   be the added PERFORM assert_org_manager(...) line. If a live body
+--   differs anywhere else, the live definition is authoritative — rebase
+--   that one statement on it before applying, the same way migration 035
+--   showed migration files can silently drift from what's actually
+--   running.
+--
 -- Record with:
 --   node node_modules/supabase/dist/supabase.js migration repair \
 --     --status applied 122

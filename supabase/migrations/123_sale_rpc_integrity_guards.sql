@@ -23,6 +23,27 @@
 --   docs/superpowers/plans/artifacts/2026-09-11-verification-123.sql
 --   passes on a non-production org.
 --
+--   submit_sale_batch also gains a new rejection path: a sale queued
+--   offline before a cashier's assigned_location_id is reassigned will
+--   replay with the old branch and now raise 42501. It is not lost —
+--   offline-sync.ts parks it after MAX_RETRIES_BEFORE_PARK attempts for
+--   manual review — but it will not land until resubmitted. Narrow
+--   window (requires a reassignment mid-outage), but real.
+--
+-- PRE-APPLY GATE — read before running this in the SQL Editor:
+--   Both function bodies in this file were built from migration history,
+--   not a live query (no DB connection was available while authoring
+--   them). Before applying, run
+--   SELECT pg_get_functiondef('public.void_sale_lines'::regproc);
+--   SELECT pg_get_functiondef('public.submit_sale_batch'::regproc);
+--   and diff each against the body in this file. void_sale_lines should
+--   differ only by the added PERFORM assert_org_permission(...) line;
+--   submit_sale_batch only by the two new DECLARE variables and the new
+--   IF block. If a live body differs anywhere else, the live definition
+--   is authoritative — rebase that statement on it before applying, the
+--   same way migration 035 showed migration files can silently drift
+--   from what's actually running.
+--
 -- Record with:
 --   node node_modules/supabase/dist/supabase.js migration repair \
 --     --status applied 123
@@ -82,7 +103,7 @@ BEGIN
 END;
 $$;
 
-REVOKE ALL ON FUNCTION public.void_sale_lines(UUID[], TEXT, TEXT) FROM PUBLIC;
+REVOKE ALL ON FUNCTION public.void_sale_lines(UUID[], TEXT, TEXT) FROM PUBLIC, anon;
 GRANT EXECUTE ON FUNCTION public.void_sale_lines(UUID[], TEXT, TEXT) TO authenticated;
 
 -- STATEMENT 2: submit_sale_batch — add a location-scope check for
@@ -112,7 +133,7 @@ BEGIN
     FROM org_members
    WHERE org_id = p_org_id AND user_id = auth.uid();
 
-  IF v_role = 'member' AND v_assigned IS NOT NULL AND v_assigned <> p_location_id THEN
+  IF v_role = 'member' AND v_assigned IS NOT NULL AND v_assigned IS DISTINCT FROM p_location_id THEN
     RAISE EXCEPTION 'Not authorised to record sales at this location'
       USING ERRCODE = '42501';
   END IF;

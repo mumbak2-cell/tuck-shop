@@ -33,12 +33,11 @@
 --    As owner/admin, submit a sale with p_location_id = B while assigned
 --    (or not assigned) anywhere. Expect: success — owner/admin stay
 --    unrestricted.
---    Known edge case (reviewed, not fixed — see design spec): a
---    hand-crafted call with p_location_id explicitly NULL bypasses the
---    location check for a member (SQL NULL comparison), producing a
---    location-less sale that also deducts no stock. Confirm this is
---    still true post-apply if you want to see the boundary; it does not
---    change the app's normal behaviour.
+--    NULL-location edge case (fixed in this migration): a hand-crafted
+--    call with p_location_id explicitly NULL now correctly raises 42501
+--    for a member — the check uses IS DISTINCT FROM, which treats NULL
+--    as "different" rather than letting the comparison go NULL/falsy.
+--    Confirm this post-apply as part of step 2 above.
 
 -- 3. End-to-end: as the cashier test account, actually use the POS UI to
 --    ring up a real sale at their assigned location, online. Confirm the
