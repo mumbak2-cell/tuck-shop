@@ -1,0 +1,47 @@
+-- Verification for migration 123 — sale RPC integrity guards.
+-- Run against a NON-PRODUCTION org with real test logins for owner,
+-- admin (with void_sales permission), admin (without it), and member
+-- (cashier), plus two test locations (A = the cashier's assigned
+-- location, B = a different one). Do not use real credentials.
+--
+-- Apply order matters: migration 122 must be applied and repaired
+-- (`assert_org_permission` must exist) before this migration, or every
+-- void_sale_lines call fails with 42883 (undefined function).
+
+-- 1. void_sale_lines — permission check
+--    As owner: void a test sale line. Expect: success.
+--    As admin WITH void_sales permission (permissions->>'void_sales' is
+--      absent or true): void a test sale line. Expect: success.
+--    As admin WITHOUT void_sales permission (permissions->>'void_sales'
+--      = false): void a test sale line. Expect: 42501, over PostgREST
+--      directly, not just hidden by the UI.
+--    As member (cashier): void a test sale line. Expect: 42501, over
+--      PostgREST directly.
+--
+-- curl -s -X POST '<PROJECT_URL>/rest/v1/rpc/void_sale_lines' \
+--   -H "apikey: <ANON_KEY>" -H "Authorization: Bearer <MEMBER_JWT>" \
+--   -H "Content-Type: application/json" \
+--   -d '{"p_sale_ids": ["<a real sale id>"], "p_reason": "test", "p_voided_by": "test"}'
+
+-- 2. submit_sale_batch — location scope
+--    As member assigned to location A, submit a sale with
+--    p_location_id = A. Expect: success (this is the normal checkout
+--    path — confirm it still works before anything else).
+--    As member assigned to location A, submit a sale with
+--    p_location_id = B (call the RPC directly — the UI would never do
+--    this). Expect: 42501.
+--    As owner/admin, submit a sale with p_location_id = B while assigned
+--    (or not assigned) anywhere. Expect: success — owner/admin stay
+--    unrestricted.
+--    NULL-location edge case (fixed in this migration): a hand-crafted
+--    call with p_location_id explicitly NULL now correctly raises 42501
+--    for a member — the check uses IS DISTINCT FROM, which treats NULL
+--    as "different" rather than letting the comparison go NULL/falsy.
+--    Confirm this post-apply as part of step 2 above.
+
+-- 3. End-to-end: as the cashier test account, actually use the POS UI to
+--    ring up a real sale at their assigned location, online. Confirm the
+--    sale appears, stock deducts, and no error is shown. Then go offline
+--    (airplane mode / devtools offline), ring up another sale, come back
+--    online, and confirm it drains from the queue successfully. Both
+--    exercise the exact call the new check must never reject.
