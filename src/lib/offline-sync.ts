@@ -27,12 +27,28 @@ let intervalId: number | null = null;
 let inFlight = false;
 let lastColdRefresh = 0;
 
+// Columns the POS actually reads from the cached `products` rows
+// (pos/page.tsx, product-grid.tsx, payment-modal.tsx's RewardProduct). The
+// margin/purchasing fields a cashier never sees — package_price,
+// qty_in_pack, units_per_batch, recipe_cost_per_unit, default_supplier,
+// reorder_level, created_at — are left out. cost_per_unit stays: it feeds
+// costPrice on the cart line for the sale record.
+const PRODUCT_COLUMNS =
+  "id, inventory_id, name, category, cost_per_unit, selling_price, is_prepared, opening_stock, discontinued, wholesale_enabled, wholesale_min_qty, wholesale_price";
+
 /**
  * Refresh the local cache for the given org. Pulls products, payment_methods,
  * customers, locations and app_settings. RLS handles scoping; we don't need
  * to filter by org_id client-side.
+ *
+ * `locationId` scopes product_stock and product_location_prices to the
+ * current branch, matching what the online POS path already does
+ * (pos/page.tsx:139) — a multi-location org was otherwise downloading every
+ * other branch's stock/price rows on every cache refresh, just to discard
+ * them client-side. Pass null to keep the old unfiltered behaviour (used
+ * when no location is selected yet).
  */
-export async function refreshCache(orgId: string): Promise<void> {
+export async function refreshCache(orgId: string, locationId: string | null): Promise<void> {
   if (!navigator.onLine) return;
 
   const now = Date.now();
@@ -44,17 +60,19 @@ export async function refreshCache(orgId: string): Promise<void> {
   // SKU past the first 1000.
   const [products, productStock, locationPrices] = await Promise.all([
     fetchAllPaged<Record<string, unknown>>(() =>
-      db.from("products").select("*").eq("discontinued", false).order("name")
+      db.from("products").select(PRODUCT_COLUMNS).eq("discontinued", false).order("name")
     ),
-    fetchAllPaged<Record<string, unknown>>(() =>
-      db.from("product_stock").select("*")
-    ),
+    fetchAllPaged<Record<string, unknown>>(() => {
+      const q = db.from("product_stock").select("product_id, quantity, location_id");
+      return locationId ? q.eq("location_id", locationId) : q;
+    }),
     // Per-branch price overrides — small (only the exceptions), but paginated
     // for safety. A failed read (e.g. migration 042 not yet applied) yields []
     // so branch pricing degrades to base prices rather than breaking sync.
-    fetchAllPaged<Record<string, unknown>>(() =>
-      db.from("product_location_prices").select("*")
-    ).catch(() => []),
+    fetchAllPaged<Record<string, unknown>>(() => {
+      const q = db.from("product_location_prices").select("product_id, selling_price, location_id");
+      return locationId ? q.eq("location_id", locationId) : q;
+    }).catch(() => []),
   ]);
 
   saveCache(orgId, "products", products);
@@ -128,11 +146,11 @@ export async function flushQueue(orgId: string): Promise<{ sent: number; failed:
 /**
  * Run one full sync cycle: refresh the cache, then drain the queue.
  */
-export async function syncOnce(orgId: string): Promise<void> {
+export async function syncOnce(orgId: string, locationId: string | null): Promise<void> {
   if (!navigator.onLine || inFlight) return;
   inFlight = true;
   try {
-    await refreshCache(orgId);
+    await refreshCache(orgId, locationId);
     await drainQueue(orgId);
   } catch {
     // Don't blow up the loop - we'll try again next tick.
@@ -142,23 +160,55 @@ export async function syncOnce(orgId: string): Promise<void> {
 }
 
 /**
- * Begin background syncing for an org. Idempotent — safe to call repeatedly.
- * Stops the previous loop before starting a new one (e.g. on org switch).
+ * The periodic interval tick. Skips the cache refresh while the tab is
+ * hidden — a backgrounded till isn't shown to anyone, so there is nothing to
+ * keep fresh — but the write queue still drains every tick regardless,
+ * hidden or not, so a queued offline sale never waits on the tab being
+ * foregrounded to reach Supabase.
  */
-export function startSyncLoop(orgId: string): () => void {
+async function intervalTick(orgId: string, locationId: string | null): Promise<void> {
+  if (!navigator.onLine || inFlight) return;
+  inFlight = true;
+  try {
+    if (!document.hidden) {
+      await refreshCache(orgId, locationId);
+    }
+    await drainQueue(orgId);
+  } catch {
+    // Don't blow up the loop - we'll try again next tick.
+  } finally {
+    inFlight = false;
+  }
+}
+
+/**
+ * Begin background syncing for an org, scoped to the given location.
+ * Idempotent — safe to call repeatedly. Stops the previous loop before
+ * starting a new one (e.g. on org or location switch).
+ */
+export function startSyncLoop(orgId: string, locationId: string | null): () => void {
   stopSyncLoop();
 
   // Initial sync
-  void syncOnce(orgId);
+  void syncOnce(orgId, locationId);
 
-  // Periodic refresh
+  // Periodic refresh — skips the cache pull while the tab is hidden (see
+  // intervalTick), still drains the queue every tick.
   intervalId = window.setInterval(() => {
-    void syncOnce(orgId);
+    void intervalTick(orgId, locationId);
   }, CACHE_REFRESH_INTERVAL_MS);
 
   // Sync immediately when we come back online
-  function onOnline() { void syncOnce(orgId); }
+  function onOnline() { void syncOnce(orgId, locationId); }
   window.addEventListener("online", onOnline);
+
+  // A tab returning to the foreground shouldn't be showing up to
+  // CACHE_REFRESH_INTERVAL_MS-stale stock — refresh right away rather than
+  // waiting for the next tick.
+  function onVisible() {
+    if (!document.hidden) void syncOnce(orgId, locationId);
+  }
+  document.addEventListener("visibilitychange", onVisible);
 
   // Flush queue (without full refresh) when a new op is enqueued and we're online
   function onQueueChanged(e: Event) {
@@ -172,6 +222,7 @@ export function startSyncLoop(orgId: string): () => void {
   return () => {
     stopSyncLoop();
     window.removeEventListener("online", onOnline);
+    document.removeEventListener("visibilitychange", onVisible);
     window.removeEventListener("tilify:queue-changed", onQueueChanged as EventListener);
   };
 }
