@@ -23,7 +23,10 @@
 -- PRE-APPLY GATE — read before running this in the SQL Editor:
 --   Every function body in this file was built from migration history,
 --   not a live query (no DB connection was available while authoring
---   it). Before applying, for each of the 20 functions below run
+--   it). Before applying, for each of the 18 guarded RPCs below (every
+--   function in this file except assert_org_manager and
+--   assert_org_permission, which are new — there is nothing live to diff
+--   them against) run
 --   SELECT pg_get_functiondef('public.<name>'::regproc);
 --   and diff it against the body in this file. The only difference must
 --   be the added PERFORM assert_org_manager(...) line. If a live body
