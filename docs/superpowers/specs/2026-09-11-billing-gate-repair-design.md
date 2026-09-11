@@ -2,7 +2,7 @@
 
 **Status:** Approved by Mumba 2026-09-11, not yet built.
 **Relates to:** [[tilify-security-review]] Phase 2. Supersedes the never-built
-`.agents/briefs/migration-118-repair-035.md` (2026-09-07, branch
+`.agents/briefs/migration-118-repair-035.md` (local, gitignored — not present in a fresh clone or worktree) (2026-09-07, branch
 `security/118-repair-035` — abandoned, no longer exists; migration number 118
 was independently claimed by `70e0955`'s `customer_payments.payment_method`
 migration). That brief's analysis and Part 1 are still correct and are
@@ -130,12 +130,30 @@ canonical Bucket A tables already use (`119_role_scoped_write_rls.sql:62-65`)
 — a manager can still locate a row belonging to a lapsed org to look at it,
 but cannot successfully write to it.
 
-**Not touched, already correct:** `promotions`/`promotion_items` and
-`zra_config`/`zra_invoices` — confirmed (`119:260-274` for ZRA) already
-gated on `current_user_writable_org_ids() AND current_user_manager_org_ids()`
-for writes. `wms_locations`, `wms_org_settings` — confirmed already using
-`current_user_writable_org_ids()` for writes (`094:56-63`,
-`119:224-247`), no change needed.
+**Not touched, already correct:** `zra_config`/`zra_invoices` — confirmed
+(`119:260-274`) already gated on `current_user_writable_org_ids() AND
+current_user_manager_org_ids()` for writes. `wms_locations`,
+`wms_org_settings` — confirmed already using `current_user_writable_org_ids()`
+for writes (`094:56-63`, `119:224-247`), no change needed.
+
+**Known remaining gap, NOT closed by this migration** (found during final
+review, correcting an earlier — wrong — claim that these were already
+gated): `promotions`, `promotion_items`, `combos`, `combo_items`,
+`purchase_orders`, `purchase_order_items` (`119:117-148`, `119:281-303`)
+are still gated on `current_user_org_ids() AND current_user_manager_org_ids()`
+— tenant + role, no subscription check. Same gap class as the WMS tables
+this migration fixes. `promotions`/`promotion_items` were originally in
+scope for 035 (its section 2) but 119's rewrite dropped the writable gate
+when it added the role gate; `combos`/`combo_items`/`purchase_orders`/
+`purchase_order_items` were never in 035's scope at all. Deliberately left
+out of migration 124 — it already passed full line-by-line review, and
+widening its scope now would mean shipping unreviewed changes. Tracked as
+a follow-up (candidate migration 125), alongside a possible hardening pass
+on `current_user_writable_org_ids()`, `current_user_org_ids()`,
+`current_user_location_ids()`, and `default_user_org_id()` to the
+`SET search_path = ''` + schema-qualified pattern `current_user_manager_org_ids()`
+already uses (migration 119's own comment explains why: prevents a
+`CREATE TEMP TABLE org_members` shadow inside a SECURITY DEFINER function).
 
 ### 2.3 No application code change
 

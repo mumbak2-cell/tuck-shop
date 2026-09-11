@@ -22,9 +22,16 @@ where subscription_status = 'active'
 -- SQL Editor, closed hours only. Then run the checks below.
 -- ============================================================
 
--- 1. Helper hardened — must be true
-select prosrc like '%current_period_end%' as helper_has_period_check
+-- 1. Helper hardened — must be true (checks the actual clause shape, not
+-- just that the column name appears somewhere in the function body)
+select prosrc like '%current_period_end IS NULL OR o.current_period_end > NOW()%' as helper_has_period_check
 from pg_proc where proname = 'current_user_writable_org_ids';
+
+-- 1b. Grant hardened — must show authenticated present, no anon/PUBLIC
+select proname, array_to_string(proacl, ' ') as acl
+from pg_proc where proname = 'current_user_writable_org_ids';
+-- Expect: "authenticated=X" present, no "anon=X" entry, no bare "=X/" entry
+-- (a bare "=X/..." with no role name before it is the PUBLIC grant).
 
 -- 2. WMS writes now billing-gated — writable_gated must be 3, total_policies must be 4, for every row (12 rows expected)
 select tablename,

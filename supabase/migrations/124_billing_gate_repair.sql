@@ -69,6 +69,7 @@ DECLARE
     'wms_stock_count_sessions'
   ];
 BEGIN
+  SET LOCAL lock_timeout = '5s';
   FOREACH t IN ARRAY wms_tables LOOP
     EXECUTE format('DROP POLICY IF EXISTS %I ON public.%I', t||'_org_insert', t);
     EXECUTE format(
@@ -90,8 +91,9 @@ END $$;
 -- ============================================================
 -- Verification (run manually in SQL Editor after applying):
 --
--- 1. Helper hardened — must be true
--- select prosrc like '%current_period_end%' as helper_has_period_check
+-- 1. Helper hardened — must be true (checks the actual clause shape, not
+-- just that the column name appears somewhere in the function body)
+-- select prosrc like '%current_period_end IS NULL OR o.current_period_end > NOW()%' as helper_has_period_check
 -- from pg_proc where proname = 'current_user_writable_org_ids';
 --
 -- 2. WMS writes now billing-gated — writable_gated must be 3, total_policies must be 4, for every row
