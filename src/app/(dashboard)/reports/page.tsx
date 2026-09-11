@@ -12,7 +12,7 @@
 // `sales.cost_price` (both captured at sale time via submit_sale_batch) —
 // never recomputed from products.selling_price — per the sales-snapshot
 // invariant in CLAUDE.md.
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { db } from "@/lib/supabase";
 import { fetchAllPaged } from "@/lib/fetch-all";
 import { formatZAR } from "@/lib/format";
@@ -26,13 +26,17 @@ import {
   ChevronDown,
   ArrowUpRight,
   ArrowDownRight,
+  ArrowRightLeft,
   Banknote,
   Wallet,
+  Printer,
 } from "lucide-react";
 import { paymentBucket } from "@/lib/payment-buckets";
 import { LocationFilter, LOCATION_FILTER_ALL } from "@/components/locations/location-filter";
 import { useOrg } from "@/lib/org-context";
 import { localToday, localMonthStart, localWeekStart } from "@/lib/date-utils";
+import { Badge } from "@/components/ui/badge";
+import { printElement } from "@/lib/print-utils";
 
 type Period = "today" | "week" | "month" | "custom";
 
@@ -67,6 +71,36 @@ interface BranchRow {
   revenue: number;
 }
 
+// One flattened row per line item, across three distinct movement
+// mechanisms (see CLAUDE.md "WMS catalog -> POS product link"): shop-to-shop
+// (stock_transfers), warehouse-to-shop (wms_dispatches with destination_type
+// 'Internal Shop' — the only one of the three that actually reaches a shop's
+// product_stock), and warehouse bin-to-bin (wms_transfers, never leaves the
+// warehouse). Flattened rather than grouped by header so CSV/print rows line
+// up one-to-one with units actually moved.
+interface TransferLine {
+  id: string;
+  timestamp: string; // ISO, for sort + display
+  type: "Shop transfer" | "Warehouse → Shop" | "Warehouse bin";
+  from: string;
+  to: string;
+  item: string;
+  qty: number;
+  notes: string;
+}
+
+interface DispatchItemRow {
+  dispatch_id: number;
+  wms_item_id: number;
+  qty_sent: number;
+}
+
+interface BinTransferItemRow {
+  transfer_id: number;
+  wms_item_id: number;
+  qty: number;
+}
+
 // One day of money actually received. Credit SALES are deliberately absent:
 // a sale on account is a receivable, not intake, and counting it would
 // overstate the till. It arrives later as a repayment instead.
@@ -86,7 +120,7 @@ interface IntakeRow {
 }
 
 export default function ReportsPage() {
-  const { role, assignedLocationId, currentLocationId, currentLocationName, locations, lowStockThreshold, can } = useOrg();
+  const { role, assignedLocationId, currentLocationId, currentLocationName, locations, lowStockThreshold, can, wmsEnabled, orgName } = useOrg();
   const isManager = can("view_reports");
 
   const [locFilter, setLocFilter] = useState<string>(LOCATION_FILTER_ALL);
@@ -119,11 +153,14 @@ export default function ReportsPage() {
   const [expenseSpend, setExpenseSpend] = useState<SpendRow[]>([]);
   const [stockPurchaseExpenses, setStockPurchaseExpenses] = useState(0);
   const [lowStock, setLowStock] = useState<StockRow[]>([]);
+  const [transfers, setTransfers] = useState<TransferLine[]>([]);
+
+  const transfersPrintRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     loadReports();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [period, customFrom, customTo, effectiveLoc, isFiltered, isManager, lowStockThreshold]);
+  }, [period, customFrom, customTo, effectiveLoc, isFiltered, isManager, lowStockThreshold, wmsEnabled]);
 
   function getDateRange(): { from: string; to: string } {
     const today = localToday();
@@ -181,6 +218,7 @@ export default function ReportsPage() {
       setStockElectronic(0);
       setExpenseSpend([]);
       setStockPurchaseExpenses(0);
+      setTransfers([]);
       setLoading(false);
       return;
     }
@@ -372,6 +410,125 @@ export default function ReportsPage() {
         .sort((a, b) => b.amount - a.amount)
     );
 
+    // --- Transfers: shop-to-shop, warehouse-to-shop, warehouse bin-to-bin ---
+    // Flattened to one row per line item, newest first. See TransferLine
+    // comment for why these three tables (not one) make up "transfers".
+    const fromTs = `${from}T00:00:00`;
+    const toTs = `${to}T23:59:59`;
+    const locNameById = new Map(locations.map((l) => [l.id, l.name]));
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const shopTransfers = await fetchAllPaged<any>(() => {
+      let q = db
+        .from("stock_transfers")
+        .select("id, quantity, notes, transferred_at, from_location_id, to_location_id, products(name)")
+        .gte("transferred_at", fromTs)
+        .lte("transferred_at", toTs);
+      if (isFiltered) q = q.or(`from_location_id.eq.${effectiveLoc},to_location_id.eq.${effectiveLoc}`);
+      return q;
+    }).catch(() => []);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transferLines: TransferLine[] = (shopTransfers as any[]).map((r: any) => ({
+      id: `st-${r.id}`,
+      timestamp: r.transferred_at,
+      type: "Shop transfer",
+      from: locNameById.get(r.from_location_id) || "—",
+      to: locNameById.get(r.to_location_id) || "—",
+      item: r.products?.name || "(deleted)",
+      qty: Number(r.quantity) || 0,
+      notes: r.notes || "",
+    }));
+
+    // Warehouse-to-shop and warehouse bin-to-bin only exist for orgs running
+    // the WMS module — skip the extra round trips otherwise.
+    if (wmsEnabled) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const dispatchHeaders = await fetchAllPaged<any>(() => {
+        let q = db
+          .from("wms_dispatches")
+          .select("id, created_at, destination_location_id, notes")
+          .eq("destination_type", "Internal Shop")
+          .gte("created_at", fromTs)
+          .lte("created_at", toTs);
+        if (isFiltered) q = q.eq("destination_location_id", effectiveLoc);
+        return q;
+      }).catch(() => []);
+
+      const dispatchIds = (dispatchHeaders as { id: number }[]).map((d) => d.id);
+      const dispatchItems: DispatchItemRow[] = dispatchIds.length
+        ? await fetchAllPaged<DispatchItemRow>(() =>
+            db.from("wms_dispatch_items").select("dispatch_id, wms_item_id, qty_sent").in("dispatch_id", dispatchIds)
+          ).catch(() => [])
+        : [];
+
+      // Bin-to-bin never touches a branch, so it is deliberately NOT
+      // filtered by effectiveLoc — see the card's caveat text below.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const binHeaders = await fetchAllPaged<any>(() =>
+        db
+          .from("wms_transfers")
+          .select("id, created_at, source_location_id, dest_location_id, notes")
+          .gte("created_at", fromTs)
+          .lte("created_at", toTs)
+      ).catch(() => []);
+
+      const binIds = (binHeaders as { id: number }[]).map((t) => t.id);
+      const binItems: BinTransferItemRow[] = binIds.length
+        ? await fetchAllPaged<BinTransferItemRow>(() =>
+            db.from("wms_transfer_items").select("transfer_id, wms_item_id, qty").in("transfer_id", binIds)
+          ).catch(() => [])
+        : [];
+
+      const catalogMap = new Map<number, string>();
+      if (dispatchItems.length > 0 || binItems.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const catalog = await fetchAllPaged<any>(() => db.from("wms_catalog").select("id, item_name")).catch(() => []);
+        (catalog as { id: number; item_name: string }[]).forEach((c) => catalogMap.set(c.id, c.item_name));
+      }
+      const wmsLocNameById = new Map<string, string>();
+      if (binHeaders.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const wmsLocs = await fetchAllPaged<any>(() => db.from("wms_locations").select("id, label")).catch(() => []);
+        (wmsLocs as { id: string; label: string }[]).forEach((l) => wmsLocNameById.set(l.id, l.label));
+      }
+
+      const dispatchById = new Map((dispatchHeaders as { id: number; created_at: string; destination_location_id: string; notes: string | null }[]).map((d) => [d.id, d]));
+      dispatchItems.forEach((it) => {
+        const d = dispatchById.get(it.dispatch_id);
+        if (!d) return;
+        transferLines.push({
+          id: `wd-${d.id}-${it.wms_item_id}`,
+          timestamp: d.created_at,
+          type: "Warehouse → Shop",
+          from: "Warehouse",
+          to: locNameById.get(d.destination_location_id) || "—",
+          item: catalogMap.get(it.wms_item_id) || "—",
+          qty: Number(it.qty_sent) || 0,
+          notes: d.notes || "",
+        });
+      });
+
+      const binById = new Map((binHeaders as { id: number; created_at: string; source_location_id: string; dest_location_id: string; notes: string | null }[]).map((t) => [t.id, t]));
+      binItems.forEach((it) => {
+        const t = binById.get(it.transfer_id);
+        if (!t) return;
+        transferLines.push({
+          id: `wt-${t.id}-${it.wms_item_id}`,
+          timestamp: t.created_at,
+          type: "Warehouse bin",
+          from: wmsLocNameById.get(t.source_location_id) || "—",
+          to: wmsLocNameById.get(t.dest_location_id) || "—",
+          item: catalogMap.get(it.wms_item_id) || "—",
+          qty: Number(it.qty) || 0,
+          notes: t.notes || "",
+        });
+      });
+    }
+
+    transferLines.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+    setTransfers(transferLines);
+
     // Previous equal-length window (momentum indicator).
     const prev = prevRange(from, to);
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -467,6 +624,39 @@ export default function ReportsPage() {
     );
   }
 
+  function exportTransfers() {
+    const { from, to } = getDateRange();
+    downloadCsv(
+      `tilify-transfers-${from}_to_${to}${locSuffix()}.csv`,
+      ["Date", "Type", "From", "To", "Item", "Qty", "Notes"],
+      transfers.map((t) => [
+        new Date(t.timestamp).toLocaleString("en-ZA"),
+        t.type,
+        t.from,
+        t.to,
+        t.item,
+        String(t.qty),
+        t.notes,
+      ])
+    );
+  }
+
+  function printTransfers() {
+    if (!transfersPrintRef.current) return;
+    printElement(
+      transfersPrintRef.current,
+      "Transfers",
+      `@page { size: A4; margin: 16mm; }
+       body { font-family: -apple-system, Arial, sans-serif; color: #111; }
+       h1 { font-size: 16px; margin: 0 0 4px; }
+       p { font-size: 11px; color: #555; margin: 0 0 16px; }
+       table { width: 100%; border-collapse: collapse; font-size: 11px; }
+       th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid #ddd; }
+       th { border-bottom: 2px solid #333; }
+       td:nth-child(6), th:nth-child(6) { text-align: right; }`
+    );
+  }
+
   const periods: { key: Period; label: string }[] = [
     { key: "today", label: "Today" },
     { key: "week", label: "This Week" },
@@ -494,6 +684,8 @@ export default function ReportsPage() {
   // of the stock_receipts rows.
   const totalSpent = stockCashOut + stockElectronic + totalOperatingSpend;
   const zeroSellers = slowestMovers.filter((m) => m.sold === 0).length;
+  const totalTransferQty = transfers.reduce((s, t) => s + t.qty, 0);
+  const { from: rangeFrom, to: rangeTo } = getDateRange();
 
   return (
     <div>
@@ -845,6 +1037,67 @@ export default function ReportsPage() {
             </CollapsibleCard>
           )}
 
+          {/* Transfers — managers only, collapsed by default. Shop-to-shop,
+              warehouse-to-shop and warehouse bin-to-bin, flattened to one
+              row per line item (see TransferLine). */}
+          {isManager && (
+            <CollapsibleCard
+              icon={ArrowRightLeft}
+              iconColor="text-green-600"
+              title="Transfers"
+              summary={transfers.length === 0 ? "No transfers" : `${transfers.length} · ${totalTransferQty} units moved`}
+              action={
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => withExportGuard(printTransfers)}
+                    disabled={transfers.length === 0 || exporting}
+                    className="inline-flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-700 disabled:text-gray-300 disabled:cursor-not-allowed"
+                  >
+                    <Printer className="w-3.5 h-3.5" /> Print
+                  </button>
+                  <CsvButton onClick={() => withExportGuard(exportTransfers)} disabled={transfers.length === 0} loading={exporting} />
+                </div>
+              }
+            >
+              <p className="text-xs text-gray-500 mb-3">
+                Shop-to-shop, warehouse-to-shop and warehouse bin transfers at {scopeLabel} this period.
+                {isFiltered && wmsEnabled && " Warehouse bin transfers never touch a branch, so those rows always show org-wide."}
+              </p>
+              {transfers.length === 0 ? (
+                <p className="text-sm text-gray-400 py-2">No transfers recorded in this period.</p>
+              ) : (
+                <div className="overflow-x-auto -mx-5 px-5">
+                  <table className="w-full text-sm min-w-[40rem]">
+                    <thead>
+                      <tr className="text-xs text-gray-500 border-b border-gray-100">
+                        <th className="text-left font-medium py-2">Date</th>
+                        <th className="text-left font-medium py-2">Type</th>
+                        <th className="text-left font-medium py-2">From</th>
+                        <th className="text-left font-medium py-2">To</th>
+                        <th className="text-left font-medium py-2">Item</th>
+                        <th className="text-right font-medium py-2">Qty</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-50">
+                      {transfers.map((t) => (
+                        <tr key={t.id}>
+                          <td className="py-2 text-gray-500 whitespace-nowrap">
+                            {new Date(t.timestamp).toLocaleString("en-ZA", { dateStyle: "medium", timeStyle: "short" })}
+                          </td>
+                          <td className="py-2"><Badge variant="gray">{t.type}</Badge></td>
+                          <td className="py-2 text-gray-700">{t.from}</td>
+                          <td className="py-2 text-gray-700">{t.to}</td>
+                          <td className="py-2 text-gray-900">{t.item}</td>
+                          <td className="py-2 text-right font-medium text-gray-900">{t.qty}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CollapsibleCard>
+          )}
+
           {/* Low stock — everyone, collapsed by default */}
           <CollapsibleCard
             icon={PackageX}
@@ -874,6 +1127,36 @@ export default function ReportsPage() {
           </CollapsibleCard>
         </div>
       )}
+
+      {/* Print-only source for the Transfers card's "Print" button — cloned
+          into a separate window by printElement(), never shown on screen. */}
+      <div ref={transfersPrintRef} className="hidden">
+        <h1>{orgName || "Tilify"} — Transfers</h1>
+        <p>
+          {rangeFrom} to {rangeTo} · {transfers.length} transfers · {totalTransferQty} units moved
+          {isFiltered && filteredLocName ? ` · ${filteredLocName}` : ""}
+        </p>
+        <table>
+          <thead>
+            <tr>
+              <th>Date</th><th>Type</th><th>From</th><th>To</th><th>Item</th><th>Qty</th><th>Notes</th>
+            </tr>
+          </thead>
+          <tbody>
+            {transfers.map((t) => (
+              <tr key={t.id}>
+                <td>{new Date(t.timestamp).toLocaleString("en-ZA")}</td>
+                <td>{t.type}</td>
+                <td>{t.from}</td>
+                <td>{t.to}</td>
+                <td>{t.item}</td>
+                <td>{t.qty}</td>
+                <td>{t.notes}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
